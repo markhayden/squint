@@ -21,6 +21,8 @@ pub struct Client {
     pub server: serde_json::Value,
     /// Every notification the server sent, in order.
     pub notifications: Vec<serde_json::Value>,
+    /// The roots the client answers `roots/list` with, as `file://` URIs.
+    pub roots: Vec<String>,
 }
 
 /// A tool as `tools/list` describes it.
@@ -97,6 +99,7 @@ impl Client {
             next_id: 1,
             server: serde_json::Value::Null,
             notifications: Vec::new(),
+            roots: Vec::new(),
         };
         let server = client.request(
             "initialize",
@@ -177,7 +180,7 @@ impl Client {
     }
 
     /// Sends a request and reads lines until its response, keeping notifications; a request the
-    /// server sends (`roots/list`) is answered with no roots.
+    /// server sends (`roots/list`) is answered with `roots`.
     pub fn request(
         &mut self,
         method: &str,
@@ -192,11 +195,17 @@ impl Client {
             let message = self.receive()?;
             if message.get("method").is_some() {
                 if message.get("id").is_some() {
-                    // A request from the server: answer `roots/list` with none.
+                    // A request from the server: `roots/list` is the only one a client offering
+                    // roots must answer.
+                    let roots: Vec<serde_json::Value> = self
+                        .roots
+                        .iter()
+                        .map(|uri| serde_json::json!({ "uri": uri }))
+                        .collect();
                     let reply = serde_json::json!({
                         "jsonrpc": "2.0",
                         "id": message["id"],
-                        "result": { "roots": [] }
+                        "result": { "roots": roots }
                     });
                     self.send(&reply)?;
                 } else {

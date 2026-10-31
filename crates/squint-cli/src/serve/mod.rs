@@ -17,8 +17,10 @@ use rmcp::service::{RequestContext, RoleServer};
 use serde_json::{Map, Value, json};
 use squint_core::config::Config;
 use squint_core::contract;
+use squint_core::ledger::{CapLedger, Ledger};
 use squint_core::tool::ToolRegistry;
 use table_manners::Description;
+use tokio::sync::Semaphore;
 
 use crate::{EXIT_USAGE, VERSION};
 
@@ -30,6 +32,9 @@ pub struct ServeArgs {
     /// Path to the config file; the server checks against it for its whole life.
     #[arg(long)]
     pub config: PathBuf,
+    /// Override one config value: `--set serve.session_budget_usd=5` (repeatable).
+    #[arg(long = "set", value_name = "PATH=VALUE")]
+    pub overrides: Vec<String>,
     /// Where run directories go; overrides `[output] dir`.
     #[arg(long)]
     pub out: Option<PathBuf>,
@@ -37,6 +42,10 @@ pub struct ServeArgs {
     #[cfg(feature = "testkit")]
     #[arg(long)]
     pub tool_script: Option<PathBuf>,
+    /// Scripted fake provider responses for every check, for tests and debugging only.
+    #[cfg(feature = "testkit")]
+    #[arg(long)]
+    pub provider_script: Option<PathBuf>,
 }
 
 pub fn run(args: &ServeArgs) -> i32 {
@@ -44,7 +53,7 @@ pub fn run(args: &ServeArgs) -> i32 {
         eprintln!("squint: {e}");
         EXIT_USAGE
     };
-    let config = match Config::load(&args.config) {
+    let config = match Config::load_with_overrides(&args.config, &args.overrides) {
         Ok(c) => c,
         Err(e) => return usage(e.to_string()),
     };
@@ -72,6 +81,10 @@ pub fn run(args: &ServeArgs) -> i32 {
         .unwrap_or_else(|| config.output.dir.clone());
     let server = Server {
         inner: Arc::new(Inner {
+            session: CapLedger::new(config.serve.session_budget_usd),
+            permits: Arc::new(Semaphore::new(config.serve.concurrency as usize)),
+            #[cfg(feature = "testkit")]
+            provider_script: args.provider_script.clone(),
             config,
             tools,
             catalog,
@@ -110,6 +123,12 @@ struct Inner {
     catalog: squint_providers::catalog::Catalog,
     description: Description,
     out_dir: PathBuf,
+    /// The session budget: every decision this process serves reserves against it.
+    session: CapLedger,
+    /// Calls run under a permit: one at a time unless `[serve] concurrency` allows more.
+    permits: Arc<Semaphore>,
+    #[cfg(feature = "testkit")]
+    provider_script: Option<PathBuf>,
 }
 
 impl Server {
@@ -125,9 +144,6 @@ impl Server {
             ])),
         )];
         for action in &self.inner.description.actions {
-            if action.name != "estimate" {
-                continue;
-            }
             tools.push(Tool::new(
                 action.name.clone(),
                 action.purpose.clone(),
@@ -188,7 +204,7 @@ impl Server {
                     "cap_usd": cap,
                     "fits": envelope.usd <= cap,
                     "decision_runs": envelope.decision_runs,
-                    "session_budget_left_usd": null,
+                    "session_budget_left_usd": self.session_left(),
                 });
                 self.finished(
                     "estimate",
@@ -198,6 +214,83 @@ impl Server {
                 )
             }
             Err(e) => self.finished("estimate", &args, Some(&e), Map::new()),
+        }
+    }
+
+    /// What the session budget has left: the cap less what is spent and reserved.
+    fn session_left(&self) -> f64 {
+        let s = &self.inner.session;
+        (s.cap() - s.spent() - s.reserved()).max(0.0)
+    }
+
+    /// One decision of a use case: the call's arguments as a job, every image path inside the
+    /// allowed roots, the per-call cap lowered by `max_spend_usd`, the decision reserving against
+    /// the session budget; the result is the decision's `run.json`.
+    fn check(
+        &self,
+        action: &str,
+        args: Map<String, Value>,
+        roots: Option<Vec<PathBuf>>,
+    ) -> Result<CallToolResult, ErrorData> {
+        let use_case = action.replace('_', "-");
+        let job = match contract::job_from_call(&use_case, &args) {
+            Ok(job) => job,
+            Err(squint_core::Error::Job(m)) => return Err(ErrorData::invalid_params(m, None)),
+            Err(e) => return self.finished(action, &args, Some(&e), Map::new()),
+        };
+        if let Err(e) = inside_roots(&job, roots.as_deref(), &self.inner.config.serve.roots) {
+            return self.finished(action, &args, Some(&e), Map::new());
+        }
+        let mut config = self.inner.config.clone();
+        if let Some(max) = args.get("max_spend_usd") {
+            let lowered = max
+                .as_f64()
+                .ok_or_else(|| squint_core::Error::Config("max_spend_usd: a number".into()))
+                .and_then(|m| config.lower_spend_cap(m));
+            if let Err(e) = lowered {
+                return Err(ErrorData::invalid_params(e.to_string(), None));
+            }
+        }
+        let opts = crate::ProviderOptions {
+            replay: None,
+            record: None,
+            #[cfg(feature = "testkit")]
+            provider_script: self.inner.provider_script.as_deref(),
+        };
+        let provider = match crate::provider_for(&mut config, &opts) {
+            Ok(p) => p,
+            Err(m) => {
+                let e = squint_core::Error::Auth(m);
+                return self.finished(action, &args, Some(&e), Map::new());
+            }
+        };
+        let services = squint_core::run::Services::new(provider.as_ref(), &self.inner.tools)
+            .with_shared_ledger(Some(&self.inner.session));
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let outcome = runtime.block_on(squint_core::run::check(
+            &config,
+            &job,
+            Path::new("/"),
+            &services,
+            &self.inner.out_dir,
+            VERSION,
+        ));
+        match outcome {
+            Ok(o) => {
+                let text = std::fs::read_to_string(o.dir.join(contract::RUN_FILE))
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+                let mut result: table_manners::RunResult = serde_json::from_str(&text)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+                // The decision is the action's: `run.json` names it so.
+                result.action = action.to_string();
+                contract::write_run_result(&o.dir, &result)
+                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+                Ok(tool_result(&result))
+            }
+            Err(e) => self.finished(action, &args, Some(&e), Map::new()),
         }
     }
 
@@ -226,6 +319,43 @@ impl Server {
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(tool_result(&result))
     }
+}
+
+/// Every image path of `job` inside the client's roots (when the client offers roots) and inside
+/// the config's `[serve] roots` (when it names any): an image elsewhere is `input`.
+fn inside_roots(
+    job: &squint_core::job::Job,
+    client: Option<&[PathBuf]>,
+    config: &[PathBuf],
+) -> squint_core::Result<()> {
+    let within = |path: &Path, roots: &[PathBuf]| {
+        roots
+            .iter()
+            .any(|root| root.canonicalize().is_ok_and(|r| path.starts_with(r)))
+    };
+    for image in &job.images {
+        let squint_core::job::ImageSource::Path { path, .. } = &image.source else {
+            continue;
+        };
+        let real = path.canonicalize().map_err(|e| {
+            squint_core::Error::Input(format!("{}: {}: {e}", image.id, path.display()))
+        })?;
+        if client.is_some_and(|roots| !within(&real, roots)) {
+            return Err(squint_core::Error::Input(format!(
+                "{}: {} is outside the client's roots",
+                image.id,
+                path.display()
+            )));
+        }
+        if !config.is_empty() && !within(&real, config) {
+            return Err(squint_core::Error::Input(format!(
+                "{}: {} is outside [serve] roots",
+                image.id,
+                path.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// The contract's result as an MCP tool result: the header and body as structured content, a
@@ -362,18 +492,61 @@ impl ServerHandler for Server {
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
-        _context: RequestContext<RoleServer>,
+        context: RequestContext<RoleServer>,
     ) -> Result<CallToolResponse, ErrorData> {
         let args = request.arguments.clone().unwrap_or_default();
         let server = self.clone();
         let name = request.name.to_string();
-        let result = tokio::task::spawn_blocking(move || match name.as_str() {
-            "describe" => server.describe(),
-            "estimate" => server.estimate(args),
-            other => Err(ErrorData::invalid_params(
-                format!("no tool {other:?}; call describe for the actions"),
-                None,
-            )),
+        let is_check = name != "estimate"
+            && self
+                .inner
+                .description
+                .actions
+                .iter()
+                .any(|a| a.name == name);
+        // A client that offers roots is asked for them on every check: they may have changed.
+        // Roots are part of revision 2025-11-25, the only one squint serves; SEP-2577 deprecates
+        // them in a later revision, which the contract must answer before squint moves (v0.2).
+        #[allow(deprecated)]
+        let roots = if is_check
+            && context
+                .peer
+                .peer_info()
+                .is_some_and(|info| info.capabilities.roots.is_some())
+        {
+            let listed = context
+                .peer
+                .list_roots()
+                .await
+                .map_err(|e| ErrorData::internal_error(format!("roots/list: {e}"), None))?;
+            Some(
+                listed
+                    .roots
+                    .iter()
+                    .filter_map(|r| r.uri.strip_prefix("file://").map(PathBuf::from))
+                    .collect(),
+            )
+        } else {
+            None
+        };
+        let permit = self
+            .inner
+            .permits
+            .clone()
+            .acquire_owned()
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let result = tokio::task::spawn_blocking(move || {
+            let _permit = permit;
+            match name.as_str() {
+                "describe" => server.describe(),
+                "estimate" => server.estimate(args),
+                action if is_check => server.check(action, args, roots),
+                other => Err(ErrorData::invalid_params(
+                    format!("no tool {other:?}; call describe for the actions"),
+                    None,
+                )),
+            }
         })
         .await
         .map_err(|e| ErrorData::internal_error(format!("the call panicked: {e}"), None))??;

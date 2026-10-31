@@ -137,7 +137,7 @@ tag.
 - [x] 7.5 `squint describe --json` (2026-10-30): one action per use case and `estimate`, the vocabulary from squint's own types; argument errors exit 64
 - [x] 7.6 `estimate` for a check (2026-10-30): `squint estimate` from catalog prices with no credential, `--max-spend-usd` lowers the cap; every recorded replay spends within its estimate
 - [x] 7.7a `squint serve`: the server, `describe` and `estimate` (2026-10-30): rmcp `=3.8.0` at 2025-11-25 only; the independent client `squint_testkit::mcp_client`; a call's arguments become a job (`contract::job_from_call`)
-- [ ] 7.7b `check` over `serve`
+- [x] 7.7b `check` over `serve` (2026-10-30): one tool per use case, paths inside the client's roots and `[serve] roots`, the session budget as a shared ledger, calls serial by default
 - [ ] 7.8 Progress, cancellation and runs as resources
 - [ ] 7.9 `squint playground`
 - [ ] 7.10 Conformance fixtures
@@ -145,4 +145,5 @@ tag.
 - [ ] Contract v0.2 from what M7 finds, before rascal's conformance merges. Found so far:
   - an image slot that takes a list (squint's `references`; v0.1 slots take one image)
   - how a render command reports the URL it serves (wafflehouse brief, gap 1)
+  - MCP roots are deprecated by SEP-2577 after `2025-11-25`: the contract's path rule needs its replacement before any tool moves revision
 - [ ] Checkpoint M7 → tag `m7`
