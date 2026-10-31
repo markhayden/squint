@@ -1,0 +1,380 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:core:description",
+  "title": "Description document (CONTRACT.md 3; the images profile's fields, 11.2)",
+  "description": "What a tool does, in terms a client needs nothing else to call it by: `<tool> describe --json` and the describe MCP tool.",
+  "type": "object",
+  "required": [
+    "contract",
+    "profiles",
+    "tool",
+    "actions",
+    "progress_interval_s",
+    "resources"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "urn:table-manners:core:result#/$defs/version"
+    },
+    "profiles": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "images"
+        ]
+      },
+      "description": "The profiles the tool implements; [] for a core-only tool."
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version",
+        "purpose"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/action"
+      }
+    },
+    "vocabulary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "disposition",
+        "confidence",
+        "evidence",
+        "score_kind"
+      ],
+      "description": "Images profile: every word the tool emits in a location's disposition, confidence, evidence and score_kind.",
+      "properties": {
+        "disposition": {
+          "$ref": "#/$defs/words"
+        },
+        "confidence": {
+          "$ref": "#/$defs/words"
+        },
+        "evidence": {
+          "$ref": "#/$defs/words"
+        },
+        "score_kind": {
+          "$ref": "#/$defs/words"
+        }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inline_bytes"
+      ],
+      "properties": {
+        "inline_bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "description": "Images profile."
+    },
+    "progress_interval_s": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10,
+      "description": "The longest gap between progress notifications on a live run."
+    },
+    "resources": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9+.-]*://"
+      }
+    }
+  },
+  "patternProperties": {
+    "^x-[a-z][a-z0-9-]*$": {}
+  },
+  "additionalProperties": false,
+  "if": {
+    "required": [
+      "profiles"
+    ],
+    "properties": {
+      "profiles": {
+        "contains": {
+          "const": "images"
+        }
+      }
+    }
+  },
+  "then": {
+    "required": [
+      "vocabulary",
+      "limits"
+    ],
+    "properties": {
+      "actions": {
+        "items": {
+          "required": [
+            "images",
+            "locations",
+            "outputs"
+          ]
+        }
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "vocabulary": false,
+      "limits": false,
+      "actions": {
+        "items": {
+          "properties": {
+            "images": false,
+            "locations": false,
+            "outputs": false
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "words": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9_-]*$"
+      }
+    },
+    "action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "title",
+        "purpose",
+        "params_schema",
+        "cost",
+        "duration",
+        "renders"
+      ],
+      "properties": {
+        "name": {
+          "allOf": [
+            {
+              "$ref": "urn:table-manners:core:result#/$defs/action_name"
+            },
+            {
+              "not": {
+                "const": "describe"
+              }
+            }
+          ],
+          "description": "The MCP tool name; describe is reserved for the description itself."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1
+        },
+        "purpose": {
+          "type": "string",
+          "minLength": 1
+        },
+        "images": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "slot",
+              "role",
+              "required"
+            ],
+            "properties": {
+              "slot": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "role": {
+                "type": "string",
+                "pattern": "^[a-z0-9][a-z0-9_-]*$"
+              },
+              "required": {
+                "type": "boolean"
+              }
+            }
+          },
+          "description": "Images profile."
+        },
+        "locations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "slot",
+              "kinds",
+              "required"
+            ],
+            "properties": {
+              "slot": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_]*$"
+              },
+              "kinds": {
+                "type": "array",
+                "minItems": 1,
+                "uniqueItems": true,
+                "items": {
+                  "enum": [
+                    "bbox",
+                    "polygon",
+                    "line",
+                    "stroke",
+                    "mask",
+                    "whole_image",
+                    "absent",
+                    "view"
+                  ]
+                }
+              },
+              "required": {
+                "type": "boolean"
+              }
+            }
+          },
+          "description": "Images profile."
+        },
+        "params_schema": {
+          "type": "object",
+          "description": "A JSON Schema for the action's other arguments."
+        },
+        "outputs": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "images",
+            "locations"
+          ],
+          "properties": {
+            "images": {
+              "$ref": "#/$defs/words",
+              "description": "The roles of the images the action returns."
+            },
+            "locations": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "enum": [
+                  "found"
+                ]
+              }
+            }
+          },
+          "description": "Images profile."
+        },
+        "cost": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "may_spend",
+            "needs_env"
+          ],
+          "properties": {
+            "may_spend": {
+              "type": "boolean"
+            },
+            "basis": {
+              "enum": [
+                "measured",
+                "estimated"
+              ]
+            },
+            "needs_env": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]*$"
+              }
+            }
+          },
+          "if": {
+            "properties": {
+              "may_spend": {
+                "const": true
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "basis"
+            ]
+          }
+        },
+        "duration": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "typical_s",
+            "max_s"
+          ],
+          "properties": {
+            "typical_s": {
+              "type": "number",
+              "minimum": 0
+            },
+            "max_s": {
+              "type": "number",
+              "exclusiveMinimum": 0
+            }
+          }
+        },
+        "renders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "command"
+            ],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^[a-z][a-z0-9_-]*$"
+              },
+              "command": {
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

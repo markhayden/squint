@@ -1,6 +1,6 @@
 # ADR 0015: The MCP client stays in-house
 
-Date: 2026-10-28. Status: accepted.
+Date: 2026-10-28. Status: accepted; revisited and kept by ADR 0019 (2026-10-31).
 
 ## Context
 

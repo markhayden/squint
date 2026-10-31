@@ -27,6 +27,8 @@ squint-testkit = { workspace = true, optional = true }
 clap = { workspace = true }
 thiserror = { workspace = true }
 tokio = { workspace = true }
+rmcp = { workspace = true }
+table-manners = { workspace = true }
 serde_json = { workspace = true }
 
 [lints]
@@ -34,3 +36,5 @@ workspace = true
 
 [dev-dependencies]
 serde_json = "1"
+# The independent MCP test client; path only, so the published manifest drops it.
+squint-testkit = { path = "../squint-testkit" }

@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:images:image-out",
+  "title": "Image out (CONTRACT.md 10.2)",
+  "description": "An image a tool returns: its role, its reference and exactly one locator.",
+  "type": "object",
+  "required": [
+    "role",
+    "image"
+  ],
+  "properties": {
+    "role": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "image": {
+      "$ref": "urn:table-manners:images:image-reference"
+    },
+    "path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "inline": {
+      "$ref": "urn:table-manners:images:image-in#/$defs/inline"
+    },
+    "resource": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9+.-]*://"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "required": [
+        "path"
+      ]
+    },
+    {
+      "required": [
+        "inline"
+      ]
+    },
+    {
+      "required": [
+        "resource"
+      ]
+    }
+  ]
+}

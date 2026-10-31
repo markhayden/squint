@@ -53,3 +53,8 @@ account = "fake:${SQUINT_TEST_ACCOUNT}"
 
 [output]
 dir = "./squint-out"
+
+[serve]
+concurrency = 2
+session_budget_usd = 5.0
+roots = ["/srv/images"]

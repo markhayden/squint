@@ -75,9 +75,10 @@ fn exif_rotated_candidate_reports_upright_dimensions_and_both_hashes() {
 fn oversized_candidate_is_refused_as_a_resolve_error_naming_the_bound() {
     let out = tempdir("oversized");
     let o = run_check("oversized.toml", &out);
+    // An invalid request exits 64 whatever the policy (task 7.4).
     assert_eq!(
         o.status.code(),
-        Some(3),
+        Some(64),
         "stderr: {}",
         String::from_utf8_lossy(&o.stderr)
     );

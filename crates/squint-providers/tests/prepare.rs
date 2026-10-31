@@ -32,6 +32,7 @@ fn spec(id: &str, path: &str) -> ImageSpec {
         role: Role::Candidate,
         label: None,
         projection: None,
+        expect: None,
         source: ImageSource::Path {
             path: path.into(),
             sha256: None,
@@ -96,6 +97,7 @@ fn prepare_keeps_png_with_alpha_and_drops_metadata() {
             role: Role::Candidate,
             label: None,
             projection: None,
+            expect: None,
             source: ImageSource::Base64 {
                 base64: base64_encode(&png),
                 media_type: "image/png".into(),

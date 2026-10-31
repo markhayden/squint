@@ -12,6 +12,9 @@ use serde::{Deserialize, Serialize};
 use crate::events::Event;
 use crate::{Error, Result};
 
+/// Called after each line is written, with the run directory and the event's name.
+pub type Observer = std::sync::Arc<dyn Fn(&Path, &str) + Send + Sync>;
+
 /// A run journal under `<run dir>/journal.jsonl`.
 pub struct Journal {
     file: File,
@@ -19,6 +22,7 @@ pub struct Journal {
     seq: u64,
     last_event: Option<&'static str>,
     fail_at: Option<u64>,
+    observer: Option<Observer>,
 }
 
 /// One journal line.
@@ -48,6 +52,7 @@ impl Journal {
             seq: 0,
             last_event: None,
             fail_at: None,
+            observer: None,
         })
     }
 
@@ -86,7 +91,15 @@ impl Journal {
         self.file.sync_data()?;
         self.seq += 1;
         self.last_event = Some(event.name());
+        if let (Some(observer), Some(run_dir)) = (&self.observer, self.path.parent()) {
+            observer(run_dir, event.name());
+        }
         Ok(())
+    }
+
+    /// Calls `observer` after every line this journal writes from now on.
+    pub fn observe(&mut self, observer: Observer) {
+        self.observer = Some(observer);
     }
 
     /// Reads a journal. A torn final line (the process died mid-write) is dropped; any other

@@ -21,6 +21,7 @@ use crate::frames::Registry;
 use crate::image::{self, CanonicalImage};
 use crate::job::Job;
 use crate::journal::Journal;
+pub use crate::journal::Observer;
 use crate::ledger::{self, Account, CapLedger, Ledger, Pricing, RequestShape};
 use crate::obligations::{self, Instance, MergeInput, Resolved, RulesFile};
 use crate::provider::{
@@ -64,6 +65,8 @@ pub struct Services<'a> {
     /// Test knob: fail the first run's journal append at this sequence number, as if the process
     /// had died between an artifact write and its event.
     pub fail_journal_at: Option<u64>,
+    /// Told of every journal line every run writes (a server's progress).
+    pub observer: Option<Observer>,
 }
 
 impl<'a> Services<'a> {
@@ -75,7 +78,13 @@ impl<'a> Services<'a> {
             cancel: None,
             evaluation: false,
             fail_journal_at: None,
+            observer: None,
         }
+    }
+
+    pub fn with_observer(mut self, observer: Observer) -> Services<'a> {
+        self.observer = Some(observer);
+        self
     }
 
     pub fn with_shared_ledger(mut self, ledger: Option<&'a dyn Ledger>) -> Services<'a> {
@@ -146,6 +155,7 @@ pub async fn check(
     if !(1..=2).contains(&config.budget.decision_runs) {
         return Err(Error::Config("decision_runs must be 1 or 2".into()));
     }
+    let started_ms = crate::contract::now_ms();
     let dir = new_decision_dir(out_dir)?;
     let setup = setup(config, job, job_base, tools);
 
@@ -205,6 +215,10 @@ pub async fn check(
         header.write(&dir)?;
         let report = Report::rebuild(&dir)?;
         report.write(&dir)?;
+        crate::contract::write_run_result(
+            &dir,
+            &crate::contract::run_result(&report, &dir, started_ms),
+        )?;
         return Ok(outcome(dir, report));
     }
 
@@ -255,7 +269,24 @@ pub async fn check(
             s.settle(closing.envelope_usd, closing.spent_usd);
         }
     }
-    runs_result?;
+    if let Err(e) = runs_result {
+        // The run could not finish its own record; the directory still ends with a result that
+        // says so, as far as the journals let the report be rebuilt.
+        if let Ok(report) = Report::rebuild(&dir) {
+            let mut result = crate::contract::run_result(&report, &dir, started_ms);
+            let (status, code) = crate::contract::status_of(e.class());
+            if let Some((code, retryable)) = code {
+                result.status = status;
+                result.error = Some(table_manners::ErrorInfo {
+                    code,
+                    retryable,
+                    reason: e.to_string(),
+                });
+            }
+            let _ = crate::contract::write_run_result(&dir, &result);
+        }
+        return Err(e);
+    }
 
     let report = Report::rebuild(&dir)?;
     report.write(&dir)?;
@@ -267,6 +298,11 @@ pub async fn check(
     {
         cache.store(key, &dir)?;
     }
+    // Last: the contract's result, once everything else in the directory is written.
+    crate::contract::write_run_result(
+        &dir,
+        &crate::contract::run_result(&report, &dir, started_ms),
+    )?;
     Ok(outcome(dir, report))
 }
 
@@ -325,6 +361,9 @@ async fn run_once(
     money: &mut Money<'_>,
 ) -> Result<()> {
     let mut journal = Journal::create(run_dir)?;
+    if let Some(observer) = &services.observer {
+        journal.observe(observer.clone());
+    }
     if let Some(seq) = services.fail_journal_at
         && n == 1
     {
@@ -335,6 +374,7 @@ async fn run_once(
         Ok(s) => drive(config, services, s, &mut journal, &mut state, money).await,
         // The rules or an image failed to resolve; the class is the error's own.
         Err(Error::Image(m)) => Err(Error::Image(m.clone())),
+        Err(Error::Input(m)) => Err(Error::Input(m.clone())),
         Err(e) => Err(Error::Config(e.to_string())),
     };
     match result {
@@ -1872,6 +1912,7 @@ fn root_location(
         bbox: mapped.location.bbox,
         polygon: mapped.location.polygon,
         partial: mapped.partial,
+        seam_parts: mapped.seam_parts,
     })
 }
 

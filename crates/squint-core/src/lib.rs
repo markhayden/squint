@@ -7,6 +7,7 @@ pub mod artifacts;
 pub mod cache;
 pub mod checklist;
 pub mod config;
+pub mod contract;
 pub mod decision;
 pub mod env;
 pub mod events;
@@ -37,6 +38,10 @@ pub enum Error {
     /// An image could not be read or decoded.
     #[error("image: {0}")]
     Image(String),
+    /// An input is not the one the caller named: a file whose digest or dimensions differ from its
+    /// pinned SHA-256 or its expected reference (table-manners `input`).
+    #[error("input: {0}")]
+    Input(String),
     /// A credential the configured auth scheme needs is missing.
     #[error("auth: {0}")]
     Auth(String),
@@ -86,6 +91,7 @@ impl Error {
             Error::Provider(_) | Error::Transport(_) => "provider",
             Error::Tool(_) => "tool",
             Error::Budget(_) => "budget",
+            Error::Input(_) => "input",
             Error::Cancelled(_) => "cancelled",
             Error::ImageLimit(_) => "image_limit",
             Error::Auth(_) => "auth",

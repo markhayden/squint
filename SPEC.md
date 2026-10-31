@@ -226,7 +226,14 @@ role = "reference"
 label = "the bridge set"
 source = { path = "refs/bridge.jpg" }
 projection = "flat"           # optional override
+expect = { file_sha256 = "3f9a…", width = 1600, height = 900, projection = "flat", topology = "bounded" }
 ```
+
+An image may carry `expect`, the contract's image reference the caller expects the file to have
+(see "External interface"): its `file_sha256`, width and height are verified before anything else
+runs, and a mismatch, like a mismatched `sha256` pin, is `error: input` with nothing spent; a
+differing `pixel_sha256` with the right file is a warning, since decoders disagree on lossy
+formats.
 
 Roles: `candidate` (exactly one), `source` (the original an edit was made from; at most one),
 `reference` (any number). Image ids are plain tokens (ASCII letters, digits and `_ . : / -`) and the only way a tool or
@@ -236,7 +243,8 @@ harness resolves them through the job registry and never accepts a path or URL f
 Each image is decoded once with bounded dimensions (`images.max_decode_pixels`, default 50 MP)
 and byte size (default 64 MB), orientation-normalised from EXIF, converted to sRGB 8-bit, and
 kept as the **canonical image**: lossless, full resolution, recorded with its SHA-256 (original
-bytes), canonical SHA-256 (decoded pixels), dimensions and projection. Projection is `flat` or
+bytes), canonical SHA-256 (decoded pixels), the contract's pixel digest (the stored pixels before
+orientation), its dimensions both as stored and after orientation, and projection. Projection is `flat` or
 `equirectangular`, taken from an explicit `projection` field, else from XMP `GPano` metadata,
 else `flat`. A 2:1 aspect ratio alone does not make an image equirectangular; the CLI warns when
 a 2:1 image is treated as flat.
@@ -623,12 +631,13 @@ written and fsynced before the event is appended. Artifacts in `artifacts/` by c
 - every image sent to the model, exactly as sent, and every image a tool returned;
 - every structured tool result in full.
 
-SIGINT or SIGTERM during a run appends `cancelled` with the state reached and exits 3 (130 and
-143 from M7, "External interface").
+SIGINT or SIGTERM during a run appends `cancelled` with the state reached and exits 130 or 143
+("External interface").
 
 A decision directory (`decision-<unix ms>-<pid>/`) holds `decision.json` (the header: everything
 the report needs that no run journal carries, including the planned envelope; written before the
-first run), one `run-<n>/` per run with its journal, artifacts and frames, and `report.json`.
+first run), one `run-<n>/` per run with its journal, artifacts and frames, `report.json`, and
+last `run.json`, the contract's result (see "External interface").
 
 The **report** (`report.json`, `report_version` pinned) is derived from the header and the
 journals at the end, or by `squint report rebuild` from a partial journal, whose terminal status
@@ -660,7 +669,9 @@ if it is replayable under the adapter's rules; a non-replayable turn is journale
 
 1. **Resolve.** Load config, merge obligations, resolve instances, load and decode images into
    canonical images, build frames, build the checklist, connect tool packs and freeze their
-   manifests, render the system prompt. Any failure is `error: resolve` with a journal.
+   manifests, render the system prompt. Any failure is `error: resolve` with a journal, except an
+   image that is not the one the job names (a `sha256` pin or an `expect` that does not match),
+   which is `error: input`.
 2. **Prepare.** Produce prepared images for the model (see "Image preparation") and preflight the
    first request against the catalog's limits. Compute the cache key (see "Cache key"). If
    caching is on, this is not an evaluation, and this is the decision boundary, return the cached
@@ -1213,6 +1224,11 @@ account = "anthropic:org-xxxx"
 
 [output]
 dir = "./squint-out"
+
+[serve]                       # squint serve only (table-manners 4.5, 10.1)
+concurrency = 1               # calls at once; serial by default
+session_budget_usd = 20.0     # across every call one server process serves; default ten checks at the default cap
+roots = ["/srv/images"]       # image paths must sit inside these as well as the client's MCP roots; empty: the client's alone
 ```
 
 Loading: parse, validate against the config schema, resolve the profile, check the model in the
@@ -1397,25 +1413,37 @@ section says what squint does with them.
   reference for every image it is given and verifies one the caller supplies; a mismatch is
   `invalid` with code `input`.
 - **Location out**: every finding's location is mapped to the raw frame of its root image through
-  the registry (as for the viewer) and written in the contract's form: fractions from the top-left
-  measuring edges, quarter-pixel precision, a list of parts with `straddles_wrap` (a view's
-  footprint cut at the seam becomes two parts), kinds `bbox`, `polygon`, `whole_image`, `absent`
-  (with a reason, never an invented box), with the finding's words as the label, its disposition and confidence, its evidence kind and its
-  source (`squint`, version, run id, item id). Crop, view and aligned frames never leave squint.
+  the registry (as for the viewer), then back through the inverse of the image's EXIF orientation
+  to the file as stored, and written in the contract's form: fractions from the top-left
+  measuring edges, quarter-pixel precision with boxes snapped outward, a list of parts with
+  `straddles_wrap` (a view's footprint across the seam becomes its two sides; the registry's own
+  root location keeps the one side it cuts to, so scoring is unchanged), kinds `bbox`, `polygon`,
+  `whole_image`, `absent` (with the finding's reason, never an invented box), with the finding's
+  words as the label, its disposition and confidence, and its source (`squint`, version, run id,
+  item id). Crop, view and aligned frames never leave squint.
 - **`squint serve`**: an MCP server over stdio at revision `2025-11-25`, under the contract's
-  server conventions. Tools: `check` (one decision; images by path or inline bytes in any slot;
-  paths only inside the client's MCP roots narrowed by config; inline bytes bounded), `estimate`
-  (worst-case cost of a check and the session budget left), and `describe`. squint's own
-  self-description (`rules`, `tools list`, `catalog`) stays on the command line and is referenced
-  from the description's `x-squint`. An `invalid` or `error` outcome is a result with `isError`
-  and the header; JSON-RPC errors are only for failures before a run exists. Each image out carries its reference and the locator the call asked for
+  server conventions. Tools: one per use case, as `describe` lists them (`source_fidelity`, …: one
+  decision each; images by path or inline bytes in any slot; paths only inside the client's MCP
+  roots narrowed by config; inline bytes bounded), `estimate` (worst-case cost of a check and the
+  session budget left; on the command line `squint estimate`, priced from the catalog with no
+  credential), and `describe`. squint's own self-description (`rules`, `tools list`, `catalog`)
+  stays on the command line and is referenced from the description's `x-squint`. An `invalid` or
+  `error` outcome is a result with `isError` and the header; JSON-RPC errors are only for failures
+  before a run exists. Each image out carries its reference and the locator the call asked for
   (path, inline, resource URI); image blocks only when asked. Calls are serial by default
-  (`[serve] concurrency`). Spend: the per-call cap from config, which a call may lower and never
-  raise, and a per-session budget (`[serve] session_budget_usd`) across the server's lifetime.
+  (`[serve] concurrency`). Spend: the per-call cap from config, which a call (`max_spend_usd`; on
+  the command line `--max-spend-usd`) may lower and never raise, and a per-session budget
+  (`[serve] session_budget_usd`) across the server's lifetime, a ledger every decision reserves
+  against before its first request. Paths: when the client offers roots, squint asks for them on
+  every check and refuses (`invalid`, `input`) a path outside them, or outside `[serve] roots` when
+  the config names any. A check over `serve` is an ordinary decision: its directory, journal,
+  report and `run.json`, with the action's name.
 - **Progress and cancellation**: `check` is a plain `tools/call`. With a progress token, squint
-  sends a notification on every journal event and at least every ten seconds while waiting, with
-  `progress` strictly increasing (steps, or elapsed seconds with no total) and the words (spend so
-  far) in the message; the first one names the run resource. `notifications/cancelled` stops the
+  sends a notification on every journal line of every run (through an observer the journal calls
+  after each write) and a heartbeat after five seconds of silence, well inside the ten the
+  description states; `progress` is elapsed seconds with no total, nudged so it never repeats,
+  and the message carries the words (`run-1: turn_sent`, `waiting, 12 s`); the first names the
+  run resource. `notifications/cancelled` stops the
   provider call; `run.json` and the run resource then hold status `cancelled` with spend to date,
   and no result is returned. An identical retry within the cache policy is answered from the
   decision cache and says so.
@@ -1423,15 +1451,27 @@ section says what squint does with them.
   `squint://run/<id>/run.json`, `…/report.json` and `…/journal` for every decision the server ran,
   readable after a timeout or a dropped connection.
 - **`run.json`**: written last and atomically (a temporary name, then a rename) into every
-  decision directory by `check` on every surface: the
+  decision directory by `check` on every surface, cache hits and cancelled decisions included: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
-  timestamps and duration, input identity, measured spend, cache hit, image references and
-  locations with roles, notes for repairs and tool refusals) and squint's body (verdict, policy
-  outcome, findings, the report's path). A failed image is `completed` with verdict `fail`.
-- **`squint describe --json`**: the contract's description document with `profiles: ["images"]`:
-  one action per use case with its image and location slots and parameters as JSON Schemas, every
-  disposition, confidence and evidence word squint emits (`vocabulary`), the renders (`report view`, `report export`),
-  the cost notice and the variable it needs, the expected duration and the inline limits.
+  timestamps and duration, input identity, measured spend, cache, the images taken in with their
+  slots and roles, every finding's location, notes for image warnings and repairs) and squint's
+  body (verdict, exit code, whether two runs agreed, the report's path). The result's `action` is
+  the use case's as `describe` names it (`source_fidelity`), from the command line as from MCP. A
+  failed image is `completed` with verdict `fail`. squint's error classes map to the contract in one table
+  (`contract::status_of`): `resolve` and `auth` are `invalid` with code `usage`; `input` and
+  `image_limit` are `invalid` with code `input`; a provider or model-output failure is a
+  retryable `error` with code `provider`; `tool` is `tool_process`; `budget`, `io` and anything
+  else (`internal`) are not retryable; `cancelled` is its own status.
+- **`squint describe --json --config <file>`**: the contract's description document with
+  `profiles: ["images"]`: one action per shipped use case (`source_fidelity`, …), named for
+  its rule set's `use_case` with a one-sentence purpose (kept beside the description, since sealed
+  sets bind the rule files byte for byte), taking `candidate`, the `source` when the
+  rule set requires one, and `references` (a list; contract v0.1 has no list slot, so squint says
+  so under `x-squint`), with the brief, requirements and a lower spend cap as parameters; an
+  `estimate` action; every disposition and confidence word a finding can carry (`vocabulary`),
+  the renders (`report view`, `report export`), the cost notice and the credential variable the
+  configured profile needs (its name, never its value), the expected duration, the inline limit
+  (the decode bound) and the resources. Argument errors on every command exit 64.
 - **Exit codes** across commands: 0 success, 3 error, 64 usage or input, 130 on SIGINT and 143
   on SIGTERM;
   1 fail and 2 unsure remain `check`'s.
@@ -1477,6 +1517,10 @@ squint report view ./squint-out/<run-id>
 squint report rebuild ./squint-out/<run-id>
 squint report prune --older-than 30d
 squint tools list --config squint.toml      # manifests as the model will see them
+squint describe --json --config squint.toml # the contract's description document (ADR 0018)
+squint estimate --config squint.toml --job job.toml [--max-spend-usd 0.10]   # worst case of one check; nothing sent
+squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check, never raises it
+squint serve --config squint.toml [--out runs/]   # MCP over stdio, protocol 2025-11-25 (table-manners 5)
 squint sets check evalsets/
 squint sets fetch --set reference-consistency/pets-v1
 squint sets seal --set <set> --attest "…"    # writes seal.toml; a blind set's labels move out (--labels-out)
@@ -1495,8 +1539,9 @@ squint catalog show claude-opus-5-5 [--json]
 squint catalog list [--json]
 ```
 
-Exit codes for `check`: 0 pass, 1 fail, 2 unsure, 3 error or cancelled, 64 usage error, after
-`[policy]` is applied.
+Exit codes for `check`: 0 pass, 1 fail, 2 unsure, 3 error, after `[policy]` is applied; 64 for a
+usage error or an `invalid` request (a job that does not resolve, an image that is not the one
+named) whatever the policy; 130 on SIGINT and 143 on SIGTERM.
 
 ## Project structure
 
@@ -1518,7 +1563,8 @@ crates/
 tools/python/                   squint-tools uv project (MCP server, segmenter, MODEL.md, uv.lock, bundle build, tests)
 scripts/                        repository checks, the credential scanner, publish, install-from-registry, archive and live smoke scripts
 scripts/sets/                   the set-building toolkit (uv project): plans, generators, construction ops, draft labels
-schemas/                        generated JSON Schemas: submission, envelope, manifest, config, report, tools/
+schemas/                        generated JSON Schemas: submission, envelope, manifest, config, report, tools/;
+                                contract/: the pinned table-manners schemas, hash-checked (SOURCES.toml)
 fixtures/
   matrix/                       matrices the evaluation tests use
   adapters/<adapter>/           recorded conversations per capability combination

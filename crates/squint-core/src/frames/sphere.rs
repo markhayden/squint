@@ -176,7 +176,34 @@ pub fn map_through_view(loc: &Location, view: &View, parent: &str) -> Result<(Lo
         }
         _ => {}
     }
-    let points: Vec<[f64; 2]> = match loc.kind {
+    let points = boundary_points(loc)?;
+    let footprint = footprint(
+        view,
+        &points,
+        |p| region_contains(loc, p),
+        region_centre(loc),
+    );
+    out.kind = LocationKind::Polygon;
+    out.bbox = None;
+    out.polygon = None;
+    let clipped = match footprint {
+        Footprint::Polygon { vertices, clipped } => {
+            out.polygon = Some(vertices);
+            clipped
+        }
+        Footprint::Pole { y0, y1 } => {
+            out.kind = LocationKind::Bbox;
+            out.bbox = Some([0.0, y0, 1.0, y1]);
+            false
+        }
+    };
+    Ok((out, clipped))
+}
+
+/// A region's boundary in its view, sampled: sixteen points per box edge, a polygon's edges
+/// subdivided while the 64-vertex limit allows.
+fn boundary_points(loc: &Location) -> Result<Vec<[f64; 2]>> {
+    Ok(match loc.kind {
         LocationKind::Bbox => {
             let b = loc
                 .bbox
@@ -201,28 +228,86 @@ pub fn map_through_view(loc: &Location, view: &View, parent: &str) -> Result<(Lo
             pts
         }
         LocationKind::View | LocationKind::Absent => Vec::new(),
-    };
-    let footprint = footprint(
-        view,
-        &points,
-        |p| region_contains(loc, p),
-        region_centre(loc),
-    );
-    out.kind = LocationKind::Polygon;
-    out.bbox = None;
-    out.polygon = None;
-    let clipped = match footprint {
-        Footprint::Polygon { vertices, clipped } => {
-            out.polygon = Some(vertices);
-            clipped
+    })
+}
+
+/// Both sides of a view footprint that crosses the seam, for the contract (table-manners 9.2: a
+/// part never crosses the wrap edge, a shape that does leaves as several parts). `None` when the
+/// footprint does not cross the seam or holds a pole. The registry's own location keeps the one
+/// side `map_through_view` cuts to, so scoring is unchanged.
+pub fn seam_parts_through_view(loc: &Location, view: &View) -> Result<Option<Vec<Vec<[f64; 2]>>>> {
+    if matches!(loc.kind, LocationKind::Absent | LocationKind::View) {
+        return Ok(None);
+    }
+    let points = boundary_points(loc)?;
+    let dirs: Vec<[f64; 3]> = points.iter().map(|p| view.direction(p[0], p[1])).collect();
+    let holds_pole = |pole: [f64; 3]| view.project(pole).is_some_and(|p| region_contains(loc, p));
+    if holds_pole([0.0, 0.0, 1.0]) || holds_pole([0.0, 0.0, -1.0]) {
+        return Ok(None);
+    }
+    let mapped: Vec<[f64; 2]> = dirs.iter().map(|d| equirect_of(*d)).collect();
+    let centre = region_centre(loc);
+    let centre_x = equirect_of(normalise(view.direction(centre[0], centre[1])))[0];
+    Ok(split_at_seam(&mapped, centre_x))
+}
+
+/// Splits a ring of equirectangular points that jumps across the seam into the pieces on each
+/// side: the ring is unwrapped around `centre_x`, then clipped to the frame and, shifted by one
+/// width, clipped again. `None` when the ring does not cross the seam.
+fn split_at_seam(ring: &[[f64; 2]], centre_x: f64) -> Option<Vec<Vec<[f64; 2]>>> {
+    let straddles = ring.len() > 1
+        && ring
+            .iter()
+            .zip(ring.iter().cycle().skip(1))
+            .any(|(a, b)| (a[0] - b[0]).abs() > 0.5);
+    if !straddles {
+        return None;
+    }
+    let unwrapped: Vec<[f64; 2]> = ring
+        .iter()
+        .map(|p| {
+            let x = if p[0] - centre_x > 0.5 {
+                p[0] - 1.0
+            } else if centre_x - p[0] > 0.5 {
+                p[0] + 1.0
+            } else {
+                p[0]
+            };
+            [x, p[1]]
+        })
+        .collect();
+    let shift = if centre_x < 0.5 { 1.0 } else { -1.0 };
+    let shifted: Vec<[f64; 2]> = unwrapped.iter().map(|p| [p[0] + shift, p[1]]).collect();
+    let parts: Vec<Vec<[f64; 2]>> = [unwrapped, shifted]
+        .iter()
+        .map(|ring| clip_x(&clip_x(ring, 0.0, true), 1.0, false))
+        .filter(|part| part.len() >= 3)
+        .collect();
+    (parts.len() == 2).then_some(parts)
+}
+
+/// One Sutherland–Hodgman pass: keeps the side of the vertical line `x = edge` where
+/// `x >= edge` (`keep_right`) or `x <= edge`.
+fn clip_x(ring: &[[f64; 2]], edge: f64, keep_right: bool) -> Vec<[f64; 2]> {
+    let inside = |p: &[f64; 2]| {
+        if keep_right {
+            p[0] >= edge
+        } else {
+            p[0] <= edge
         }
-        Footprint::Pole { y0, y1 } => {
-            out.kind = LocationKind::Bbox;
-            out.bbox = Some([0.0, y0, 1.0, y1]);
-            false
-        }
     };
-    Ok((out, clipped))
+    let mut out = Vec::new();
+    for (i, a) in ring.iter().enumerate() {
+        let b = &ring[(i + 1) % ring.len()];
+        if inside(a) {
+            out.push(*a);
+        }
+        if inside(a) != inside(b) {
+            let t = (edge - a[0]) / (b[0] - a[0]);
+            out.push([edge, a[1] + t * (b[1] - a[1])]);
+        }
+    }
+    out
 }
 
 /// A region's footprint on an equirectangular frame.

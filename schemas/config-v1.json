@@ -279,6 +279,34 @@
       ],
       "type": "object"
     },
+    "ServeConfig": {
+      "additionalProperties": false,
+      "description": "`[serve]`: the MCP server's own limits (table-manners 4.5, 10.1).",
+      "properties": {
+        "concurrency": {
+          "default": 1,
+          "description": "Calls served at once; serial by default.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "roots": {
+          "default": [],
+          "description": "Directories an image path must sit inside, narrowing the client's MCP roots; empty means\nthe client's roots alone.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "session_budget_usd": {
+          "default": 20.0,
+          "description": "Spend across every call one server process serves, in USD.",
+          "format": "double",
+          "type": "number"
+        }
+      },
+      "type": "object"
+    },
     "ToolsConfig": {
       "additionalProperties": false,
       "properties": {
@@ -374,6 +402,10 @@
         }
       ],
       "default": null
+    },
+    "serve": {
+      "$ref": "#/$defs/ServeConfig",
+      "description": "`squint serve` only. Left out of the serialised config when it is the default, so a\ndecision's recorded config (and its cache key) does not change with server settings."
     },
     "tools": {
       "$ref": "#/$defs/ToolsConfig",

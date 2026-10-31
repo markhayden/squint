@@ -1,0 +1,113 @@
+{
+  "recipe": "CONTRACT.md 2.2",
+  "vectors": [
+    {
+      "file": "grey8.png",
+      "note": "8-bit grey is kept: 1 channel",
+      "file_sha256": "6e532c565a337709086c24bc87f5dbea65abf52898b32b2bc198505bccbf7b7c",
+      "width": 3,
+      "height": 2,
+      "channels": 1,
+      "pixel_sha256": "31b6bc778f84f15d0cbe73ca2e0f2ee1e630a15c026e958ae7ac6139859ddbd9"
+    },
+    {
+      "file": "rgb8.png",
+      "note": "8-bit RGB is kept: 3 channels",
+      "file_sha256": "9e044ae76cb5d4bd11f3a7da90fab9f85cdf2d8f171295ae39b635e4d707386a",
+      "width": 3,
+      "height": 2,
+      "channels": 3,
+      "pixel_sha256": "29d2e769ab2385bbc1b77e35bc57657a333a259f5c8febfc952c2235880f9395"
+    },
+    {
+      "file": "rgb8-gamma.png",
+      "note": "a gAMA chunk changes the file, not the pixels: no colour conversion",
+      "file_sha256": "8f8b8f04767dbe9ddc54695f6f3b62a9daa9ee6b43953db871937e4dda7e743c",
+      "width": 3,
+      "height": 2,
+      "channels": 3,
+      "pixel_sha256": "29d2e769ab2385bbc1b77e35bc57657a333a259f5c8febfc952c2235880f9395"
+    },
+    {
+      "file": "rgb8-exif-rotated.png",
+      "note": "EXIF orientation is not applied: same samples, same width and height",
+      "file_sha256": "867b94a397e8e1c6d5dec4fa5c4b0183bf889a7687a712c88bd4289088c975a0",
+      "width": 3,
+      "height": 2,
+      "channels": 3,
+      "pixel_sha256": "29d2e769ab2385bbc1b77e35bc57657a333a259f5c8febfc952c2235880f9395"
+    },
+    {
+      "file": "rgba8.png",
+      "note": "8-bit RGBA is kept: 4 channels, alpha untouched",
+      "file_sha256": "fd675aaf87146095260df4fd62e1d7d0c2a1c7d74d4cd6a1deb21a22b07abb99",
+      "width": 2,
+      "height": 2,
+      "channels": 4,
+      "pixel_sha256": "c075a8e86e2e48a4895e9a020e2ef0130937d0c3b4b020e1b32c19101bc248c4"
+    },
+    {
+      "file": "grey1.png",
+      "note": "1-bit grey expands to 8-bit grey at full range: 0 and 255",
+      "file_sha256": "aa5f4aa63ace200c6521ed8d823f3c3eaa30d1c206525e5714b0184ebad296a0",
+      "width": 8,
+      "height": 1,
+      "channels": 1,
+      "pixel_sha256": "371433fa90a4bae1a277a88d4986cebc8bc0c3b9d2e1431c39c7480691563c29"
+    },
+    {
+      "file": "grey-alpha8.png",
+      "note": "grey with alpha converts to RGB: grey copied to three channels, alpha dropped",
+      "file_sha256": "a1412dbfcb2bea6e69459832e20cbd4661e44030c390e0122d1dd1343d3ca1ec",
+      "width": 2,
+      "height": 2,
+      "channels": 3,
+      "pixel_sha256": "8b38b6ffc01c6aefdec7e1fef84adbb713842d8e8483df3980a6d5529343158d"
+    },
+    {
+      "file": "grey16.png",
+      "note": "16-bit grey converts to 8-bit RGB, each sample (v + 128) / 257",
+      "file_sha256": "3960c685411547462dbe3117bd7aab8b3531a4a92ed22d44d41acb530733a22b",
+      "width": 3,
+      "height": 1,
+      "channels": 3,
+      "pixel_sha256": "259694b638f9cf40f651b61c60696a919d0b96816886ec33e5a3e76ef507ebdb"
+    },
+    {
+      "file": "rgb16.png",
+      "note": "16-bit RGB converts to 8-bit RGB, each sample (v + 128) / 257, rounding half up",
+      "file_sha256": "a894c2f79bc5ffc4375c2d17f8a31028bbf493c4c226347a6bf32e567dbe3fa5",
+      "width": 2,
+      "height": 1,
+      "channels": 3,
+      "pixel_sha256": "9240b613da8fe94b3b12287a5075ddb5d8b280ff0c68c6e016fb3910fd7cd531"
+    },
+    {
+      "file": "rgba16.png",
+      "note": "16-bit RGBA converts to 8-bit RGB: alpha dropped",
+      "file_sha256": "bd153838a8855dea91254c93972df2d28b7722a5693708a50b0c8a7c099cc701",
+      "width": 2,
+      "height": 1,
+      "channels": 3,
+      "pixel_sha256": "a2608377342df37da1e1e6dfc596ea1c7b7e76da14c90e99bb6dede4ba4d432c"
+    },
+    {
+      "file": "palette.png",
+      "note": "a palette without transparency expands to 8-bit RGB",
+      "file_sha256": "d86a271cfd1722dfcef6c92b0a0d29203666ad5a717900e000d9be1256d5027e",
+      "width": 3,
+      "height": 1,
+      "channels": 3,
+      "pixel_sha256": "94c8c57c2242cb7abb243b5c06ab2fa24b44a577389de95e69ef7d046819a4e4"
+    },
+    {
+      "file": "palette-trns.png",
+      "note": "a palette with tRNS expands to 8-bit RGBA",
+      "file_sha256": "3ed64d4576ee4491966fa432983fcf398c7c0eac6ff053ff3dd3a2c20bf35bac",
+      "width": 3,
+      "height": 1,
+      "channels": 4,
+      "pixel_sha256": "fe5fd2b8f9ea2e1faf3f595b12b29581c344232862ee5bda2bc0e4b0c33ace1e"
+    }
+  ]
+}

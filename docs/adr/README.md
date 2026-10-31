@@ -23,3 +23,4 @@ decision's shape without reversing it. Format: Context, Decision, Alternatives, 
 | 0016 | Random numbers for the statistics contract: pinned ChaCha20, canonical order | accepted 2026-10-26 |
 | 0017 | After a rejected initial gate: a harder blind set and a second initial gate counted at two hypotheses | accepted 2026-10-30 |
 | 0018 | squint conforms to table-manners, the shared tool contract: `serve`, `describe`, `run.json`, shared locations and exit codes | accepted 2026-10-30 |
+| 0019 | The pack client stays in-house beside an rmcp server: the look at `rmcp`'s client (task 7.11) | accepted 2026-10-31 |

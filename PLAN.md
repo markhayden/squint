@@ -1374,11 +1374,12 @@ an `expect` with a wrong digest or a wrong width refuses the job and spends noth
 ### Task 7.3: Contract locations out
 
 **Description.** Every finding's location is mapped through the frames registry to the raw frame
-of its root image and written as a contract location: edge fractions at quarter-pixel precision,
-outward snapping documented, `parts` with `straddles_wrap` (a view footprint cut at the seam
-becomes two parts, up to 256 vertices each), kinds `bbox`, `polygon`, `whole_image` and `absent`
-(with a reason), the finding's words as `label`, its disposition, confidence and evidence kind,
-and `source` (`squint`, version, run id, item id). No crop, view or aligned frame leaves squint.
+of its root image, then through the inverse of its EXIF orientation to the file as stored, and
+written as a contract location: edge fractions at quarter-pixel precision, outward snapping
+documented, `parts` with `straddles_wrap` (a view footprint cut at the seam becomes two parts, up
+to 256 vertices each), kinds `bbox`, `polygon`, `whole_image` and `absent` (with a reason), the
+finding's words as `label`, its disposition and confidence, and `source` (`squint`, version, run
+id, item id). No crop, view or aligned frame leaves squint.
 
 **Acceptance.** Property tests: a box drawn in a crop or a view maps back onto the raw pixels it
 covers; a footprint across the seam becomes two parts on a `wrap` image and never on a `bounded`

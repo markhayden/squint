@@ -1,0 +1,43 @@
+{
+  "action": "source_fidelity",
+  "body": {
+    "agree": null,
+    "exit_code": 64,
+    "report": "/runs/invalid/report.json",
+    "verdict": null
+  },
+  "cache": "off",
+  "contract": "0.1.0",
+  "duration_ms": 0,
+  "error": {
+    "code": "input",
+    "reason": "input: candidate: the file has file_sha256 7fb7b6859319d2977ef89ed044dcda94c94401358f4ac71b60ef2613de300556; the expected reference has 0000000000000000000000000000000000000000000000000000000000000000",
+    "retryable": false
+  },
+  "finished": "2026-01-01T00:00:00.000Z",
+  "images": {
+    "in": [],
+    "out": []
+  },
+  "input_identity": "sha256:0044480ed9d5df04a49ce83fdcfc30957e7401e63e3cbede9b7beeb7bde159cc",
+  "locations": {
+    "found": [],
+    "used": []
+  },
+  "notes": [],
+  "run": {
+    "dir": "/runs/invalid",
+    "id": "invalid",
+    "resource": "squint://run/invalid/run.json"
+  },
+  "spend": {
+    "basis": "measured",
+    "usd": -0.0
+  },
+  "started": "2026-01-01T00:00:00.000Z",
+  "status": "invalid",
+  "tool": {
+    "name": "squint",
+    "version": "0.0.0"
+  }
+}

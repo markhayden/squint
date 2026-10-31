@@ -174,7 +174,8 @@ fn an_exhausted_provider_is_a_provider_error() {
 #[test]
 fn a_bad_image_is_a_resolve_error() {
     let (o, _) = run_case("resolve", "held.json", "empty.json", &[], "oversized.toml");
-    assert_eq!(o.exit_code, 3);
+    // An invalid request exits 64 whatever the policy (task 7.4).
+    assert_eq!(o.exit_code, 64);
     assert_eq!(error_class(&o), "resolve");
     assert_eq!(
         names(&events(&o.dir)),
@@ -333,4 +334,20 @@ fn a_cancel_before_the_first_turn_ends_in_cancelled_at_the_reserved_state() {
     let ev = events(&o.dir);
     assert_eq!(ev.last().unwrap()["data"]["state"], "reserved");
     assert_eq!(p.remaining(), 1);
+}
+
+/// Task 7.2: an image that is not the one the job expects is refused as `input` before anything
+/// else happens, so nothing is spent.
+#[test]
+fn an_expected_reference_that_does_not_match_is_input_before_anything_else() {
+    let (o, p) = run_case(
+        "expect",
+        "held.json",
+        "empty.json",
+        &[],
+        "expect-mismatch.toml",
+    );
+    assert_eq!(error_class(&o), "input");
+    assert_eq!(names(&events(&o.dir)), ["error"]);
+    assert_eq!(p.remaining(), 1, "the provider was never called");
 }

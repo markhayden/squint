@@ -19,6 +19,8 @@ fn every_key_in_the_spec_example_parses() {
     assert_eq!(config.rules.as_ref().unwrap().base, "source-fidelity");
     assert_eq!(config.images.max_long_edge, Some(1568));
     assert_eq!(config.provider.controls["effort"].as_str(), Some("high"));
+    assert_eq!(config.serve.concurrency, 2);
+    assert_eq!(config.serve.session_budget_usd, 5.0);
 }
 
 #[test]

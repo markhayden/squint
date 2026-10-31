@@ -141,6 +141,9 @@ pub struct Mapped {
     pub location: Location,
     /// True when the mapping fell partly outside the parent and was clipped.
     pub partial: bool,
+    /// When a view footprint crossed the panorama's seam: its pieces on both sides, for the
+    /// contract. `location` holds the one side the registry keeps.
+    pub seam_parts: Option<Vec<Vec<[f64; 2]>>>,
 }
 
 impl Mapped {
@@ -379,6 +382,7 @@ impl Registry {
         self.validate(loc)?;
         let mut current = loc.clone();
         let mut partial = false;
+        let mut seam_parts = None;
         // A view location names a view into its panorama: its root geometry is that view's
         // footprint on the frame it sits on.
         if current.kind == LocationKind::View {
@@ -397,6 +401,9 @@ impl Registry {
                 fov: None,
             };
             let (mapped, clipped) = sphere::map_through_view(&whole, &view, &current.frame)?;
+            if clipped {
+                seam_parts = sphere::seam_parts_through_view(&whole, &view)?;
+            }
             current = mapped;
             partial |= clipped;
         }
@@ -410,6 +417,7 @@ impl Registry {
                     return Ok(Mapped {
                         location: current,
                         partial,
+                        seam_parts,
                     });
                 }
                 Frame::Aligned { image, mapping, .. } => {
@@ -431,6 +439,7 @@ impl Registry {
                     };
                     partial |= clipped;
                     current = next;
+                    seam_parts = None;
                 }
                 Frame::Crop {
                     parent, mapping, ..
@@ -442,16 +451,25 @@ impl Registry {
                                 current.frame
                             )));
                         }
-                        Mapping::Bbox(m) => map_through_bbox(&current, m, parent)?,
-                        Mapping::View { yaw, pitch, fov } => sphere::map_through_view(
-                            &current,
-                            &sphere::View {
+                        Mapping::Bbox(m) => {
+                            seam_parts = None;
+                            map_through_bbox(&current, m, parent)?
+                        }
+                        Mapping::View { yaw, pitch, fov } => {
+                            let view = sphere::View {
                                 yaw: *yaw,
                                 pitch: *pitch,
                                 fov: *fov,
-                            },
-                            parent,
-                        )?,
+                            };
+                            let (next, clipped) =
+                                sphere::map_through_view(&current, &view, parent)?;
+                            seam_parts = if clipped {
+                                sphere::seam_parts_through_view(&current, &view)?
+                            } else {
+                                None
+                            };
+                            (next, clipped)
+                        }
                     };
                     partial |= clipped;
                     current = next;

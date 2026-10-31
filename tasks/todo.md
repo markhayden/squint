@@ -130,17 +130,22 @@ tag.
 - [x] M7 task list in PLAN.md (2026-10-30), written against v0.1.0
 - [x] Owner: table-manners v0.1.0 published to crates.io (2026-10-30)
 - [ ] Owner: name the shared playground program and how it installs; blocks 7.9
-- [ ] 7.1 The contract pinned
-- [ ] 7.2 Image references in and verified
-- [ ] 7.3 Contract locations out
-- [ ] 7.4 `run.json`, the result header and exit codes
-- [ ] 7.5 `squint describe --json`
-- [ ] 7.6 `estimate` for a check
-- [ ] 7.7a `squint serve`: the server, `describe` and `estimate`
-- [ ] 7.7b `check` over `serve`
-- [ ] 7.8 Progress, cancellation and runs as resources
-- [ ] 7.9 `squint playground`
-- [ ] 7.10 Conformance fixtures
-- [ ] 7.11 The MCP client on `rmcp` (bounded)
-- [ ] Contract v0.2 from what M7 finds, before rascal's conformance merges
+- [x] 7.1 The contract pinned (2026-10-30): `table-manners =0.1.0`, schemas copied and hash-checked under `schemas/contract/`, CI warns on a newer tag
+- [x] 7.2 Image references in and verified (2026-10-30): `expect` on job images, `error: input`, stored dimensions and the contract pixel digest; the twelve vectors reproduce
+- [x] 7.3 Contract locations out (2026-10-30): `contract::location`, the inverse EXIF orientation, quarter-pixel precision, seam footprints as two parts
+- [x] 7.4 `run.json`, the result header and exit codes (2026-10-30): written last and atomically on every surface; `invalid` exits 64; signals exit 130 and 143 for `check` and `eval run`
+- [x] 7.5 `squint describe --json` (2026-10-30): one action per use case and `estimate`, the vocabulary from squint's own types; argument errors exit 64
+- [x] 7.6 `estimate` for a check (2026-10-30): `squint estimate` from catalog prices with no credential, `--max-spend-usd` lowers the cap; every recorded replay spends within its estimate
+- [x] 7.7a `squint serve`: the server, `describe` and `estimate` (2026-10-30): rmcp `=3.8.0` at 2025-11-25 only; the independent client `squint_testkit::mcp_client`; a call's arguments become a job (`contract::job_from_call`)
+- [x] 7.7b `check` over `serve` (2026-10-30): one tool per use case, paths inside the client's roots and `[serve] roots`, the session budget as a shared ledger, calls serial by default
+- [x] 7.8 Progress, cancellation and runs as resources (2026-10-31): a journal observer drives progress, heartbeats every 5 s, a cancel leaves a `cancelled` run and no response, `squint://runs` and per-run resources, a cache hit costs nothing
+- [ ] 7.9 `squint playground` — blocked on the launcher agreement (wafflehouse H1: executable, `--tool` argv, install confirmation, host reuse); no launcher flags are invented before it
+- [x] 7.10 Conformance fixtures (2026-10-31): `fixtures/contract/squint/` generated and held by `contract_fixtures.rs`; copied to table-manners `fixtures/squint/` (`6025a06`), which validates them
+- [x] 7.11 The MCP client on `rmcp` (bounded) (2026-10-31): ADR 0019, the pack client stays in-house
+- [ ] Contract v0.2 from what M7 finds, before rascal's conformance merges; written up in table-manners `PROPOSALS.md`. Found so far:
+  - an image slot that takes a list (squint's `references`; v0.1 slots take one image)
+  - how a render command reports the URL it serves (wafflehouse brief, gap 1)
+  - MCP roots are deprecated by SEP-2577 after `2025-11-25`: the contract's path rule needs its replacement before any tool moves revision
+  - readiness: `describe` without a config, telling installed-but-unconfigured from unavailable (wafflehouse C1/S1.2)
+  - a provider's 401 or 403 is not retryable; squint maps every provider failure to `provider`, retryable (wafflehouse S1.4)
 - [ ] Checkpoint M7 → tag `m7`

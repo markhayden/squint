@@ -510,6 +510,7 @@ fn eval_run(args: &RunArgs) -> i32 {
         }
     };
     let cancel = std::sync::Arc::new(Cancel::new());
+    let signalled = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
     let signals = {
         let _guard = signals_runtime.enter();
         crate::install_signal_handlers()
@@ -517,6 +518,7 @@ fn eval_run(args: &RunArgs) -> i32 {
     signals_runtime.spawn(crate::cancel_on_signal(
         signals,
         std::sync::Arc::clone(&cancel),
+        std::sync::Arc::clone(&signalled),
     ));
     match runner::run(&plan, &factories, Some(&cancel)) {
         Ok(s) => {
@@ -539,7 +541,10 @@ fn eval_run(args: &RunArgs) -> i32 {
             );
             if s.cancelled {
                 eprintln!("squint: cancelled; run the same command again to resume");
-                squint_core::run::EXIT_ERROR
+                match signalled.load(std::sync::atomic::Ordering::SeqCst) {
+                    0 => squint_core::run::EXIT_ERROR,
+                    code => code,
+                }
             } else if s.budget_exhausted {
                 eprintln!(
                     "squint: the ${:.2} cap no longer covers the next decision's envelope; the run stopped there and holds no result for it. Resuming tries again; a larger cap is a new matrix and a new evaluation directory",

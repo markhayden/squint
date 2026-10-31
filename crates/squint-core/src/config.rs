@@ -41,6 +41,10 @@ pub struct Config {
     pub cache: CacheConfig,
     pub privacy: PrivacyConfig,
     pub output: OutputConfig,
+    /// `squint serve` only. Left out of the serialised config when it is the default, so a
+    /// decision's recorded config (and its cache key) does not change with server settings.
+    #[serde(default, skip_serializing_if = "ServeConfig::is_default")]
+    pub serve: ServeConfig,
     /// Values that came from `${VAR}` expansion; never serialised, redacted everywhere.
     #[serde(skip)]
     #[schemars(skip)]
@@ -286,6 +290,46 @@ pub struct OutputConfig {
     pub dir: PathBuf,
 }
 
+/// `[serve]`: the MCP server's own limits (table-manners 4.5, 10.1).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(deny_unknown_fields)]
+pub struct ServeConfig {
+    /// Calls served at once; serial by default.
+    #[serde(default = "d_concurrency")]
+    pub concurrency: u32,
+    /// Spend across every call one server process serves, in USD.
+    #[serde(default = "d_session_budget_usd")]
+    pub session_budget_usd: f64,
+    /// Directories an image path must sit inside, narrowing the client's MCP roots; empty means
+    /// the client's roots alone.
+    #[serde(default)]
+    pub roots: Vec<PathBuf>,
+}
+
+fn d_concurrency() -> u32 {
+    1
+}
+/// Ten checks at the default per-call cap.
+fn d_session_budget_usd() -> f64 {
+    10.0 * d_spend_cap_usd()
+}
+
+impl Default for ServeConfig {
+    fn default() -> Self {
+        ServeConfig {
+            concurrency: d_concurrency(),
+            session_budget_usd: d_session_budget_usd(),
+            roots: Vec::new(),
+        }
+    }
+}
+
+impl ServeConfig {
+    fn is_default(&self) -> bool {
+        *self == ServeConfig::default()
+    }
+}
+
 /// Environment variable names that may never be passed through to a tool pack, in addition to any
 /// name ending in `_KEY`, `_TOKEN` or `_SECRET`.
 pub const CREDENTIAL_ENV_NAMES: &[&str] = &[
@@ -311,6 +355,17 @@ pub fn is_credential_name(name: &str) -> bool {
 }
 
 impl Config {
+    /// Lowers the per-call spend cap to `max_usd` when that is lower; a call never raises it.
+    pub fn lower_spend_cap(&mut self, max_usd: f64) -> Result<()> {
+        if max_usd.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+            return Err(Error::Config(format!(
+                "max_spend_usd {max_usd} must be a positive amount"
+            )));
+        }
+        self.budget.spend_cap_usd = self.budget.spend_cap_usd.min(max_usd);
+        Ok(())
+    }
+
     /// Loads a config file with no overrides.
     pub fn load(path: &Path) -> Result<Config> {
         Config::load_with_overrides(path, &[])
@@ -392,6 +447,22 @@ impl Config {
             return Err(Error::Config(
                 "[budget] spend_cap_usd must be positive".into(),
             ));
+        }
+        if self.serve.concurrency == 0 {
+            return Err(Error::Config(
+                "[serve] concurrency must be at least 1".into(),
+            ));
+        }
+        if self.serve.session_budget_usd.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+            return Err(Error::Config(
+                "[serve] session_budget_usd must be positive".into(),
+            ));
+        }
+        if let Some(root) = self.serve.roots.iter().find(|r| !r.is_absolute()) {
+            return Err(Error::Config(format!(
+                "[serve] roots: {} is not absolute",
+                root.display()
+            )));
         }
         Ok(())
     }
@@ -509,6 +580,23 @@ mod tests {
 
     fn no_env(_: &str) -> Option<String> {
         None
+    }
+
+    /// A call may lower the configured cap and never raise it; a cap must stay positive
+    /// (table-manners 4.5).
+    #[test]
+    fn a_spend_cap_is_lowered_never_raised() {
+        let text = crate::fixture("config/minimal.toml");
+        let mut config = Config::parse(&text, &[], &no_env).expect("parses");
+        let configured = config.budget.spend_cap_usd;
+        config.lower_spend_cap(configured * 10.0).unwrap();
+        assert_eq!(config.budget.spend_cap_usd, configured);
+        config.lower_spend_cap(0.01).unwrap();
+        assert_eq!(config.budget.spend_cap_usd, 0.01);
+        for bad in [0.0, -1.0, f64::NAN] {
+            assert!(matches!(config.lower_spend_cap(bad), Err(Error::Config(_))));
+        }
+        assert_eq!(config.budget.spend_cap_usd, 0.01);
     }
 
     #[test]

@@ -2,8 +2,10 @@
 //! crates.
 
 mod catalog;
+mod describe;
 mod eval;
 mod report;
+mod serve;
 mod sets;
 mod viewer;
 
@@ -46,6 +48,12 @@ enum Command {
     Catalog(catalog::CatalogArgs),
     /// Evaluation sets: check, fetch images, seal and verify a seal.
     Sets(sets::SetsArgs),
+    /// Print the description document of the waffle tools contract: actions, inputs, cost.
+    Describe(describe::DescribeArgs),
+    /// Print the worst-case cost of one check and whether the cap covers it; nothing is sent.
+    Estimate(JobArgs),
+    /// Serve the contract's actions over MCP on stdio (protocol 2025-11-25).
+    Serve(serve::ServeArgs),
 }
 
 #[derive(clap::Args)]
@@ -118,6 +126,27 @@ struct RulesShowArgs {
 
 #[derive(clap::Args)]
 struct CheckArgs {
+    #[command(flatten)]
+    input: JobArgs,
+    /// Output directory for run directories; overrides `[output] dir`.
+    #[arg(long)]
+    out: Option<PathBuf>,
+    /// Resolve the rules and print the Obligations section, the instances and the checklist
+    /// without calling any provider.
+    #[arg(long)]
+    dry_run: bool,
+    /// Replay a recorded conversation (a directory of exchanges) instead of calling the provider;
+    /// no credential is needed and nothing leaves the machine.
+    #[arg(long, value_name = "DIR", conflicts_with = "record")]
+    replay: Option<PathBuf>,
+    /// Record every exchange with the provider into this directory, secrets stripped.
+    #[arg(long, value_name = "DIR")]
+    record: Option<PathBuf>,
+}
+
+/// What `check` and `estimate` share: the config and the job.
+#[derive(clap::Args)]
+struct JobArgs {
     /// Path to the config file.
     #[arg(long)]
     config: PathBuf,
@@ -142,20 +171,9 @@ struct CheckArgs {
     /// Shorthand job: the use case, for example `source-fidelity`.
     #[arg(long, requires = "candidate")]
     use_case: Option<String>,
-    /// Output directory for run directories; overrides `[output] dir`.
-    #[arg(long)]
-    out: Option<PathBuf>,
-    /// Resolve the rules and print the Obligations section, the instances and the checklist
-    /// without calling any provider.
-    #[arg(long)]
-    dry_run: bool,
-    /// Replay a recorded conversation (a directory of exchanges) instead of calling the provider;
-    /// no credential is needed and nothing leaves the machine.
-    #[arg(long, value_name = "DIR", conflicts_with = "record")]
-    replay: Option<PathBuf>,
-    /// Record every exchange with the provider into this directory, secrets stripped.
-    #[arg(long, value_name = "DIR")]
-    record: Option<PathBuf>,
+    /// Lower the configured per-call spend cap for this check; it never raises it.
+    #[arg(long, value_name = "USD")]
+    max_spend_usd: Option<f64>,
     /// Scripted fake provider responses, for tests and debugging only.
     #[cfg(feature = "testkit")]
     #[arg(long)]
@@ -167,7 +185,16 @@ struct CheckArgs {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    // Argument errors exit 64 like every other usage error (table-manners 6); help and the
+    // version print to stdout and exit 0.
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            let code = if e.use_stderr() { EXIT_USAGE } else { 0 };
+            let _ = e.print();
+            std::process::exit(code);
+        }
+    };
     let code = match cli.command {
         None => {
             eprintln!("squint {VERSION}: no command given; try --help");
@@ -187,12 +214,15 @@ fn main() {
         Some(Command::Eval(args)) => eval::run(&args),
         Some(Command::Catalog(args)) => catalog::run(&args),
         Some(Command::Sets(args)) => sets::run(&args),
+        Some(Command::Describe(args)) => describe::run(&args),
+        Some(Command::Estimate(args)) => estimate(&args),
+        Some(Command::Serve(args)) => serve::run(&args),
     };
     std::process::exit(code);
 }
 
 fn check(args: &CheckArgs) -> i32 {
-    let mut config = match Config::load_with_overrides(&args.config, &args.overrides) {
+    let mut config = match load_config(&args.input) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("squint: {e}");
@@ -215,14 +245,14 @@ fn check(args: &CheckArgs) -> i32 {
         eprintln!("squint: {e}");
         return EXIT_USAGE;
     }
-    let job = match load_job(args) {
+    let job = match load_job(&args.input) {
         Ok(j) => j,
         Err(e) => {
             eprintln!("squint: {e}");
             return EXIT_USAGE;
         }
     };
-    let tools = match build_tools(args, &config) {
+    let tools = match build_tools(&args.input, &config) {
         Ok(t) => t,
         Err(message) => {
             eprintln!("squint: {message}");
@@ -291,13 +321,19 @@ fn check(args: &CheckArgs) -> i32 {
         }
     };
     let cancel = std::sync::Arc::new(Cancel::new());
+    // The exit code of the signal that cancelled the run, 0 until one arrives.
+    let signalled = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
     // The handlers are registered here, before the run starts, so a signal that lands during the
     // run's first synchronous work is caught rather than taking the process down.
     let signals = {
         let _guard = runtime.enter();
         install_signal_handlers()
     };
-    runtime.spawn(cancel_on_signal(signals, std::sync::Arc::clone(&cancel)));
+    runtime.spawn(cancel_on_signal(
+        signals,
+        std::sync::Arc::clone(&cancel),
+        std::sync::Arc::clone(&signalled),
+    ));
     let services = Services::new(provider.as_ref(), &tools).with_cancel(&cancel);
     let outcome = runtime.block_on(squint_core::run::check(
         &config, &job, job_base, &services, &out_dir, VERSION,
@@ -325,7 +361,11 @@ fn check(args: &CheckArgs) -> i32 {
                 );
             }
             eprintln!("decision: {}", o.dir.display());
-            o.exit_code
+            match signalled.load(std::sync::atomic::Ordering::SeqCst) {
+                0 => o.exit_code,
+                code if o.decision.verdict.is_none() => code,
+                _ => o.exit_code,
+            }
         }
         Err(e) => {
             eprintln!("squint: {}", redacted(&e.to_string(), &config));
@@ -356,27 +396,37 @@ fn install_signal_handlers() -> Signals {
 #[cfg(not(unix))]
 fn install_signal_handlers() -> Signals {}
 
-/// SIGINT or SIGTERM cancels the run; it appends `cancelled` and exits 3.
-async fn cancel_on_signal(signals: Signals, cancel: std::sync::Arc<Cancel>) {
+/// The exit code of a run cancelled by SIGINT (table-manners 6).
+const EXIT_SIGINT: i32 = 130;
+/// The exit code of a run cancelled by SIGTERM.
+const EXIT_SIGTERM: i32 = 143;
+
+/// SIGINT or SIGTERM cancels the run; it appends `cancelled`, and the process exits 130 or 143.
+async fn cancel_on_signal(
+    signals: Signals,
+    cancel: std::sync::Arc<Cancel>,
+    signalled: std::sync::Arc<std::sync::atomic::AtomicI32>,
+) {
     #[cfg(unix)]
-    {
-        match signals {
-            Some((mut int, mut term)) => {
-                tokio::select! {
-                    _ = int.recv() => {}
-                    _ = term.recv() => {}
-                }
-            }
-            None => {
-                let _ = tokio::signal::ctrl_c().await;
+    let code = match signals {
+        Some((mut int, mut term)) => {
+            tokio::select! {
+                _ = int.recv() => EXIT_SIGINT,
+                _ = term.recv() => EXIT_SIGTERM,
             }
         }
-    }
+        None => {
+            let _ = tokio::signal::ctrl_c().await;
+            EXIT_SIGINT
+        }
+    };
     #[cfg(not(unix))]
-    {
+    let code = {
         let _ = signals;
         let _ = tokio::signal::ctrl_c().await;
-    }
+        EXIT_SIGINT
+    };
+    signalled.store(code, std::sync::atomic::Ordering::SeqCst);
     cancel.cancel();
 }
 
@@ -391,7 +441,86 @@ fn redacted(text: &str, config: &Config) -> String {
     out
 }
 
-fn load_job(args: &CheckArgs) -> Result<Job, String> {
+/// `squint estimate`: the envelope `check` would reserve, priced from the catalog (or, in a
+/// testkit build, the scripted provider); nothing is sent and no credential is read.
+fn estimate(args: &JobArgs) -> i32 {
+    let usage = |e: String| {
+        eprintln!("squint: {e}");
+        EXIT_USAGE
+    };
+    let config = match load_config(args) {
+        Ok(c) => c,
+        Err(e) => return usage(e),
+    };
+    let job = match load_job(args) {
+        Ok(j) => j,
+        Err(e) => return usage(e),
+    };
+    let tools = match build_tools(args, &config) {
+        Ok(t) => t,
+        Err(e) => return usage(e),
+    };
+    let catalog = match squint_providers::catalog::Catalog::shipped() {
+        Ok(c) => c,
+        Err(e) => return usage(e.to_string()),
+    };
+    #[cfg(feature = "testkit")]
+    let scripted = match args
+        .provider_script
+        .as_deref()
+        .map(squint_testkit::ScriptedProvider::from_path)
+        .transpose()
+    {
+        Ok(p) => p,
+        Err(e) => return usage(e.to_string()),
+    };
+    #[cfg(feature = "testkit")]
+    let scripted_pricing = scripted.as_ref().and_then(|p| p.pricing());
+    #[cfg(not(feature = "testkit"))]
+    let scripted_pricing: Option<&dyn squint_core::ledger::Pricing> = None;
+    let pricing: &dyn squint_core::ledger::Pricing = match scripted_pricing {
+        Some(p) => p,
+        None => match catalog.model(&config.provider.model) {
+            Some(model) => model,
+            None => {
+                return usage(format!(
+                    "model {:?} is not in the catalog",
+                    config.provider.model
+                ));
+            }
+        },
+    };
+    match squint_core::run::envelope(&config, &job, Path::new("."), &tools, pricing) {
+        Ok(envelope) => {
+            let cap = config.budget.spend_cap_usd;
+            let out = serde_json::json!({
+                "use_case": job.use_case,
+                "model": config.provider.model,
+                "envelope_usd": envelope.usd,
+                "cap_usd": cap,
+                "fits": envelope.usd <= cap,
+                "decision_runs": envelope.decision_runs,
+                "requests": envelope.requests.len(),
+                "attempts": envelope.attempts,
+            });
+            println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+            0
+        }
+        Err(e) => usage(e.to_string()),
+    }
+}
+
+/// The config with `--set` overrides and a `--max-spend-usd` that lowers the cap.
+fn load_config(args: &JobArgs) -> Result<Config, String> {
+    let mut config =
+        Config::load_with_overrides(&args.config, &args.overrides).map_err(|e| e.to_string())?;
+    if let Some(max) = args.max_spend_usd {
+        config.lower_spend_cap(max).map_err(|e| e.to_string())?;
+    }
+    Ok(config)
+}
+
+fn load_job(args: &JobArgs) -> Result<Job, String> {
     match (&args.job, &args.candidate) {
         (Some(path), None) => Job::load(path).map_err(|e| e.to_string()),
         (None, Some(candidate)) => {
@@ -434,7 +563,7 @@ fn select_provider(args: &CheckArgs, config: &mut Config) -> Result<Box<dyn Prov
         replay: args.replay.as_deref(),
         record: args.record.as_deref(),
         #[cfg(feature = "testkit")]
-        provider_script: args.provider_script.as_deref(),
+        provider_script: args.input.provider_script.as_deref(),
     };
     provider_for(config, &opts)
 }
@@ -713,7 +842,7 @@ fn tools_list(args: &ToolsListArgs) -> i32 {
 }
 
 /// The tools available to this build, then narrowed to the config's enabled list.
-fn build_tools(args: &CheckArgs, config: &Config) -> Result<ToolRegistry, String> {
+fn build_tools(args: &JobArgs, config: &Config) -> Result<ToolRegistry, String> {
     #[cfg(feature = "testkit")]
     let script = args.tool_script.as_deref();
     #[cfg(not(feature = "testkit"))]
