@@ -133,7 +133,7 @@ tag.
 - [x] 7.1 The contract pinned (2026-10-30): `table-manners =0.1.0`, schemas copied and hash-checked under `schemas/contract/`, CI warns on a newer tag
 - [x] 7.2 Image references in and verified (2026-10-30): `expect` on job images, `error: input`, stored dimensions and the contract pixel digest; the twelve vectors reproduce
 - [x] 7.3 Contract locations out (2026-10-30): `contract::location`, the inverse EXIF orientation, quarter-pixel precision, seam footprints as two parts
-- [ ] 7.4 `run.json`, the result header and exit codes
+- [x] 7.4 `run.json`, the result header and exit codes (2026-10-30): written last and atomically on every surface; `invalid` exits 64; signals exit 130 and 143 for `check` and `eval run`
 - [ ] 7.5 `squint describe --json`
 - [ ] 7.6 `estimate` for a check
 - [ ] 7.7a `squint serve`: the server, `describe` and `estimate`

@@ -631,12 +631,13 @@ written and fsynced before the event is appended. Artifacts in `artifacts/` by c
 - every image sent to the model, exactly as sent, and every image a tool returned;
 - every structured tool result in full.
 
-SIGINT or SIGTERM during a run appends `cancelled` with the state reached and exits 3 (130 and
-143 from M7, "External interface").
+SIGINT or SIGTERM during a run appends `cancelled` with the state reached and exits 130 or 143
+("External interface").
 
 A decision directory (`decision-<unix ms>-<pid>/`) holds `decision.json` (the header: everything
 the report needs that no run journal carries, including the planned envelope; written before the
-first run), one `run-<n>/` per run with its journal, artifacts and frames, and `report.json`.
+first run), one `run-<n>/` per run with its journal, artifacts and frames, `report.json`, and
+last `run.json`, the contract's result (see "External interface").
 
 The **report** (`report.json`, `report_version` pinned) is derived from the header and the
 journals at the end, or by `squint report rebuild` from a partial journal, whose terminal status
@@ -1436,11 +1437,16 @@ section says what squint does with them.
   `squint://run/<id>/run.json`, `…/report.json` and `…/journal` for every decision the server ran,
   readable after a timeout or a dropped connection.
 - **`run.json`**: written last and atomically (a temporary name, then a rename) into every
-  decision directory by `check` on every surface: the
+  decision directory by `check` on every surface, cache hits and cancelled decisions included: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
-  timestamps and duration, input identity, measured spend, cache hit, image references and
-  locations with roles, notes for repairs and tool refusals) and squint's body (verdict, policy
-  outcome, findings, the report's path). A failed image is `completed` with verdict `fail`.
+  timestamps and duration, input identity, measured spend, cache, the images taken in with their
+  slots and roles, every finding's location, notes for image warnings and repairs) and squint's
+  body (verdict, exit code, whether two runs agreed, the report's path). A failed image is
+  `completed` with verdict `fail`. squint's error classes map to the contract in one table
+  (`contract::status_of`): `resolve` and `auth` are `invalid` with code `usage`; `input` and
+  `image_limit` are `invalid` with code `input`; a provider or model-output failure is a
+  retryable `error` with code `provider`; `tool` is `tool_process`; `budget`, `io` and anything
+  else (`internal`) are not retryable; `cancelled` is its own status.
 - **`squint describe --json`**: the contract's description document with `profiles: ["images"]`:
   one action per use case with its image and location slots and parameters as JSON Schemas, every
   disposition, confidence and evidence word squint emits (`vocabulary`), the renders (`report view`, `report export`),
@@ -1508,8 +1514,9 @@ squint catalog show claude-opus-5-5 [--json]
 squint catalog list [--json]
 ```
 
-Exit codes for `check`: 0 pass, 1 fail, 2 unsure, 3 error or cancelled, 64 usage error, after
-`[policy]` is applied.
+Exit codes for `check`: 0 pass, 1 fail, 2 unsure, 3 error, after `[policy]` is applied; 64 for a
+usage error or an `invalid` request (a job that does not resolve, an image that is not the one
+named) whatever the policy; 130 on SIGINT and 143 on SIGTERM.
 
 ## Project structure
 

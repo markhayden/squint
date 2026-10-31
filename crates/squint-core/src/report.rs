@@ -102,6 +102,20 @@ impl DecisionHeader {
     }
 }
 
+/// The exit code under the policy, except that an `invalid` request (the contract's status for a
+/// job that does not resolve or an image that is not the one named) exits 64 whatever the policy.
+fn exit_code(verdict: Option<Verdict>, policy: &PolicyConfig, runs: &[RunReport]) -> i32 {
+    let invalid = verdict.is_none()
+        && runs.iter().find_map(|r| r.error.as_ref()).is_some_and(|e| {
+            crate::contract::status_of(&e.class).0 == table_manners::Status::Invalid
+        });
+    if invalid {
+        crate::contract::EXIT_INVALID
+    } else {
+        decision::exit_code(verdict, policy)
+    }
+}
+
 /// The decision-level report.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -598,7 +612,7 @@ impl Report {
             report.cache = header.cache;
             report.policy = header.policy;
             report.config = header.config;
-            report.exit_code = decision::exit_code(report.verdict, &report.policy);
+            report.exit_code = exit_code(report.verdict, &report.policy, &report.runs);
             return Ok(report);
         }
         let mut runs = Vec::new();
@@ -637,7 +651,7 @@ impl Report {
                 },
             }
         };
-        let exit_code = decision::exit_code(decision.verdict, &header.policy);
+        let exit_code = exit_code(decision.verdict, &header.policy, &runs);
         let spent_usd: f64 = runs
             .iter()
             .flat_map(|r| r.turns.iter())

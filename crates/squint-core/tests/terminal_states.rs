@@ -174,7 +174,8 @@ fn an_exhausted_provider_is_a_provider_error() {
 #[test]
 fn a_bad_image_is_a_resolve_error() {
     let (o, _) = run_case("resolve", "held.json", "empty.json", &[], "oversized.toml");
-    assert_eq!(o.exit_code, 3);
+    // An invalid request exits 64 whatever the policy (task 7.4).
+    assert_eq!(o.exit_code, 64);
     assert_eq!(error_class(&o), "resolve");
     assert_eq!(
         names(&events(&o.dir)),

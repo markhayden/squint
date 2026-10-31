@@ -146,6 +146,7 @@ pub async fn check(
     if !(1..=2).contains(&config.budget.decision_runs) {
         return Err(Error::Config("decision_runs must be 1 or 2".into()));
     }
+    let started_ms = crate::contract::now_ms();
     let dir = new_decision_dir(out_dir)?;
     let setup = setup(config, job, job_base, tools);
 
@@ -205,6 +206,10 @@ pub async fn check(
         header.write(&dir)?;
         let report = Report::rebuild(&dir)?;
         report.write(&dir)?;
+        crate::contract::write_run_result(
+            &dir,
+            &crate::contract::run_result(&report, &dir, started_ms),
+        )?;
         return Ok(outcome(dir, report));
     }
 
@@ -255,7 +260,24 @@ pub async fn check(
             s.settle(closing.envelope_usd, closing.spent_usd);
         }
     }
-    runs_result?;
+    if let Err(e) = runs_result {
+        // The run could not finish its own record; the directory still ends with a result that
+        // says so, as far as the journals let the report be rebuilt.
+        if let Ok(report) = Report::rebuild(&dir) {
+            let mut result = crate::contract::run_result(&report, &dir, started_ms);
+            let (status, code) = crate::contract::status_of(e.class());
+            if let Some((code, retryable)) = code {
+                result.status = status;
+                result.error = Some(table_manners::ErrorInfo {
+                    code,
+                    retryable,
+                    reason: e.to_string(),
+                });
+            }
+            let _ = crate::contract::write_run_result(&dir, &result);
+        }
+        return Err(e);
+    }
 
     let report = Report::rebuild(&dir)?;
     report.write(&dir)?;
@@ -267,6 +289,11 @@ pub async fn check(
     {
         cache.store(key, &dir)?;
     }
+    // Last: the contract's result, once everything else in the directory is written.
+    crate::contract::write_run_result(
+        &dir,
+        &crate::contract::run_result(&report, &dir, started_ms),
+    )?;
     Ok(outcome(dir, report))
 }
 

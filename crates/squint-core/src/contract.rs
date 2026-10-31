@@ -10,10 +10,17 @@ use table_manners::images::{
     Projection as ContractProjection, Source, Topology,
 };
 
+use std::path::Path;
+
+use table_manners::images::{ImageTaken, Images, Locations};
+use table_manners::{
+    CONTRACT_VERSION, Cache, ErrorCode, ErrorInfo, Run, RunResult, Spend, SpendBasis, Status, Tool,
+};
+
 use crate::frames::LocationKind;
 use crate::image::{CanonicalImage, hex};
-use crate::job::Projection;
-use crate::report::RootLocation;
+use crate::job::{Projection, Role};
+use crate::report::{Report, RootLocation};
 
 /// The contract's reference for a loaded image (table-manners 8): the file's digest and its
 /// dimensions as stored, the projection, and the topology that follows from it (squint's
@@ -180,4 +187,238 @@ impl Grid {
                 .collect(),
         })
     }
+}
+
+/// The file every decision directory ends with: the contract's result (table-manners 2).
+pub const RUN_FILE: &str = "run.json";
+
+/// How a squint error class reads in the contract (table-manners 2.1, 2.2): the status, and for
+/// `invalid` and `error` the code and whether an identical retry may succeed. A request that
+/// could not be resolved (the job, the config, a credential) or an image that is not the one
+/// named is the caller's to fix; a model or provider failure may pass on a retry.
+pub fn status_of(class: &str) -> (Status, Option<(ErrorCode, bool)>) {
+    match class {
+        "cancelled" => (Status::Cancelled, None),
+        "input" | "image_limit" => (Status::Invalid, Some((ErrorCode::Input, false))),
+        "resolve" | "auth" => (Status::Invalid, Some((ErrorCode::Usage, false))),
+        "provider" | "submission_invalid" | "no_submission" | "model_output" => {
+            (Status::Error, Some((ErrorCode::Provider, true)))
+        }
+        "tool" => (Status::Error, Some((ErrorCode::ToolProcess, false))),
+        "budget" => (Status::Error, Some((ErrorCode::Budget, false))),
+        "io" => (Status::Error, Some((ErrorCode::Io, false))),
+        _ => (Status::Error, Some((ErrorCode::Internal, false))),
+    }
+}
+
+/// The exit code of an `invalid` request, whatever the error policy says: it is a bad request,
+/// not a judgement (table-manners 6).
+pub const EXIT_INVALID: i32 = 64;
+
+/// The contract's result for a decision directory, from its report: the header the contract owns
+/// and squint's body (the verdict, the exit code and the report's path). `started_ms` is when the
+/// decision began; the result is finished now.
+pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
+    let finished_ms = now_ms();
+    let id = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let first_error = report.runs.iter().find_map(|r| {
+        if r.terminal == crate::report::TERMINAL_CANCELLED {
+            Some(("cancelled".to_string(), String::new()))
+        } else {
+            r.error
+                .as_ref()
+                .map(|e| (e.class.clone(), e.message.clone()))
+        }
+    });
+    let (status, error) = match (&report.verdict, &first_error) {
+        (Some(_), _) => (Status::Completed, None),
+        (None, Some((class, message))) => {
+            let (status, code) = status_of(class);
+            let error = code.map(|(code, retryable)| ErrorInfo {
+                code,
+                retryable,
+                reason: message.clone(),
+            });
+            (status, error)
+        }
+        (None, None) => (
+            Status::Error,
+            Some(ErrorInfo {
+                code: ErrorCode::Internal,
+                retryable: false,
+                reason: "the decision ended without a verdict or an error".into(),
+            }),
+        ),
+    };
+    let images: &[CanonicalImage] = report.runs.first().map_or(&[], |r| &r.images);
+    let found = report
+        .runs
+        .iter()
+        .find(|r| r.verdict.is_some())
+        .map(|run| {
+            run.findings
+                .iter()
+                .filter_map(|finding| {
+                    let root = finding.root.as_ref()?;
+                    let image = images.iter().find(|i| i.id == root.image)?;
+                    location(
+                        image,
+                        root,
+                        &FindingWords {
+                            label: &finding.reason,
+                            disposition: &word(&finding.disposition),
+                            confidence: &word(&finding.confidence),
+                        },
+                        &id,
+                        &finding.obligation_ids.join(","),
+                    )
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let mut notes: Vec<String> = images.iter().flat_map(|i| i.warnings.clone()).collect();
+    for run in &report.runs {
+        for repair in &run.repairs {
+            notes.push(format!(
+                "run {}: repair after turn {} ({}, {})",
+                run.run, repair.after_turn, repair.reason, repair.form
+            ));
+        }
+    }
+    let cache = match report.cache.status.as_str() {
+        "hit" => Cache::Hit,
+        "miss" => Cache::Miss,
+        _ => Cache::Off,
+    };
+    let mut body = serde_json::Map::new();
+    body.insert("verdict".into(), serde_json::json!(report.verdict));
+    body.insert("exit_code".into(), report.exit_code.into());
+    body.insert("agree".into(), serde_json::json!(report.decision.agree));
+    body.insert(
+        "report".into(),
+        dir.join(crate::report::REPORT_FILE)
+            .to_string_lossy()
+            .into_owned()
+            .into(),
+    );
+    RunResult {
+        contract: CONTRACT_VERSION.into(),
+        tool: Tool {
+            name: "squint".into(),
+            version: report.harness_version.clone(),
+        },
+        action: "check".into(),
+        run: Run {
+            resource: format!("squint://run/{id}/{RUN_FILE}"),
+            id,
+            dir: Some(dir.to_string_lossy().into_owned()),
+        },
+        status,
+        error,
+        started: rfc3339(started_ms),
+        finished: rfc3339(finished_ms),
+        duration_ms: finished_ms.saturating_sub(started_ms),
+        input_identity: input_identity(report, images),
+        spend: Spend {
+            usd: report.cost.spent_usd,
+            basis: SpendBasis::Measured,
+        },
+        cache,
+        images: Some(Images {
+            taken: images
+                .iter()
+                .map(|i| ImageTaken {
+                    slot: role_word(i.role).into(),
+                    role: role_word(i.role).into(),
+                    image: image_reference(i),
+                })
+                .collect(),
+            out: Vec::new(),
+        }),
+        locations: Some(Locations {
+            used: Vec::new(),
+            found,
+        }),
+        notes,
+        body,
+    }
+}
+
+/// Writes the result into the decision directory atomically: to a temporary name beside it, then
+/// renamed, so a reader never sees half of one (table-manners 2).
+pub fn write_run_result(dir: &Path, result: &RunResult) -> crate::Result<()> {
+    let tmp = dir.join(format!(".{RUN_FILE}.tmp"));
+    let mut text = serde_json::to_string_pretty(result)?;
+    text.push('\n');
+    std::fs::write(&tmp, text)?;
+    std::fs::rename(&tmp, dir.join(RUN_FILE))?;
+    Ok(())
+}
+
+fn role_word(role: Role) -> &'static str {
+    match role {
+        Role::Candidate => "candidate",
+        Role::Source => "source",
+        Role::Reference => "reference",
+    }
+}
+
+/// A serde enum's word (`violated`, `confident`).
+fn word<T: serde::Serialize>(value: &T) -> String {
+    serde_json::to_value(value)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default()
+}
+
+/// What this decision ran on: the images' digests, the job, the resolved rules, the redacted
+/// config, the provider, the tools and the prompt and harness versions.
+fn input_identity(report: &Report, images: &[CanonicalImage]) -> String {
+    let identity = serde_json::json!({
+        "images": images.iter().map(|i| (&i.id, &i.sha256)).collect::<Vec<_>>(),
+        "job": report.job,
+        "rules": report.rules,
+        "config": report.config,
+        "provider": report.provider,
+        "tools": report.tools,
+        "prompt_version": report.prompt_version,
+        "harness_version": report.harness_version,
+    });
+    format!(
+        "sha256:{}",
+        hex(&Sha256::digest(identity.to_string().as_bytes()))
+    )
+}
+
+pub(crate) fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// Milliseconds since the epoch as RFC 3339 in UTC (`2026-10-30T19:09:42.118Z`).
+pub fn rfc3339(unix_ms: u64) -> String {
+    let secs = unix_ms / 1000;
+    let (days, rem) = (secs / 86_400, secs % 86_400);
+    // Civil from days (Howard Hinnant's algorithm), proleptic Gregorian.
+    let z = days as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!(
+        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
+        rem / 3600,
+        rem % 3600 / 60,
+        rem % 60,
+        unix_ms % 1000
+    )
 }

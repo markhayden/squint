@@ -1,5 +1,6 @@
 //! Task 1.10a CLI scenario: a running `check` killed with SIGTERM (and SIGINT) ends its journal in
-//! `cancelled` with the state reached and exits 3.
+//! `cancelled` with the state reached; since task 7.4 it exits 143 (130) and leaves a `run.json`
+//! with status `cancelled`.
 #![cfg(all(feature = "testkit", unix))]
 #![allow(clippy::unwrap_used)]
 
@@ -24,7 +25,7 @@ fn journal_in(out: &Path) -> Option<PathBuf> {
     j.exists().then_some(j)
 }
 
-fn killed_with(signal: &str) {
+fn killed_with(signal: &str, code: i32) {
     let out =
         std::env::temp_dir().join(format!("squint-cancel-cli-{signal}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&out);
@@ -70,7 +71,7 @@ fn killed_with(signal: &str) {
     let output = child.wait_with_output().unwrap();
     assert_eq!(
         output.status.code(),
-        Some(3),
+        Some(code),
         "{}",
         String::from_utf8_lossy(&output.stderr)
     );
@@ -84,14 +85,28 @@ fn killed_with(signal: &str) {
     let last = lines.last().unwrap();
     assert_eq!(last["event"], "cancelled");
     assert_eq!(last["data"]["state"], "retry");
+    let decision = journal_in(&out).unwrap();
+    let run: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(
+            decision
+                .parent()
+                .unwrap()
+                .parent()
+                .unwrap()
+                .join("run.json"),
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(run["status"], "cancelled");
 }
 
 #[test]
 fn sigterm_ends_the_journal_in_cancelled() {
-    killed_with("TERM");
+    killed_with("TERM", 143);
 }
 
 #[test]
 fn sigint_ends_the_journal_in_cancelled() {
-    killed_with("INT");
+    killed_with("INT", 130);
 }

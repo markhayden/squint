@@ -67,7 +67,8 @@ fn rebuild_of_a_cancelled_run_then_prune() {
             .success()
     );
     let output = child.wait_with_output().unwrap();
-    assert_eq!(output.status.code(), Some(3));
+    // SIGTERM exits 143 (task 7.4).
+    assert_eq!(output.status.code(), Some(143));
     let decision = decision_in(&out).unwrap();
 
     // Rebuild from the journal, as if the written report were lost.

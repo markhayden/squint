@@ -291,13 +291,19 @@ fn check(args: &CheckArgs) -> i32 {
         }
     };
     let cancel = std::sync::Arc::new(Cancel::new());
+    // The exit code of the signal that cancelled the run, 0 until one arrives.
+    let signalled = std::sync::Arc::new(std::sync::atomic::AtomicI32::new(0));
     // The handlers are registered here, before the run starts, so a signal that lands during the
     // run's first synchronous work is caught rather than taking the process down.
     let signals = {
         let _guard = runtime.enter();
         install_signal_handlers()
     };
-    runtime.spawn(cancel_on_signal(signals, std::sync::Arc::clone(&cancel)));
+    runtime.spawn(cancel_on_signal(
+        signals,
+        std::sync::Arc::clone(&cancel),
+        std::sync::Arc::clone(&signalled),
+    ));
     let services = Services::new(provider.as_ref(), &tools).with_cancel(&cancel);
     let outcome = runtime.block_on(squint_core::run::check(
         &config, &job, job_base, &services, &out_dir, VERSION,
@@ -325,7 +331,11 @@ fn check(args: &CheckArgs) -> i32 {
                 );
             }
             eprintln!("decision: {}", o.dir.display());
-            o.exit_code
+            match signalled.load(std::sync::atomic::Ordering::SeqCst) {
+                0 => o.exit_code,
+                code if o.decision.verdict.is_none() => code,
+                _ => o.exit_code,
+            }
         }
         Err(e) => {
             eprintln!("squint: {}", redacted(&e.to_string(), &config));
@@ -356,27 +366,37 @@ fn install_signal_handlers() -> Signals {
 #[cfg(not(unix))]
 fn install_signal_handlers() -> Signals {}
 
-/// SIGINT or SIGTERM cancels the run; it appends `cancelled` and exits 3.
-async fn cancel_on_signal(signals: Signals, cancel: std::sync::Arc<Cancel>) {
+/// The exit code of a run cancelled by SIGINT (table-manners 6).
+const EXIT_SIGINT: i32 = 130;
+/// The exit code of a run cancelled by SIGTERM.
+const EXIT_SIGTERM: i32 = 143;
+
+/// SIGINT or SIGTERM cancels the run; it appends `cancelled`, and the process exits 130 or 143.
+async fn cancel_on_signal(
+    signals: Signals,
+    cancel: std::sync::Arc<Cancel>,
+    signalled: std::sync::Arc<std::sync::atomic::AtomicI32>,
+) {
     #[cfg(unix)]
-    {
-        match signals {
-            Some((mut int, mut term)) => {
-                tokio::select! {
-                    _ = int.recv() => {}
-                    _ = term.recv() => {}
-                }
-            }
-            None => {
-                let _ = tokio::signal::ctrl_c().await;
+    let code = match signals {
+        Some((mut int, mut term)) => {
+            tokio::select! {
+                _ = int.recv() => EXIT_SIGINT,
+                _ = term.recv() => EXIT_SIGTERM,
             }
         }
-    }
+        None => {
+            let _ = tokio::signal::ctrl_c().await;
+            EXIT_SIGINT
+        }
+    };
     #[cfg(not(unix))]
-    {
+    let code = {
         let _ = signals;
         let _ = tokio::signal::ctrl_c().await;
-    }
+        EXIT_SIGINT
+    };
+    signalled.store(code, std::sync::atomic::Ordering::SeqCst);
     cancel.cancel();
 }
 
