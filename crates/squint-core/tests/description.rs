@@ -124,6 +124,10 @@ fn one_action_per_shipped_use_case_and_estimate() {
     assert!(sf.cost.may_spend);
     assert_eq!(sf.cost.needs_env, ["GEMINI_API_KEY"]);
     assert!(!sf.purpose.is_empty());
+    // Requirements are typed: an obligation's own schema, not "any object".
+    let item = &sf.params_schema["properties"]["requirements"]["items"];
+    assert_eq!(item["required"], serde_json::json!(["id", "kind"]));
+    assert!(item["properties"]["kind"].is_object());
     let estimate = d.actions.iter().find(|a| a.name == "estimate").unwrap();
     assert!(!estimate.cost.may_spend);
 }

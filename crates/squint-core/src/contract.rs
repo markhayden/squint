@@ -314,7 +314,8 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
             name: "squint".into(),
             version: report.harness_version.clone(),
         },
-        action: "check".into(),
+        // The use case's action, as `describe` names it, whether the check came over MCP or not.
+        action: report.use_case.replace('-', "_"),
         run: Run {
             resource: format!("squint://run/{id}/{RUN_FILE}"),
             id,
@@ -603,6 +604,17 @@ fn title(base: &str) -> String {
         .unwrap_or_default()
 }
 
+/// An obligation's JSON Schema, self-contained (its definitions inlined under `$defs`), so a
+/// client can build a requirement editor without reading squint's rule files.
+fn obligation_schema() -> serde_json::Value {
+    let mut schema = serde_json::to_value(schemars::schema_for!(crate::obligations::Obligation))
+        .unwrap_or_default();
+    if let Some(map) = schema.as_object_mut() {
+        map.remove("$schema");
+    }
+    schema
+}
+
 /// The arguments of a check beside its images: the brief, the job's requirements, a lower spend
 /// cap; and for `estimate`, which use case.
 fn params_schema(use_cases: Option<&[&str]>) -> serde_json::Value {
@@ -610,8 +622,8 @@ fn params_schema(use_cases: Option<&[&str]>) -> serde_json::Value {
         "brief": { "type": "string", "description": "What was asked for, in words." },
         "requirements": {
             "type": "array",
-            "items": { "type": "object" },
-            "description": "Job requirements, as `[[job.requirements]]` in a job file (`squint rules show`)."
+            "items": obligation_schema(),
+            "description": "Job requirements, as `[[job.requirements]]` in a job file; ids `RQ<n>`."
         },
         "max_spend_usd": {
             "type": "number",

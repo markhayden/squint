@@ -1455,8 +1455,9 @@ section says what squint does with them.
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
   timestamps and duration, input identity, measured spend, cache, the images taken in with their
   slots and roles, every finding's location, notes for image warnings and repairs) and squint's
-  body (verdict, exit code, whether two runs agreed, the report's path). A failed image is
-  `completed` with verdict `fail`. squint's error classes map to the contract in one table
+  body (verdict, exit code, whether two runs agreed, the report's path). The result's `action` is
+  the use case's as `describe` names it (`source_fidelity`), from the command line as from MCP. A
+  failed image is `completed` with verdict `fail`. squint's error classes map to the contract in one table
   (`contract::status_of`): `resolve` and `auth` are `invalid` with code `usage`; `input` and
   `image_limit` are `invalid` with code `input`; a provider or model-output failure is a
   retryable `error` with code `provider`; `tool` is `tool_process`; `budget`, `io` and anything

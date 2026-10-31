@@ -118,7 +118,8 @@ fn a_pass_is_completed_with_the_header_and_squints_body() {
         (r.tool.name.as_str(), r.tool.version.as_str()),
         ("squint", "test")
     );
-    assert_eq!(r.action, "check");
+    // The action is the use case's, as `describe` names it, on every surface.
+    assert_eq!(r.action, "source_fidelity");
     let id = o.dir.file_name().unwrap().to_str().unwrap();
     assert_eq!(r.run.id, id);
     assert_eq!(r.run.resource, format!("squint://run/{id}/run.json"));

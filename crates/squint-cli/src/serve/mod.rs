@@ -293,11 +293,7 @@ impl Server {
             Ok(o) => {
                 let text = std::fs::read_to_string(o.dir.join(contract::RUN_FILE))
                     .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-                let mut result: table_manners::RunResult = serde_json::from_str(&text)
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-                // The decision is the action's: `run.json` names it so.
-                result.action = action.to_string();
-                contract::write_run_result(&o.dir, &result)
+                let result: table_manners::RunResult = serde_json::from_str(&text)
                     .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
                 Ok(tool_result(&result))
             }

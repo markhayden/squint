@@ -139,11 +139,13 @@ tag.
 - [x] 7.7a `squint serve`: the server, `describe` and `estimate` (2026-10-30): rmcp `=3.8.0` at 2025-11-25 only; the independent client `squint_testkit::mcp_client`; a call's arguments become a job (`contract::job_from_call`)
 - [x] 7.7b `check` over `serve` (2026-10-30): one tool per use case, paths inside the client's roots and `[serve] roots`, the session budget as a shared ledger, calls serial by default
 - [x] 7.8 Progress, cancellation and runs as resources (2026-10-31): a journal observer drives progress, heartbeats every 5 s, a cancel leaves a `cancelled` run and no response, `squint://runs` and per-run resources, a cache hit costs nothing
-- [ ] 7.9 `squint playground`
+- [ ] 7.9 `squint playground` — blocked on the launcher agreement (wafflehouse H1: executable, `--tool` argv, install confirmation, host reuse); no launcher flags are invented before it
 - [ ] 7.10 Conformance fixtures
 - [ ] 7.11 The MCP client on `rmcp` (bounded)
 - [ ] Contract v0.2 from what M7 finds, before rascal's conformance merges. Found so far:
   - an image slot that takes a list (squint's `references`; v0.1 slots take one image)
   - how a render command reports the URL it serves (wafflehouse brief, gap 1)
   - MCP roots are deprecated by SEP-2577 after `2025-11-25`: the contract's path rule needs its replacement before any tool moves revision
+  - readiness: `describe` without a config, telling installed-but-unconfigured from unavailable (wafflehouse C1/S1.2)
+  - a provider's 401 or 403 is not retryable; squint maps every provider failure to `provider`, retryable (wafflehouse S1.4)
 - [ ] Checkpoint M7 → tag `m7`
