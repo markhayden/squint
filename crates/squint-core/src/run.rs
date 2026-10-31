@@ -1873,6 +1873,7 @@ fn root_location(
         bbox: mapped.location.bbox,
         polygon: mapped.location.polygon,
         partial: mapped.partial,
+        seam_parts: mapped.seam_parts,
     })
 }
 

@@ -176,6 +176,10 @@ pub struct RootLocation {
     pub polygon: Option<Vec<[f64; 2]>>,
     /// The mapping fell partly outside a parent and was clipped.
     pub partial: bool,
+    /// A view footprint that crossed the panorama's seam: its polygons on both sides, for the
+    /// contract's location (`polygon` holds the one side the registry keeps).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seam_parts: Option<Vec<Vec<[f64; 2]>>>,
 }
 
 /// A frame of the run's registry: a raw frame of a job image, or a crop a tool returned, with

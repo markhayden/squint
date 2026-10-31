@@ -67,6 +67,13 @@
           "description": "SHA-256 of the canonical pixels (8-bit RGB, row-major, after orientation), lowercase hex.",
           "type": "string"
         },
+        "exif_orientation": {
+          "description": "The EXIF orientation applied to the stored pixels (1 to 8; 1 is none), so locations can be\nmapped back to the file as stored.",
+          "format": "uint8",
+          "maximum": 255,
+          "minimum": 0,
+          "type": "integer"
+        },
         "has_alpha": {
           "description": "Whether the file carried an alpha channel; the plane is kept in `alpha` for preparation.",
           "type": "boolean"
@@ -135,6 +142,7 @@
         "height",
         "stored_width",
         "stored_height",
+        "exif_orientation",
         "sha256",
         "canonical_sha256",
         "pixel_sha256",
@@ -1117,6 +1125,25 @@
             },
             "maxItems": 2,
             "minItems": 2,
+            "type": "array"
+          },
+          "type": [
+            "array",
+            "null"
+          ]
+        },
+        "seam_parts": {
+          "description": "A view footprint that crossed the panorama's seam: its polygons on both sides, for the\ncontract's location (`polygon` holds the one side the registry keeps).",
+          "items": {
+            "items": {
+              "items": {
+                "format": "double",
+                "type": "number"
+              },
+              "maxItems": 2,
+              "minItems": 2,
+              "type": "array"
+            },
             "type": "array"
           },
           "type": [

@@ -45,6 +45,9 @@ pub struct CanonicalImage {
     /// Dimensions as stored in the file, before EXIF orientation: the contract reference's.
     pub stored_width: u32,
     pub stored_height: u32,
+    /// The EXIF orientation applied to the stored pixels (1 to 8; 1 is none), so locations can be
+    /// mapped back to the file as stored.
+    pub exif_orientation: u8,
     /// SHA-256 of the original bytes, lowercase hex.
     pub sha256: String,
     /// SHA-256 of the canonical pixels (8-bit RGB, row-major, after orientation), lowercase hex.
@@ -234,6 +237,7 @@ pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<Cano
         height: rgb.height(),
         stored_width: w,
         stored_height: h,
+        exif_orientation: orientation.to_exif(),
         sha256: hex(&Sha256::digest(&bytes)),
         canonical_sha256: hex(&Sha256::digest(rgb.as_raw())),
         pixel_sha256,

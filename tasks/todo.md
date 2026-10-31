@@ -132,7 +132,7 @@ tag.
 - [ ] Owner: name the shared playground program and how it installs; blocks 7.9
 - [x] 7.1 The contract pinned (2026-10-30): `table-manners =0.1.0`, schemas copied and hash-checked under `schemas/contract/`, CI warns on a newer tag
 - [x] 7.2 Image references in and verified (2026-10-30): `expect` on job images, `error: input`, stored dimensions and the contract pixel digest; the twelve vectors reproduce
-- [ ] 7.3 Contract locations out
+- [x] 7.3 Contract locations out (2026-10-30): `contract::location`, the inverse EXIF orientation, quarter-pixel precision, seam footprints as two parts
 - [ ] 7.4 `run.json`, the result header and exit codes
 - [ ] 7.5 `squint describe --json`
 - [ ] 7.6 `estimate` for a check

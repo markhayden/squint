@@ -1407,11 +1407,14 @@ section says what squint does with them.
   reference for every image it is given and verifies one the caller supplies; a mismatch is
   `invalid` with code `input`.
 - **Location out**: every finding's location is mapped to the raw frame of its root image through
-  the registry (as for the viewer) and written in the contract's form: fractions from the top-left
-  measuring edges, quarter-pixel precision, a list of parts with `straddles_wrap` (a view's
-  footprint cut at the seam becomes two parts), kinds `bbox`, `polygon`, `whole_image`, `absent`
-  (with a reason, never an invented box), with the finding's words as the label, its disposition and confidence, its evidence kind and its
-  source (`squint`, version, run id, item id). Crop, view and aligned frames never leave squint.
+  the registry (as for the viewer), then back through the inverse of the image's EXIF orientation
+  to the file as stored, and written in the contract's form: fractions from the top-left
+  measuring edges, quarter-pixel precision with boxes snapped outward, a list of parts with
+  `straddles_wrap` (a view's footprint across the seam becomes its two sides; the registry's own
+  root location keeps the one side it cuts to, so scoring is unchanged), kinds `bbox`, `polygon`,
+  `whole_image`, `absent` (with the finding's reason, never an invented box), with the finding's
+  words as the label, its disposition and confidence, and its source (`squint`, version, run id,
+  item id). Crop, view and aligned frames never leave squint.
 - **`squint serve`**: an MCP server over stdio at revision `2025-11-25`, under the contract's
   server conventions. Tools: `check` (one decision; images by path or inline bytes in any slot;
   paths only inside the client's MCP roots narrowed by config; inline bytes bounded), `estimate`
