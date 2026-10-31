@@ -341,7 +341,7 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
             taken: images
                 .iter()
                 .map(|i| ImageTaken {
-                    slot: role_word(i.role).into(),
+                    slot: slot_word(i.role).into(),
                     role: role_word(i.role).into(),
                     image: image_reference(i),
                 })
@@ -366,6 +366,15 @@ pub fn write_run_result(dir: &Path, result: &RunResult) -> crate::Result<()> {
     std::fs::write(&tmp, text)?;
     std::fs::rename(&tmp, dir.join(RUN_FILE))?;
     Ok(())
+}
+
+/// The slot an image of `role` comes in through, as `describe` declares it: references share one
+/// list slot.
+fn slot_word(role: Role) -> &'static str {
+    match role {
+        Role::Reference => "references",
+        other => role_word(other),
+    }
 }
 
 fn role_word(role: Role) -> &'static str {

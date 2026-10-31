@@ -279,9 +279,18 @@ impl Server {
                 return self.finished(action, &args, Some(&e), Map::new());
             }
         };
+        // The decision's directory once it exists: an error after that is answered with the
+        // decision's own run, never a second one.
+        let allocated = Arc::new(std::sync::Mutex::new(None::<PathBuf>));
+        let told = allocated.clone();
         let mut services = squint_core::run::Services::new(provider.as_ref(), &self.inner.tools)
             .with_shared_ledger(Some(&self.inner.session))
-            .with_cancel(&hooks.cancel);
+            .with_cancel(&hooks.cancel)
+            .with_allocated(Arc::new(move |dir: &Path| {
+                if let Ok(mut slot) = told.lock() {
+                    *slot = Some(dir.to_path_buf());
+                }
+            }));
         if let Some(observer) = hooks.observer {
             services = services.with_observer(observer);
         }
@@ -297,15 +306,11 @@ impl Server {
             &self.inner.out_dir,
             VERSION,
         ));
-        match outcome {
-            Ok(o) => {
-                let text = std::fs::read_to_string(o.dir.join(contract::RUN_FILE))
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-                let result: table_manners::RunResult = serde_json::from_str(&text)
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-                Ok(tool_result(&result))
-            }
-            Err(e) => self.finished(action, &args, Some(&e), Map::new()),
+        let decided = allocated.lock().ok().and_then(|slot| slot.clone());
+        match (outcome, decided) {
+            (Ok(o), _) => decision_result(&o.dir),
+            (Err(_), Some(dir)) if dir.join(contract::RUN_FILE).exists() => decision_result(&dir),
+            (Err(e), _) => self.finished(action, &args, Some(&e), Map::new()),
         }
     }
 
@@ -522,6 +527,15 @@ fn inside_roots(
         }
     }
     Ok(())
+}
+
+/// A decision's `run.json` as the call's result.
+fn decision_result(dir: &Path) -> Result<CallToolResult, ErrorData> {
+    let text = std::fs::read_to_string(dir.join(contract::RUN_FILE))
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    let result: table_manners::RunResult =
+        serde_json::from_str(&text).map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    Ok(tool_result(&result))
 }
 
 /// The contract's result as an MCP tool result: the header and body as structured content, a

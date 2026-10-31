@@ -152,9 +152,9 @@ tag.
 - [x] Follow-up: the M7 checkpoint's review and test-coverage pass (agent-skills review and test), skipped before the merge; run 2026-10-31; the release stands, findings are the M7 review fixes below
 - [ ] M7 review fixes (branch `m7-review`):
   - [x] `estimate` over MCP checks paths against roots like a check (review C1, security); a missing path is refused in the words of one outside; the checked real path replaces the given one (S3)
-  - [ ] an image path is a regular file read only up to the decode bound (I1)
-  - [ ] every decision writes its own `run.json` on every exit; a cache-store failure is a note; serve returns the decision's run, never a second one (I2)
-  - [ ] a reference's `images.in` slot is `references` (I3)
+  - [x] an image path is a regular file read only up to the decode bound; inline data over the bound refused undecoded (I1)
+  - [x] every decision writes its own `run.json` on every exit; a cache-store failure is a note; serve returns the decision's run, never a second one (I2); `Services::allocated` names the directory when it exists
+  - [x] a reference's `images.in` slot is `references` (I3)
   - [ ] serve honours `[rules]` and resolves rule paths as the CLI does (I6)
   - [ ] client roots parsed as `file:` URLs (I5)
   - [ ] `straddles_wrap` never on a bounded image; a running run listed under its action (coverage 3, 4)

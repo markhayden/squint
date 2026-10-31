@@ -172,6 +172,34 @@ fn estimate_refuses_a_path_outside_the_roots_without_reading_it() {
     );
 }
 
+/// A decision that fails after its directory exists is answered with that decision's own run
+/// (review I2): one run in `squint://runs`, ended, never a second empty one beside it.
+#[test]
+fn a_late_failure_is_answered_with_the_decisions_own_run() {
+    let dir = out("late");
+    std::fs::create_dir_all(&dir).unwrap();
+    let not_a_dir = dir.join("cache-is-a-file");
+    std::fs::write(&not_a_dir, "").unwrap();
+    let cache = format!("cache.dir={:?}", not_a_dir.display().to_string());
+    let mut c = client(&dir.join("runs"), &[&cache]);
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+        )
+        .unwrap();
+    assert!(r.is_error);
+    let r = r.structured.unwrap();
+    assert_eq!(r["status"], "error", "{r}");
+    assert_eq!(r["error"]["code"], "io", "{r}");
+    let runs: serde_json::Value =
+        serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+    let runs = runs["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0]["id"], r["run"]["id"]);
+    assert_eq!(runs[0]["status"], "error");
+}
+
 #[test]
 fn an_exhausted_session_budget_is_a_budget_error_before_any_request() {
     let mut c = client(&out("budget"), &["serve.session_budget_usd=0.000001"]);
