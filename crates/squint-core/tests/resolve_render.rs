@@ -29,6 +29,7 @@ fn job(use_case: &str, roles: &[(&str, Role)]) -> Job {
                     sha256: None,
                 },
                 projection: None,
+                expect: None,
             })
             .collect(),
     }

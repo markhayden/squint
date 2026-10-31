@@ -39,6 +39,10 @@ pub struct ImageSpec {
     pub source: ImageSource,
     #[serde(default)]
     pub projection: Option<Projection>,
+    /// The contract's image reference the caller expects this file to have (table-manners 8.1):
+    /// its digest and dimensions are verified before anything else runs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expect: Option<table_manners::images::ImageReference>,
 }
 
 /// What an image is for. Exactly one candidate; at most one source; any number of references.
@@ -150,6 +154,7 @@ impl Job {
                 sha256: None,
             },
             projection: None,
+            expect: None,
         }];
         if let Some(path) = source {
             images.push(ImageSpec {
@@ -158,6 +163,7 @@ impl Job {
                 label: None,
                 source: ImageSource::Path { path, sha256: None },
                 projection: None,
+                expect: None,
             });
         }
         for (label, path) in refs {
@@ -170,6 +176,7 @@ impl Job {
                     sha256: None,
                 },
                 projection: None,
+                expect: None,
             });
         }
         let job = Job {
@@ -251,6 +258,7 @@ mod tests {
                         sha256: None,
                     },
                     projection: None,
+                    expect: None,
                 })
                 .collect(),
         }

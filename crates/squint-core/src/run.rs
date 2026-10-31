@@ -335,6 +335,7 @@ async fn run_once(
         Ok(s) => drive(config, services, s, &mut journal, &mut state, money).await,
         // The rules or an image failed to resolve; the class is the error's own.
         Err(Error::Image(m)) => Err(Error::Image(m.clone())),
+        Err(Error::Input(m)) => Err(Error::Input(m.clone())),
         Err(e) => Err(Error::Config(e.to_string())),
     };
     match result {

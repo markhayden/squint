@@ -42,10 +42,15 @@ pub struct CanonicalImage {
     /// Dimensions after orientation normalisation.
     pub width: u32,
     pub height: u32,
+    /// Dimensions as stored in the file, before EXIF orientation: the contract reference's.
+    pub stored_width: u32,
+    pub stored_height: u32,
     /// SHA-256 of the original bytes, lowercase hex.
     pub sha256: String,
     /// SHA-256 of the canonical pixels (8-bit RGB, row-major, after orientation), lowercase hex.
     pub canonical_sha256: String,
+    /// The contract's pixel digest (table-manners 8.2): the stored pixels, before orientation.
+    pub pixel_sha256: String,
     pub projection: Projection,
     /// Whether the file carried an ICC profile (recorded, not applied).
     pub has_icc_profile: bool,
@@ -167,6 +172,14 @@ pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<Cano
         .into_decoder()
         .map_err(|e| Error::Image(format!("{}: cannot decode header: {e}", spec.id)))?;
     let (w, h) = decoder.dimensions();
+    if let Some(expect) = &spec.expect
+        && (expect.width, expect.height) != (w, h)
+    {
+        return Err(Error::Input(format!(
+            "{}: the file is {w}x{h} as stored; the expected reference has width {} and height {}",
+            spec.id, expect.width, expect.height
+        )));
+    }
     let pixels = u64::from(w) * u64::from(h);
     if pixels > bounds.max_pixels {
         return Err(Error::Image(format!(
@@ -178,6 +191,7 @@ pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<Cano
     let has_icc_profile = decoder.icc_profile().ok().flatten().is_some();
     let mut dynamic = DynamicImage::from_decoder(decoder)
         .map_err(|e| Error::Image(format!("{}: cannot decode: {e}", spec.id)))?;
+    let pixel_sha256 = crate::contract::pixel_sha256(&dynamic);
     dynamic.apply_orientation(orientation);
     let has_alpha = dynamic.color().has_alpha();
     let alpha = has_alpha.then(|| {
@@ -188,6 +202,15 @@ pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<Cano
     let rgb = dynamic.to_rgb8();
 
     let mut warnings = Vec::new();
+    if let Some(expected) = spec.expect.as_ref().and_then(|e| e.pixel_sha256.as_deref())
+        && expected != pixel_sha256
+    {
+        warnings.push(format!(
+            "{}: pixel_sha256 {pixel_sha256} differs from the expected {expected}; the file \
+             matches, so decoders disagree on its pixels",
+            spec.id
+        ));
+    }
     let projection = match spec.projection {
         Some(p) => p,
         None if has_gpano_equirectangular(&bytes) => Projection::Equirectangular,
@@ -209,8 +232,11 @@ pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<Cano
         label: spec.label.clone(),
         width: rgb.width(),
         height: rgb.height(),
+        stored_width: w,
+        stored_height: h,
         sha256: hex(&Sha256::digest(&bytes)),
         canonical_sha256: hex(&Sha256::digest(rgb.as_raw())),
+        pixel_sha256,
         projection,
         has_icc_profile,
         has_alpha,
@@ -221,7 +247,7 @@ pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<Cano
 }
 
 fn read_bytes(spec: &ImageSpec, base: &Path) -> Result<Vec<u8>> {
-    match &spec.source {
+    let bytes = match &spec.source {
         ImageSource::Path { path, sha256 } => {
             let full = if path.is_absolute() {
                 path.clone()
@@ -234,18 +260,28 @@ fn read_bytes(spec: &ImageSpec, base: &Path) -> Result<Vec<u8>> {
             if let Some(pinned) = sha256 {
                 let actual = sha256_hex(&bytes);
                 if !actual.eq_ignore_ascii_case(pinned) {
-                    return Err(Error::Image(format!(
+                    return Err(Error::Input(format!(
                         "{}: {} has sha256 {actual}, the job pins {pinned}",
                         spec.id,
                         full.display()
                     )));
                 }
             }
-            Ok(bytes)
+            bytes
         }
         ImageSource::Base64 { base64, .. } => base64_decode(base64)
-            .map_err(|e| Error::Image(format!("{}: invalid base64: {e}", spec.id))),
+            .map_err(|e| Error::Image(format!("{}: invalid base64: {e}", spec.id)))?,
+    };
+    if let Some(expect) = &spec.expect {
+        let actual = sha256_hex(&bytes);
+        if actual != expect.file_sha256 {
+            return Err(Error::Input(format!(
+                "{}: the file has file_sha256 {actual}; the expected reference has {}",
+                spec.id, expect.file_sha256
+            )));
+        }
     }
+    Ok(bytes)
 }
 
 /// True when the bytes carry XMP GPano metadata declaring an equirectangular projection. A plain

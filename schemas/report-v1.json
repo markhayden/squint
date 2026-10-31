@@ -89,6 +89,10 @@
             "null"
           ]
         },
+        "pixel_sha256": {
+          "description": "The contract's pixel digest (table-manners 8.2): the stored pixels, before orientation.",
+          "type": "string"
+        },
         "projection": {
           "$ref": "#/$defs/Projection"
         },
@@ -98,6 +102,17 @@
         "sha256": {
           "description": "SHA-256 of the original bytes, lowercase hex.",
           "type": "string"
+        },
+        "stored_height": {
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "stored_width": {
+          "description": "Dimensions as stored in the file, before EXIF orientation: the contract reference's.",
+          "format": "uint32",
+          "minimum": 0,
+          "type": "integer"
         },
         "warnings": {
           "description": "Non-fatal notes, for example the 2:1 aspect ratio treated as flat.",
@@ -118,8 +133,11 @@
         "role",
         "width",
         "height",
+        "stored_width",
+        "stored_height",
         "sha256",
         "canonical_sha256",
+        "pixel_sha256",
         "projection",
         "has_icc_profile",
         "has_alpha",

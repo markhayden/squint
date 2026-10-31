@@ -334,3 +334,19 @@ fn a_cancel_before_the_first_turn_ends_in_cancelled_at_the_reserved_state() {
     assert_eq!(ev.last().unwrap()["data"]["state"], "reserved");
     assert_eq!(p.remaining(), 1);
 }
+
+/// Task 7.2: an image that is not the one the job expects is refused as `input` before anything
+/// else happens, so nothing is spent.
+#[test]
+fn an_expected_reference_that_does_not_match_is_input_before_anything_else() {
+    let (o, p) = run_case(
+        "expect",
+        "held.json",
+        "empty.json",
+        &[],
+        "expect-mismatch.toml",
+    );
+    assert_eq!(error_class(&o), "input");
+    assert_eq!(names(&events(&o.dir)), ["error"]);
+    assert_eq!(p.remaining(), 1, "the provider was never called");
+}

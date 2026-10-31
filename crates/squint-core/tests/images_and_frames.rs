@@ -24,6 +24,7 @@ fn spec(id: &str, path: &str) -> ImageSpec {
             sha256: None,
         },
         projection: None,
+        expect: None,
     }
 }
 
@@ -33,8 +34,8 @@ fn bounds() -> DecodeBounds {
 
 // ---- images --------------------------------------------------------------------------------
 
-/// A path source may pin the file's SHA-256 (evaluation sets do); a mismatch is an image error
-/// naming the hash, a match loads, and no pin loads as before.
+/// A path source may pin the file's SHA-256 (evaluation sets do); a mismatch is an input error
+/// naming the hash (task 7.2), a match loads, and no pin loads as before.
 #[test]
 fn a_pinned_sha256_must_match_the_file() {
     let bytes = std::fs::read(root().join("fixtures/images/candidate-64x48.png")).unwrap();
@@ -48,11 +49,12 @@ fn a_pinned_sha256_must_match_the_file() {
             sha256: Some(sha.into()),
         },
         projection: None,
+        expect: None,
     };
     image::load(&pinned(&actual), &root(), &bounds()).expect("matching pin loads");
     let err = image::load(&pinned(&"0".repeat(64)), &root(), &bounds()).unwrap_err();
     assert!(
-        matches!(&err, Error::Image(m) if m.contains("sha256") && m.contains("candidate")),
+        matches!(&err, Error::Input(m) if m.contains("sha256") && m.contains("candidate")),
         "{err}"
     );
 }
@@ -128,6 +130,7 @@ fn canonical_hash_is_the_same_for_identical_pixels_from_different_bytes() {
             media_type: "image/png".into(),
         },
         projection: None,
+        expect: None,
     };
     let b = image::load(&b_spec, &root(), &bounds()).unwrap();
     assert_eq!(a.canonical_sha256, b.canonical_sha256);
@@ -153,6 +156,7 @@ fn invalid_base64_is_an_image_error() {
             media_type: "image/png".into(),
         },
         projection: None,
+        expect: None,
     };
     assert!(matches!(
         image::load(&s, &root(), &bounds()),

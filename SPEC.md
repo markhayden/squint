@@ -226,7 +226,14 @@ role = "reference"
 label = "the bridge set"
 source = { path = "refs/bridge.jpg" }
 projection = "flat"           # optional override
+expect = { file_sha256 = "3f9a…", width = 1600, height = 900, projection = "flat", topology = "bounded" }
 ```
+
+An image may carry `expect`, the contract's image reference the caller expects the file to have
+(see "External interface"): its `file_sha256`, width and height are verified before anything else
+runs, and a mismatch, like a mismatched `sha256` pin, is `error: input` with nothing spent; a
+differing `pixel_sha256` with the right file is a warning, since decoders disagree on lossy
+formats.
 
 Roles: `candidate` (exactly one), `source` (the original an edit was made from; at most one),
 `reference` (any number). Image ids are plain tokens (ASCII letters, digits and `_ . : / -`) and the only way a tool or
@@ -236,7 +243,8 @@ harness resolves them through the job registry and never accepts a path or URL f
 Each image is decoded once with bounded dimensions (`images.max_decode_pixels`, default 50 MP)
 and byte size (default 64 MB), orientation-normalised from EXIF, converted to sRGB 8-bit, and
 kept as the **canonical image**: lossless, full resolution, recorded with its SHA-256 (original
-bytes), canonical SHA-256 (decoded pixels), dimensions and projection. Projection is `flat` or
+bytes), canonical SHA-256 (decoded pixels), the contract's pixel digest (the stored pixels before
+orientation), its dimensions both as stored and after orientation, and projection. Projection is `flat` or
 `equirectangular`, taken from an explicit `projection` field, else from XMP `GPano` metadata,
 else `flat`. A 2:1 aspect ratio alone does not make an image equirectangular; the CLI warns when
 a 2:1 image is treated as flat.
@@ -660,7 +668,9 @@ if it is replayable under the adapter's rules; a non-replayable turn is journale
 
 1. **Resolve.** Load config, merge obligations, resolve instances, load and decode images into
    canonical images, build frames, build the checklist, connect tool packs and freeze their
-   manifests, render the system prompt. Any failure is `error: resolve` with a journal.
+   manifests, render the system prompt. Any failure is `error: resolve` with a journal, except an
+   image that is not the one the job names (a `sha256` pin or an `expect` that does not match),
+   which is `error: input`.
 2. **Prepare.** Produce prepared images for the model (see "Image preparation") and preflight the
    first request against the catalog's limits. Compute the cache key (see "Cache key"). If
    caching is on, this is not an evaluation, and this is the decision boundary, return the cached

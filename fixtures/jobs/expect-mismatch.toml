@@ -1,0 +1,15 @@
+# The candidate is given with an expected reference whose digest is not the file's: the job is
+# refused as `input` before anything else happens (task 7.2).
+[job]
+use_case = "source-fidelity"
+
+[[job.images]]
+id = "candidate"
+role = "candidate"
+source = { path = "fixtures/images/candidate-64x48.png" }
+expect = { file_sha256 = "0000000000000000000000000000000000000000000000000000000000000000", width = 64, height = 48, projection = "flat", topology = "bounded" }
+
+[[job.images]]
+id = "source"
+role = "source"
+source = { path = "fixtures/images/source-64x48.png" }
