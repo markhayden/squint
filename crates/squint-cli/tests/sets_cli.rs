@@ -88,8 +88,8 @@ fn sets_seal_then_verify_seal_by_path_or_by_id_under_a_root() {
     let o = squint(&["sets", "seal", "--set", set.to_str().unwrap()]);
     assert_eq!(
         o.status.code(),
-        Some(2),
-        "clap rejects the missing --attest"
+        Some(64),
+        "a missing --attest is a usage error (exit 64 since task 7.5)"
     );
     let o = squint(&[
         "sets",

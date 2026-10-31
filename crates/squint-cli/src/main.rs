@@ -2,6 +2,7 @@
 //! crates.
 
 mod catalog;
+mod describe;
 mod eval;
 mod report;
 mod sets;
@@ -46,6 +47,8 @@ enum Command {
     Catalog(catalog::CatalogArgs),
     /// Evaluation sets: check, fetch images, seal and verify a seal.
     Sets(sets::SetsArgs),
+    /// Print the description document of the waffle tools contract: actions, inputs, cost.
+    Describe(describe::DescribeArgs),
 }
 
 #[derive(clap::Args)]
@@ -167,7 +170,16 @@ struct CheckArgs {
 }
 
 fn main() {
-    let cli = Cli::parse();
+    // Argument errors exit 64 like every other usage error (table-manners 6); help and the
+    // version print to stdout and exit 0.
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(e) => {
+            let code = if e.use_stderr() { EXIT_USAGE } else { 0 };
+            let _ = e.print();
+            std::process::exit(code);
+        }
+    };
     let code = match cli.command {
         None => {
             eprintln!("squint {VERSION}: no command given; try --help");
@@ -187,6 +199,7 @@ fn main() {
         Some(Command::Eval(args)) => eval::run(&args),
         Some(Command::Catalog(args)) => catalog::run(&args),
         Some(Command::Sets(args)) => sets::run(&args),
+        Some(Command::Describe(args)) => describe::run(&args),
     };
     std::process::exit(code);
 }

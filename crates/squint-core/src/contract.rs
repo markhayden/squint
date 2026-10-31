@@ -2,25 +2,29 @@
 //! contract's objects built from squint's own. The types and schemas are the `table-manners`
 //! crate's; this module only fills them in.
 
+use std::path::Path;
+
 use image::DynamicImage;
 use image::metadata::Orientation;
 use sha2::{Digest, Sha256};
 use table_manners::images::{
-    BboxPart, ImageReference, Location, LocationKind as ContractKind, Part, PolygonPart,
-    Projection as ContractProjection, Source, Topology,
+    BboxPart, ImageReference, ImageSlot, ImageTaken, Images, Limits, Location,
+    LocationKind as ContractKind, LocationOutput, Locations, Outputs, Part, PolygonPart,
+    Projection as ContractProjection, Source, Topology, Vocabulary,
 };
-
-use std::path::Path;
-
-use table_manners::images::{ImageTaken, Images, Locations};
 use table_manners::{
-    CONTRACT_VERSION, Cache, ErrorCode, ErrorInfo, Run, RunResult, Spend, SpendBasis, Status, Tool,
+    Action, CONTRACT_VERSION, Cache, Cost, DescribedTool, Description, Duration, ErrorCode,
+    ErrorInfo, Profile, Render, Run, RunResult, Spend, SpendBasis, Status, Tool,
 };
 
+use crate::aggregate::Confidence;
+use crate::config::Config;
 use crate::frames::LocationKind;
 use crate::image::{CanonicalImage, hex};
 use crate::job::{Projection, Role};
+use crate::obligations::{RulesFile, SHIPPED_BASES, shipped};
 use crate::report::{Report, RootLocation};
+use crate::submission::FindingDisposition;
 
 /// The contract's reference for a loaded image (table-manners 8): the file's digest and its
 /// dimensions as stored, the projection, and the topology that follows from it (squint's
@@ -421,4 +425,203 @@ pub fn rfc3339(unix_ms: u64) -> String {
         rem % 60,
         unix_ms % 1000
     )
+}
+
+/// The longest gap between progress notifications on a live run (table-manners 4.1).
+pub const PROGRESS_INTERVAL_S: u32 = 10;
+
+/// squint's description document (table-manners 3 and 11.2): one action per shipped use case,
+/// taking the images its rule set requires, plus `estimate`; every disposition and confidence
+/// word a finding can carry; the inline limit from the decode bound. `needs_env` names the
+/// credential variable of the configured profile (from the catalog, which this crate does not
+/// read); never a value.
+pub fn description(config: &Config, version: &str, needs_env: &[String]) -> Description {
+    let mut actions: Vec<Action> = SHIPPED_BASES
+        .iter()
+        .filter_map(|base| {
+            let rules = RulesFile::parse(shipped(base)?, base).ok()?.rules;
+            let required = |role: Role| rules.requires_roles.contains(&role);
+            let mut images = vec![slot("candidate", "candidate", true)];
+            if required(Role::Source) {
+                images.push(slot("source", "source", true));
+            }
+            images.push(slot("references", "reference", required(Role::Reference)));
+            Some(Action {
+                name: base.replace('-', "_"),
+                title: title(base),
+                purpose: purpose(base).into(),
+                params_schema: params_schema(None),
+                images: Some(images),
+                locations: Some(Vec::new()),
+                outputs: Some(Outputs {
+                    images: Vec::new(),
+                    locations: vec![LocationOutput::Found],
+                }),
+                cost: Cost {
+                    may_spend: true,
+                    basis: Some(SpendBasis::Measured),
+                    needs_env: needs_env.to_vec(),
+                },
+                duration: Duration {
+                    typical_s: 60.0,
+                    max_s: 900.0,
+                },
+                renders: vec![
+                    Render {
+                        name: "report".into(),
+                        command: ["squint", "report", "view", "{run.dir}", "--port", "0"]
+                            .map(String::from)
+                            .to_vec(),
+                    },
+                    Render {
+                        name: "export".into(),
+                        command: ["squint", "report", "export", "{run.dir}"]
+                            .map(String::from)
+                            .to_vec(),
+                    },
+                ],
+            })
+        })
+        .collect();
+    actions.push(Action {
+        name: "estimate".into(),
+        title: "Estimate".into(),
+        purpose: "The worst-case cost of one check of a use case, and the session budget left."
+            .into(),
+        params_schema: params_schema(Some(SHIPPED_BASES)),
+        images: Some(vec![
+            slot("candidate", "candidate", true),
+            slot("source", "source", false),
+            slot("references", "reference", false),
+        ]),
+        locations: Some(Vec::new()),
+        outputs: Some(Outputs {
+            images: Vec::new(),
+            locations: Vec::new(),
+        }),
+        cost: Cost {
+            may_spend: false,
+            basis: None,
+            needs_env: Vec::new(),
+        },
+        duration: Duration {
+            typical_s: 1.0,
+            max_s: 30.0,
+        },
+        renders: Vec::new(),
+    });
+    let mut extensions = std::collections::BTreeMap::new();
+    extensions.insert(
+        "x-squint".into(),
+        serde_json::json!({
+            "self_description": [
+                "squint rules show --json",
+                "squint tools list --json",
+                "squint catalog show"
+            ],
+            "references_slot": "takes a list of images, one per reference"
+        }),
+    );
+    Description {
+        contract: CONTRACT_VERSION.into(),
+        profiles: vec![Profile::Images],
+        tool: DescribedTool {
+            name: "squint".into(),
+            version: version.into(),
+            purpose: "Checks an image against what was asked of it.".into(),
+        },
+        actions,
+        vocabulary: Some(Vocabulary {
+            disposition: [
+                FindingDisposition::Violation,
+                FindingDisposition::AllowedChange,
+                FindingDisposition::CantTell,
+                FindingDisposition::Observed,
+            ]
+            .iter()
+            .map(word)
+            .collect(),
+            confidence: [Confidence::Confident, Confidence::Tentative]
+                .iter()
+                .map(word)
+                .collect(),
+            evidence: Vec::new(),
+            score_kind: Vec::new(),
+        }),
+        limits: Some(Limits {
+            inline_bytes: config.images.max_decode_bytes,
+        }),
+        progress_interval_s: PROGRESS_INTERVAL_S,
+        resources: [
+            "squint://runs",
+            "squint://run/{id}/run.json",
+            "squint://run/{id}/report.json",
+            "squint://run/{id}/journal",
+        ]
+        .map(String::from)
+        .to_vec(),
+        extensions,
+    }
+}
+
+/// What each shipped use case checks, in one sentence. Kept here rather than in the rule sets:
+/// a sealed evaluation set binds the rule files byte for byte.
+fn purpose(base: &str) -> &'static str {
+    match base {
+        "source-fidelity" => "An edited or re-generated image kept what mattered in the original.",
+        "reference-consistency" => {
+            "A subject from one or more reference images appears faithfully in a new scene."
+        }
+        "reality-checks" => "The image makes no mistake a real photograph would not make.",
+        "brief-compliance" => "The image contains what was asked for and nothing it should not.",
+        "product-fidelity" => "A product shot keeps the exact product shown in the references.",
+        _ => "Checks an image against its use case's rule set.",
+    }
+}
+
+fn slot(slot: &str, role: &str, required: bool) -> ImageSlot {
+    ImageSlot {
+        slot: slot.into(),
+        role: role.into(),
+        required,
+    }
+}
+
+/// `source-fidelity` reads as "Source fidelity".
+fn title(base: &str) -> String {
+    let words = base.replace('-', " ");
+    let mut chars = words.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().collect::<String>() + chars.as_str())
+        .unwrap_or_default()
+}
+
+/// The arguments of a check beside its images: the brief, the job's requirements, a lower spend
+/// cap; and for `estimate`, which use case.
+fn params_schema(use_cases: Option<&[&str]>) -> serde_json::Value {
+    let mut properties = serde_json::json!({
+        "brief": { "type": "string", "description": "What was asked for, in words." },
+        "requirements": {
+            "type": "array",
+            "items": { "type": "object" },
+            "description": "Job requirements, as `[[job.requirements]]` in a job file (`squint rules show`)."
+        },
+        "max_spend_usd": {
+            "type": "number",
+            "exclusiveMinimum": 0,
+            "description": "Lowers the configured per-call cap; never raises it."
+        }
+    });
+    let mut required = Vec::new();
+    if let Some(cases) = use_cases {
+        properties["use_case"] = serde_json::json!({ "enum": cases });
+        required.push("use_case");
+    }
+    serde_json::json!({
+        "type": "object",
+        "properties": properties,
+        "required": required,
+        "additionalProperties": false
+    })
 }

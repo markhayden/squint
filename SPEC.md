@@ -1447,10 +1447,16 @@ section says what squint does with them.
   `image_limit` are `invalid` with code `input`; a provider or model-output failure is a
   retryable `error` with code `provider`; `tool` is `tool_process`; `budget`, `io` and anything
   else (`internal`) are not retryable; `cancelled` is its own status.
-- **`squint describe --json`**: the contract's description document with `profiles: ["images"]`:
-  one action per use case with its image and location slots and parameters as JSON Schemas, every
-  disposition, confidence and evidence word squint emits (`vocabulary`), the renders (`report view`, `report export`),
-  the cost notice and the variable it needs, the expected duration and the inline limits.
+- **`squint describe --json --config <file>`**: the contract's description document with
+  `profiles: ["images"]`: one action per shipped use case (`source_fidelity`, …), named for
+  its rule set's `use_case` with a one-sentence purpose (kept beside the description, since sealed
+  sets bind the rule files byte for byte), taking `candidate`, the `source` when the
+  rule set requires one, and `references` (a list; contract v0.1 has no list slot, so squint says
+  so under `x-squint`), with the brief, requirements and a lower spend cap as parameters; an
+  `estimate` action; every disposition and confidence word a finding can carry (`vocabulary`),
+  the renders (`report view`, `report export`), the cost notice and the credential variable the
+  configured profile needs (its name, never its value), the expected duration, the inline limit
+  (the decode bound) and the resources. Argument errors on every command exit 64.
 - **Exit codes** across commands: 0 success, 3 error, 64 usage or input, 130 on SIGINT and 143
   on SIGTERM;
   1 fail and 2 unsure remain `check`'s.
@@ -1496,6 +1502,7 @@ squint report view ./squint-out/<run-id>
 squint report rebuild ./squint-out/<run-id>
 squint report prune --older-than 30d
 squint tools list --config squint.toml      # manifests as the model will see them
+squint describe --json --config squint.toml # the contract's description document (ADR 0018)
 squint sets check evalsets/
 squint sets fetch --set reference-consistency/pets-v1
 squint sets seal --set <set> --attest "…"    # writes seal.toml; a blind set's labels move out (--labels-out)

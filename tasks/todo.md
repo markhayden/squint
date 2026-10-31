@@ -134,7 +134,7 @@ tag.
 - [x] 7.2 Image references in and verified (2026-10-30): `expect` on job images, `error: input`, stored dimensions and the contract pixel digest; the twelve vectors reproduce
 - [x] 7.3 Contract locations out (2026-10-30): `contract::location`, the inverse EXIF orientation, quarter-pixel precision, seam footprints as two parts
 - [x] 7.4 `run.json`, the result header and exit codes (2026-10-30): written last and atomically on every surface; `invalid` exits 64; signals exit 130 and 143 for `check` and `eval run`
-- [ ] 7.5 `squint describe --json`
+- [x] 7.5 `squint describe --json` (2026-10-30): one action per use case and `estimate`, the vocabulary from squint's own types; argument errors exit 64
 - [ ] 7.6 `estimate` for a check
 - [ ] 7.7a `squint serve`: the server, `describe` and `estimate`
 - [ ] 7.7b `check` over `serve`
@@ -142,5 +142,7 @@ tag.
 - [ ] 7.9 `squint playground`
 - [ ] 7.10 Conformance fixtures
 - [ ] 7.11 The MCP client on `rmcp` (bounded)
-- [ ] Contract v0.2 from what M7 finds, before rascal's conformance merges
+- [ ] Contract v0.2 from what M7 finds, before rascal's conformance merges. Found so far:
+  - an image slot that takes a list (squint's `references`; v0.1 slots take one image)
+  - how a render command reports the URL it serves (wafflehouse brief, gap 1)
 - [ ] Checkpoint M7 → tag `m7`
