@@ -107,10 +107,12 @@ What has been measured so far, every number with its interval under
   generator can plant cleanly are at ceiling for this model; what a tool must do to earn a place
   is an open owner decision.
 
-Next: squint is one tool in a chain an agent drives (generate, check with squint, mask with
-[rascal](https://github.com/markhayden/rascal), paint, check again), so it is gaining the same
-external interface as its siblings: an MCP server, a self-description and a run summary defined
-in a shared contract (ADR 0018, SPEC "External interface", milestone M7).
+squint is one tool in a chain an agent drives (generate, check with squint, mask with
+[rascal](https://github.com/markhayden/rascal), paint, check again), so it presents the same
+external interface as its siblings, defined by the shared contract
+[table-manners](https://github.com/markhayden/table-manners): `squint serve` (MCP over stdio),
+`squint describe --json`, `squint estimate`, and a `run.json` in every decision directory (ADR
+0018, milestone M7). How an agent or a pipeline uses it: [`docs/agents.md`](docs/agents.md).
 
 Plan: [`PLAN.md`](PLAN.md). Decisions: [`docs/adr/`](docs/adr/). Reviews of the spec, the plan and
 each milestone: [`docs/reviews/`](docs/reviews/). Developer setup: [`docs/bootstrap.md`](docs/bootstrap.md).
