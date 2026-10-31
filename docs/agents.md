@@ -83,8 +83,17 @@ exit code, whether two runs agreed, the report's path). A `fail` verdict is `com
 | 3 | error |
 | 64 | a usage error, or an `invalid` request (a job that does not resolve, an image that is not the one named), whatever the policy |
 | 130, 143 | cancelled by SIGINT, SIGTERM (`check` and `eval run`) |
+| 69, 70, 74 | `playground` only: Wafflehouse unavailable, its startup failed, its install failed |
+
+## Wafflehouse
+
+`squint playground` runs `wafflehouse --tool squint` and exits with its code (128 + the signal
+when it is killed by one); it takes no arguments. The program is `WAFFLEHOUSE_BIN` (absolute),
+else `wafflehouse` on `PATH`, else `~/.local/bin/wafflehouse`; a bad `WAFFLEHOUSE_BIN` is an
+error, never skipped. When none exists it exits 69 with instructions: no installer is published
+yet, so there is nothing to offer. The launcher agreement is wafflehouse H1; everything after the
+hand-off (the host, its library, the browser) is Wafflehouse's.
 
 ## Not yet
 
-`squint playground` waits on the launcher agreement with the shared playground (wafflehouse H1).
 What squint's conformance found the contract needs is in table-manners `PROPOSALS.md`.

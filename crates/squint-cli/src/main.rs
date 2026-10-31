@@ -4,6 +4,7 @@
 mod catalog;
 mod describe;
 mod eval;
+mod playground;
 mod report;
 mod serve;
 mod sets;
@@ -48,12 +49,14 @@ enum Command {
     Catalog(catalog::CatalogArgs),
     /// Evaluation sets: check, fetch images, seal and verify a seal.
     Sets(sets::SetsArgs),
-    /// Print the description document of the waffle tools contract: actions, inputs, cost.
+    /// Print the table-manners description document: actions, inputs, cost.
     Describe(describe::DescribeArgs),
     /// Print the worst-case cost of one check and whether the cap covers it; nothing is sent.
     Estimate(JobArgs),
     /// Serve the contract's actions over MCP on stdio (protocol 2025-11-25).
     Serve(serve::ServeArgs),
+    /// Open Wafflehouse, the shared local workspace, on squint (`wafflehouse --tool squint`).
+    Playground(playground::PlaygroundArgs),
 }
 
 #[derive(clap::Args)]
@@ -217,6 +220,7 @@ fn main() {
         Some(Command::Describe(args)) => describe::run(&args),
         Some(Command::Estimate(args)) => estimate(&args),
         Some(Command::Serve(args)) => serve::run(&args),
+        Some(Command::Playground(args)) => playground::run(&args),
     };
     std::process::exit(code);
 }
