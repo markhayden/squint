@@ -327,7 +327,12 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
         duration_ms: finished_ms.saturating_sub(started_ms),
         input_identity: input_identity(report, images),
         spend: Spend {
-            usd: report.cost.spent_usd,
+            // A cache hit spends nothing; the cached report's spend was its first run's.
+            usd: if cache == Cache::Hit {
+                0.0
+            } else {
+                report.cost.spent_usd
+            },
             basis: SpendBasis::Measured,
         },
         cache,

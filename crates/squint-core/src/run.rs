@@ -21,6 +21,7 @@ use crate::frames::Registry;
 use crate::image::{self, CanonicalImage};
 use crate::job::Job;
 use crate::journal::Journal;
+pub use crate::journal::Observer;
 use crate::ledger::{self, Account, CapLedger, Ledger, Pricing, RequestShape};
 use crate::obligations::{self, Instance, MergeInput, Resolved, RulesFile};
 use crate::provider::{
@@ -64,6 +65,8 @@ pub struct Services<'a> {
     /// Test knob: fail the first run's journal append at this sequence number, as if the process
     /// had died between an artifact write and its event.
     pub fail_journal_at: Option<u64>,
+    /// Told of every journal line every run writes (a server's progress).
+    pub observer: Option<Observer>,
 }
 
 impl<'a> Services<'a> {
@@ -75,7 +78,13 @@ impl<'a> Services<'a> {
             cancel: None,
             evaluation: false,
             fail_journal_at: None,
+            observer: None,
         }
+    }
+
+    pub fn with_observer(mut self, observer: Observer) -> Services<'a> {
+        self.observer = Some(observer);
+        self
     }
 
     pub fn with_shared_ledger(mut self, ledger: Option<&'a dyn Ledger>) -> Services<'a> {
@@ -352,6 +361,9 @@ async fn run_once(
     money: &mut Money<'_>,
 ) -> Result<()> {
     let mut journal = Journal::create(run_dir)?;
+    if let Some(observer) = &services.observer {
+        journal.observe(observer.clone());
+    }
     if let Some(seq) = services.fail_journal_at
         && n == 1
     {

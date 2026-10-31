@@ -10,8 +10,10 @@ use rmcp::ServiceExt;
 use rmcp::handler::server::ServerHandler;
 use rmcp::model::{
     CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock, ErrorData,
-    Implementation, InitializeResult, ListToolsResult, PaginatedRequestParams, ProtocolVersion,
-    ServerCapabilities, Tool,
+    Implementation, InitializeResult, ListResourceTemplatesResult, ListResourcesResult,
+    ListToolsResult, PaginatedRequestParams, ProgressNotificationParam, ProtocolVersion,
+    ReadResourceRequestParams, ReadResourceResponse, ReadResourceResult, Resource,
+    ResourceContents, ResourceTemplate, ServerCapabilities, Tool,
 };
 use rmcp::service::{RequestContext, RoleServer};
 use serde_json::{Map, Value, json};
@@ -26,6 +28,10 @@ use crate::{EXIT_USAGE, VERSION};
 
 /// How many tools a `tools/list` page holds.
 const PAGE: usize = 32;
+
+/// The longest silence on a live call before a heartbeat: half the contract's interval
+/// (`contract::PROGRESS_INTERVAL_S`), so a slow notification never makes a client wait longer.
+const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(clap::Args)]
 pub struct ServeArgs {
@@ -231,6 +237,7 @@ impl Server {
         action: &str,
         args: Map<String, Value>,
         roots: Option<Vec<PathBuf>>,
+        hooks: Hooks,
     ) -> Result<CallToolResult, ErrorData> {
         let use_case = action.replace('_', "-");
         let job = match contract::job_from_call(&use_case, &args) {
@@ -264,8 +271,12 @@ impl Server {
                 return self.finished(action, &args, Some(&e), Map::new());
             }
         };
-        let services = squint_core::run::Services::new(provider.as_ref(), &self.inner.tools)
-            .with_shared_ledger(Some(&self.inner.session));
+        let mut services = squint_core::run::Services::new(provider.as_ref(), &self.inner.tools)
+            .with_shared_ledger(Some(&self.inner.session))
+            .with_cancel(&hooks.cancel);
+        if let Some(observer) = hooks.observer {
+            services = services.with_observer(observer);
+        }
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -294,6 +305,94 @@ impl Server {
         }
     }
 
+    /// A resource's text: the runs list, or one run's `run.json`, report or journal.
+    fn resource(&self, uri: &str) -> Option<String> {
+        if uri == "squint://runs" {
+            return serde_json::to_string_pretty(&self.runs()).ok();
+        }
+        let (id, what) = uri.strip_prefix("squint://run/")?.split_once('/')?;
+        let valid = !id.is_empty()
+            && id
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+        if !valid {
+            return None;
+        }
+        let dir = self.inner.out_dir.join(id);
+        match what {
+            "run.json" => std::fs::read_to_string(dir.join(contract::RUN_FILE)).ok(),
+            "report.json" => std::fs::read_to_string(dir.join("report.json")).ok(),
+            "journal" => {
+                let mut text = String::new();
+                for n in 1.. {
+                    let Ok(part) =
+                        std::fs::read_to_string(dir.join(format!("run-{n}/journal.jsonl")))
+                    else {
+                        break;
+                    };
+                    text.push_str(&part);
+                }
+                (!text.is_empty()).then_some(text)
+            }
+            _ => None,
+        }
+    }
+
+    /// Every run directory under the output directory, newest first: a finished one by its
+    /// `run.json`, one still going as `running` (table-manners 4.3).
+    fn runs(&self) -> table_manners::RunsList {
+        let mut runs: Vec<(u64, table_manners::RunSummary)> =
+            std::fs::read_dir(&self.inner.out_dir)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .filter_map(|entry| {
+                    let id = entry.file_name().to_string_lossy().into_owned();
+                    // `<action>-<unix ms>-<pid>[-n]`: the milliseconds order the list.
+                    let ms: u64 = id.split('-').find_map(|part| part.parse().ok())?;
+                    let dir = entry.path();
+                    let summary = match std::fs::read_to_string(dir.join(contract::RUN_FILE))
+                        .ok()
+                        .and_then(|t| serde_json::from_str::<table_manners::RunResult>(&t).ok())
+                    {
+                        Some(r) => table_manners::RunSummary {
+                            id: id.clone(),
+                            action: r.action,
+                            status: match r.status {
+                                table_manners::Status::Completed => {
+                                    table_manners::RunState::Completed
+                                }
+                                table_manners::Status::Cancelled => {
+                                    table_manners::RunState::Cancelled
+                                }
+                                table_manners::Status::Error => table_manners::RunState::Error,
+                                table_manners::Status::Invalid => table_manners::RunState::Invalid,
+                            },
+                            started: r.started,
+                            resource: r.run.resource,
+                        },
+                        None => table_manners::RunSummary {
+                            action: id.split('-').next().unwrap_or("check").to_string(),
+                            status: table_manners::RunState::Running,
+                            started: contract::rfc3339(ms),
+                            resource: format!("squint://run/{id}/{}", contract::RUN_FILE),
+                            id: id.clone(),
+                        },
+                    };
+                    Some((ms, summary))
+                })
+                .collect();
+        runs.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.id.cmp(&a.1.id)));
+        table_manners::RunsList {
+            contract: table_manners::CONTRACT_VERSION.into(),
+            tool: table_manners::Tool {
+                name: "squint".into(),
+                version: VERSION.into(),
+            },
+            runs: runs.into_iter().map(|(_, r)| r).collect(),
+        }
+    }
+
     /// Writes an action's run directory with its `run.json` and returns the result: `isError`
     /// for `invalid` and `error`.
     fn finished(
@@ -318,6 +417,59 @@ impl Server {
         contract::write_run_result(&dir, &result)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(tool_result(&result))
+    }
+}
+
+/// What a check is given by the call around it: the flag a client's cancellation sets, and the
+/// observer that turns journal lines into progress.
+struct Hooks {
+    cancel: Arc<squint_core::run::Cancel>,
+    observer: Option<squint_core::run::Observer>,
+}
+
+/// Sends progress for one call until the run's observer goes away: a notification per journal
+/// line, the first naming the run's resource, and a heartbeat after every [`HEARTBEAT`] of
+/// silence. `progress` is elapsed seconds, nudged up so it never repeats (table-manners 4.1).
+async fn send_progress(
+    peer: rmcp::Peer<RoleServer>,
+    token: rmcp::model::ProgressToken,
+    mut lines: tokio::sync::mpsc::UnboundedReceiver<(PathBuf, String)>,
+) {
+    let started = std::time::Instant::now();
+    let mut last = 0.0_f64;
+    let mut named = false;
+    loop {
+        let message = match tokio::time::timeout(HEARTBEAT, lines.recv()).await {
+            Ok(Some((run_dir, event))) => {
+                let run = run_dir
+                    .file_name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                let decision = run_dir
+                    .parent()
+                    .and_then(Path::file_name)
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default();
+                if named {
+                    format!("{run}: {event}")
+                } else {
+                    named = true;
+                    format!("squint://run/{decision}/run.json {run}: {event}")
+                }
+            }
+            Ok(None) => return,
+            Err(_) => format!("waiting, {} s", started.elapsed().as_secs()),
+        };
+        let mut progress = started.elapsed().as_secs_f64();
+        if progress <= last {
+            progress = last + 0.001;
+        }
+        last = progress;
+        let mut param = ProgressNotificationParam::new(token.clone(), progress);
+        param.message = Some(message);
+        if peer.notify_progress(param).await.is_err() {
+            return;
+        }
     }
 }
 
@@ -457,7 +609,12 @@ fn input_schema(action: &table_manners::Action) -> Map<String, Value> {
 
 impl ServerHandler for Server {
     fn get_info(&self) -> InitializeResult {
-        InitializeResult::new(ServerCapabilities::builder().enable_tools().build())
+        InitializeResult::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .build(),
+        )
             .with_protocol_version(ProtocolVersion::V_2025_11_25)
             .with_server_info(Implementation::new("squint", VERSION))
             .with_instructions(
@@ -536,20 +693,104 @@ impl ServerHandler for Server {
             .acquire_owned()
             .await
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-        let result = tokio::task::spawn_blocking(move || {
+        let cancel = Arc::new(squint_core::run::Cancel::new());
+        let (observer, progress) = match context.meta.get_progress_token().filter(|_| is_check) {
+            Some(token) => {
+                let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+                let observer: squint_core::run::Observer =
+                    Arc::new(move |run_dir: &Path, event: &str| {
+                        let _ = tx.send((run_dir.to_path_buf(), event.to_string()));
+                    });
+                let task = tokio::spawn(send_progress(context.peer.clone(), token, rx));
+                (Some(observer), Some(task))
+            }
+            None => (None, None),
+        };
+        let hooks = Hooks {
+            cancel: cancel.clone(),
+            observer,
+        };
+        let task = tokio::task::spawn_blocking(move || {
             let _permit = permit;
             match name.as_str() {
                 "describe" => server.describe(),
                 "estimate" => server.estimate(args),
-                action if is_check => server.check(action, args, roots),
+                action if is_check => server.check(action, args, roots, hooks),
                 other => Err(ErrorData::invalid_params(
                     format!("no tool {other:?}; call describe for the actions"),
                     None,
                 )),
             }
-        })
-        .await
-        .map_err(|e| ErrorData::internal_error(format!("the call panicked: {e}"), None))??;
+        });
+        tokio::pin!(task);
+        // A cancellation stops the run's paid work; the run then writes its `cancelled` run.json,
+        // and rmcp sends no response to a cancelled request (table-manners 4.2).
+        let joined = tokio::select! {
+            joined = &mut task => joined,
+            () = context.ct.cancelled() => {
+                cancel.cancel();
+                (&mut task).await
+            }
+        };
+        if let Some(progress) = progress {
+            let _ = progress.await;
+        }
+        let result = joined
+            .map_err(|e| ErrorData::internal_error(format!("the call panicked: {e}"), None))??;
         Ok(result.into())
+    }
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, ErrorData> {
+        let mut runs = Resource::new("squint://runs", "runs");
+        runs.description = Some("Recent runs, newest first (table-manners 4.3).".into());
+        runs.mime_type = Some("application/json".into());
+        Ok(ListResourcesResult::with_all_items(vec![runs]))
+    }
+
+    async fn list_resource_templates(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ListResourceTemplatesResult, ErrorData> {
+        let templates = [
+            ("squint://run/{id}/run.json", "run", "application/json"),
+            (
+                "squint://run/{id}/report.json",
+                "report",
+                "application/json",
+            ),
+            (
+                "squint://run/{id}/journal",
+                "journal",
+                "application/x-ndjson",
+            ),
+        ]
+        .into_iter()
+        .map(|(uri, name, mime)| {
+            let mut t = ResourceTemplate::new(uri, name);
+            t.mime_type = Some(mime.into());
+            t
+        })
+        .collect();
+        Ok(ListResourceTemplatesResult::with_all_items(templates))
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _context: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResponse, ErrorData> {
+        let uri = request.uri.clone();
+        let server = self.clone();
+        let lookup = uri.clone();
+        let text = tokio::task::spawn_blocking(move || server.resource(&lookup))
+            .await
+            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?
+            .ok_or_else(|| ErrorData::resource_not_found(format!("no resource {uri}"), None))?;
+        Ok(ReadResourceResult::new(vec![ResourceContents::text(text, uri)]).into())
     }
 }

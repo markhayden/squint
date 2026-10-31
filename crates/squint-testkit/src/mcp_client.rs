@@ -23,6 +23,8 @@ pub struct Client {
     pub notifications: Vec<serde_json::Value>,
     /// The roots the client answers `roots/list` with, as `file://` URIs.
     pub roots: Vec<String>,
+    /// Responses that arrived while the client waited for another, by request id.
+    pending: std::collections::BTreeMap<u64, serde_json::Value>,
 }
 
 /// A tool as `tools/list` describes it.
@@ -100,6 +102,7 @@ impl Client {
             server: serde_json::Value::Null,
             notifications: Vec::new(),
             roots: Vec::new(),
+            pending: std::collections::BTreeMap::new(),
         };
         let server = client.request(
             "initialize",
@@ -179,8 +182,61 @@ impl Client {
             .to_string())
     }
 
-    /// Sends a request and reads lines until its response, keeping notifications; a request the
-    /// server sends (`roots/list`) is answered with `roots`.
+    /// Starts a `tools/call` with a progress token and returns its request id without waiting:
+    /// read its notifications with [`Client::next_notification`], cancel it with
+    /// [`Client::cancel`].
+    pub fn start_call(
+        &mut self,
+        name: &str,
+        arguments: serde_json::Value,
+        token: &str,
+    ) -> Result<u64, Failure> {
+        let id = self.next_id;
+        self.next_id += 1;
+        self.send(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "method": "tools/call",
+            "params": { "name": name, "arguments": arguments, "_meta": { "progressToken": token } }
+        }))?;
+        Ok(id)
+    }
+
+    /// Reads until the server sends a notification. A response arriving first is kept for later
+    /// and is a failure here, so a call that finished early cannot leave a test waiting forever.
+    pub fn next_notification(&mut self) -> Result<serde_json::Value, Failure> {
+        loop {
+            let message = self.receive()?;
+            if message.get("method").is_some() && message.get("id").is_none() {
+                self.notifications.push(message.clone());
+                return Ok(message);
+            }
+            let response = message.get("method").is_none();
+            let summary = message.to_string();
+            self.dispatch(message)?;
+            if response {
+                return Err(Failure::Transport(format!(
+                    "a response arrived while waiting for a notification: {summary}"
+                )));
+            }
+        }
+    }
+
+    /// Cancels a request (`notifications/cancelled`).
+    pub fn cancel(&mut self, id: u64) -> Result<(), Failure> {
+        self.notify(
+            "notifications/cancelled",
+            serde_json::json!({ "requestId": id, "reason": "the test cancels it" }),
+        )
+    }
+
+    /// Whether a response to `id` has arrived while the client read other messages.
+    pub fn has_response(&self, id: u64) -> bool {
+        self.pending.contains_key(&id)
+    }
+
+    /// Sends a request and reads lines until its response, keeping notifications and responses
+    /// to other requests; a request from the server (`roots/list`) is answered with `roots`.
     pub fn request(
         &mut self,
         method: &str,
@@ -192,42 +248,39 @@ impl Client {
             &serde_json::json!({ "jsonrpc": "2.0", "id": id, "method": method, "params": params }),
         )?;
         loop {
+            if let Some(message) = self.pending.remove(&id) {
+                return response_of(message);
+            }
             let message = self.receive()?;
-            if message.get("method").is_some() {
-                if message.get("id").is_some() {
-                    // A request from the server: `roots/list` is the only one a client offering
-                    // roots must answer.
-                    let roots: Vec<serde_json::Value> = self
-                        .roots
-                        .iter()
-                        .map(|uri| serde_json::json!({ "uri": uri }))
-                        .collect();
-                    let reply = serde_json::json!({
-                        "jsonrpc": "2.0",
-                        "id": message["id"],
-                        "result": { "roots": roots }
-                    });
-                    self.send(&reply)?;
-                } else {
-                    self.notifications.push(message);
-                }
-                continue;
-            }
-            if message["id"] != id {
-                return Err(Failure::Transport(format!(
-                    "a response to {} while waiting for {id}",
-                    message["id"]
-                )));
-            }
-            if let Some(error) = message.get("error") {
-                return Err(Failure::Rpc {
-                    code: error["code"].as_i64().unwrap_or(0),
-                    message: error["message"].as_str().unwrap_or_default().to_string(),
-                    data: error.get("data").cloned(),
-                });
-            }
-            return Ok(message["result"].clone());
+            self.dispatch(message)?;
         }
+    }
+
+    /// Answers a request from the server, keeps a notification, or keeps a response for later.
+    fn dispatch(&mut self, message: serde_json::Value) -> Result<(), Failure> {
+        if message.get("method").is_some() {
+            if message.get("id").is_some() {
+                // `roots/list` is the only request a client offering roots must answer.
+                let roots: Vec<serde_json::Value> = self
+                    .roots
+                    .iter()
+                    .map(|uri| serde_json::json!({ "uri": uri }))
+                    .collect();
+                let reply = serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": message["id"],
+                    "result": { "roots": roots }
+                });
+                return self.send(&reply);
+            }
+            self.notifications.push(message);
+            return Ok(());
+        }
+        let id = message["id"]
+            .as_u64()
+            .ok_or_else(|| Failure::Transport(format!("a response without an id: {message}")))?;
+        self.pending.insert(id, message);
+        Ok(())
     }
 
     /// Sends a notification.
@@ -260,6 +313,17 @@ impl Client {
         drop(self.writer);
         self.child.wait()
     }
+}
+
+fn response_of(message: serde_json::Value) -> Result<serde_json::Value, Failure> {
+    if let Some(error) = message.get("error") {
+        return Err(Failure::Rpc {
+            code: error["code"].as_i64().unwrap_or(0),
+            message: error["message"].as_str().unwrap_or_default().to_string(),
+            data: error.get("data").cloned(),
+        });
+    }
+    Ok(message["result"].clone())
 }
 
 fn call_result(r: &serde_json::Value) -> CallResult {

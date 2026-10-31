@@ -138,7 +138,7 @@ tag.
 - [x] 7.6 `estimate` for a check (2026-10-30): `squint estimate` from catalog prices with no credential, `--max-spend-usd` lowers the cap; every recorded replay spends within its estimate
 - [x] 7.7a `squint serve`: the server, `describe` and `estimate` (2026-10-30): rmcp `=3.8.0` at 2025-11-25 only; the independent client `squint_testkit::mcp_client`; a call's arguments become a job (`contract::job_from_call`)
 - [x] 7.7b `check` over `serve` (2026-10-30): one tool per use case, paths inside the client's roots and `[serve] roots`, the session budget as a shared ledger, calls serial by default
-- [ ] 7.8 Progress, cancellation and runs as resources
+- [x] 7.8 Progress, cancellation and runs as resources (2026-10-31): a journal observer drives progress, heartbeats every 5 s, a cancel leaves a `cancelled` run and no response, `squint://runs` and per-run resources, a cache hit costs nothing
 - [ ] 7.9 `squint playground`
 - [ ] 7.10 Conformance fixtures
 - [ ] 7.11 The MCP client on `rmcp` (bounded)

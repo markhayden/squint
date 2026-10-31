@@ -1439,9 +1439,11 @@ section says what squint does with them.
   the config names any. A check over `serve` is an ordinary decision: its directory, journal,
   report and `run.json`, with the action's name.
 - **Progress and cancellation**: `check` is a plain `tools/call`. With a progress token, squint
-  sends a notification on every journal event and at least every ten seconds while waiting, with
-  `progress` strictly increasing (steps, or elapsed seconds with no total) and the words (spend so
-  far) in the message; the first one names the run resource. `notifications/cancelled` stops the
+  sends a notification on every journal line of every run (through an observer the journal calls
+  after each write) and a heartbeat after five seconds of silence, well inside the ten the
+  description states; `progress` is elapsed seconds with no total, nudged so it never repeats,
+  and the message carries the words (`run-1: turn_sent`, `waiting, 12 s`); the first names the
+  run resource. `notifications/cancelled` stops the
   provider call; `run.json` and the run resource then hold status `cancelled` with spend to date,
   and no result is returned. An identical retry within the cache policy is answered from the
   decision cache and says so.
