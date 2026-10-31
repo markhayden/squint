@@ -1508,6 +1508,7 @@ squint tools list --config squint.toml      # manifests as the model will see th
 squint describe --json --config squint.toml # the contract's description document (ADR 0018)
 squint estimate --config squint.toml --job job.toml [--max-spend-usd 0.10]   # worst case of one check; nothing sent
 squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check, never raises it
+squint serve --config squint.toml [--out runs/]   # MCP over stdio, protocol 2025-11-25 (table-manners 5)
 squint sets check evalsets/
 squint sets fetch --set reference-consistency/pets-v1
 squint sets seal --set <set> --attest "…"    # writes seal.toml; a blind set's labels move out (--labels-out)

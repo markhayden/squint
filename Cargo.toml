@@ -40,6 +40,9 @@ tracing = "0.1"
 # Pinned exactly: squint conforms to one release of the contract, and an update is a deliberate
 # commit with the copied schemas regenerated (ADR 0018, schemas/contract/SOURCES.toml).
 table-manners = "=0.1.0"
+# The official MCP SDK for `squint serve`, pinned exactly as rascal pins it (ADR 0018); the client
+# squint uses for its tool packs stays in-house (ADR 0015).
+rmcp = { version = "=3.8.0", default-features = false, features = ["server", "transport-io"] }
 # Pinned exactly: the bootstrap's resample indices must reproduce from a seed across builds (ADR 0016).
 rand = "=0.9.5"
 rand_chacha = "=0.9.0"

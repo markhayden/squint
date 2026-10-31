@@ -5,6 +5,7 @@ mod catalog;
 mod describe;
 mod eval;
 mod report;
+mod serve;
 mod sets;
 mod viewer;
 
@@ -51,6 +52,8 @@ enum Command {
     Describe(describe::DescribeArgs),
     /// Print the worst-case cost of one check and whether the cap covers it; nothing is sent.
     Estimate(JobArgs),
+    /// Serve the contract's actions over MCP on stdio (protocol 2025-11-25).
+    Serve(serve::ServeArgs),
 }
 
 #[derive(clap::Args)]
@@ -213,6 +216,7 @@ fn main() {
         Some(Command::Sets(args)) => sets::run(&args),
         Some(Command::Describe(args)) => describe::run(&args),
         Some(Command::Estimate(args)) => estimate(&args),
+        Some(Command::Serve(args)) => serve::run(&args),
     };
     std::process::exit(code);
 }

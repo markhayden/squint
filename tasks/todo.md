@@ -136,7 +136,7 @@ tag.
 - [x] 7.4 `run.json`, the result header and exit codes (2026-10-30): written last and atomically on every surface; `invalid` exits 64; signals exit 130 and 143 for `check` and `eval run`
 - [x] 7.5 `squint describe --json` (2026-10-30): one action per use case and `estimate`, the vocabulary from squint's own types; argument errors exit 64
 - [x] 7.6 `estimate` for a check (2026-10-30): `squint estimate` from catalog prices with no credential, `--max-spend-usd` lowers the cap; every recorded replay spends within its estimate
-- [ ] 7.7a `squint serve`: the server, `describe` and `estimate`
+- [x] 7.7a `squint serve`: the server, `describe` and `estimate` (2026-10-30): rmcp `=3.8.0` at 2025-11-25 only; the independent client `squint_testkit::mcp_client`; a call's arguments become a job (`contract::job_from_call`)
 - [ ] 7.7b `check` over `serve`
 - [ ] 7.8 Progress, cancellation and runs as resources
 - [ ] 7.9 `squint playground`

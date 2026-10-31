@@ -397,7 +397,8 @@ fn input_identity(report: &Report, images: &[CanonicalImage]) -> String {
     )
 }
 
-pub(crate) fn now_ms() -> u64 {
+/// Milliseconds since the epoch.
+pub fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
@@ -624,4 +625,186 @@ fn params_schema(use_cases: Option<&[&str]>) -> serde_json::Value {
         "required": required,
         "additionalProperties": false
     })
+}
+
+/// The arguments a call may carry beside its images (`params_schema`, and the locator and
+/// image-block choices every images action takes, table-manners 10.2).
+const CALL_ARGUMENTS: &[&str] = &[
+    "candidate",
+    "source",
+    "references",
+    "brief",
+    "requirements",
+    "max_spend_usd",
+    "use_case",
+    "return_images",
+    "image_blocks",
+];
+
+/// A job from a contract call's arguments (table-manners 10.1): `candidate` and an optional
+/// `source`, each one image in, and `references`, a list of them (`ref:1`, `ref:2`, …); the
+/// brief and requirements as in a job file. A path must be absolute; inline bytes become a base64
+/// image; an `expect` is kept, and its projection is the image's. Anything else, or a malformed
+/// image in, is a usage error.
+pub fn job_from_call(
+    use_case: &str,
+    args: &serde_json::Map<String, serde_json::Value>,
+) -> crate::Result<crate::job::Job> {
+    use crate::Error;
+    use crate::job::{ImageSpec, Job};
+
+    if let Some(unknown) = args.keys().find(|k| !CALL_ARGUMENTS.contains(&k.as_str())) {
+        return Err(Error::Job(format!("unknown argument {unknown:?}")));
+    }
+    let image = |id: String, role: Role, value: &serde_json::Value| -> crate::Result<ImageSpec> {
+        let image_in: table_manners::images::ImageIn = serde_json::from_value(value.clone())
+            .map_err(|e| {
+                Error::Job(format!(
+                    "{id}: an image is {{ \"path\" }} or {{ \"inline\" }} with an optional \"expect\": {e}"
+                ))
+            })?;
+        let (source, expect) = match image_in {
+            table_manners::images::ImageIn::Path(p) => {
+                if !Path::new(&p.path).is_absolute() {
+                    return Err(Error::Input(format!(
+                        "{id}: the path {:?} is not absolute",
+                        p.path
+                    )));
+                }
+                (
+                    crate::job::ImageSource::Path {
+                        path: p.path.into(),
+                        sha256: None,
+                    },
+                    p.expect,
+                )
+            }
+            table_manners::images::ImageIn::Inline(i) => {
+                crate::image::base64_decode(&i.inline.data)
+                    .map_err(|e| Error::Input(format!("{id}: inline data: {e}")))?;
+                (
+                    crate::job::ImageSource::Base64 {
+                        base64: i.inline.data,
+                        media_type: i.inline.media_type,
+                    },
+                    i.expect,
+                )
+            }
+        };
+        let projection = expect.as_ref().map(|e| match e.projection {
+            ContractProjection::Flat => Projection::Flat,
+            ContractProjection::Equirectangular => Projection::Equirectangular,
+        });
+        Ok(ImageSpec {
+            label: (role == Role::Reference).then(|| id.trim_start_matches("ref:").to_string()),
+            id,
+            role,
+            source,
+            projection,
+            expect,
+        })
+    };
+    let candidate = args
+        .get("candidate")
+        .ok_or_else(|| Error::Job("candidate: required".into()))?;
+    let mut images = vec![image("candidate".into(), Role::Candidate, candidate)?];
+    if let Some(source) = args.get("source") {
+        images.push(image("source".into(), Role::Source, source)?);
+    }
+    if let Some(references) = args.get("references") {
+        let list = references
+            .as_array()
+            .ok_or_else(|| Error::Job("references: a list of images".into()))?;
+        for (n, value) in list.iter().enumerate() {
+            images.push(image(format!("ref:{}", n + 1), Role::Reference, value)?);
+        }
+    }
+    let brief = match args.get("brief") {
+        None => None,
+        Some(serde_json::Value::String(s)) => Some(s.clone()),
+        Some(_) => return Err(Error::Job("brief: a string".into())),
+    };
+    let requirements = match args.get("requirements") {
+        None => Vec::new(),
+        Some(v) => serde_json::from_value(v.clone())
+            .map_err(|e| Error::Job(format!("requirements: {e}")))?,
+    };
+    let job = Job {
+        use_case: use_case.to_string(),
+        brief,
+        requirements,
+        images,
+    };
+    job.validate()?;
+    Ok(job)
+}
+
+/// The result of an action that is not a decision (`estimate`): the header with no spend and no
+/// images or locations, and the action's own body; `error` sets the status from its class. The
+/// input identity is a digest of the call's arguments.
+pub fn action_result(
+    dir: &Path,
+    version: &str,
+    action: &str,
+    started_ms: u64,
+    input: &serde_json::Value,
+    error: Option<&crate::Error>,
+    body: serde_json::Map<String, serde_json::Value>,
+) -> RunResult {
+    let finished_ms = now_ms();
+    let id = dir
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let (status, error) = match error {
+        None => (Status::Completed, None),
+        Some(e) => {
+            let (status, code) = status_of(e.class());
+            (
+                status,
+                code.map(|(code, retryable)| ErrorInfo {
+                    code,
+                    retryable,
+                    reason: e.to_string(),
+                }),
+            )
+        }
+    };
+    RunResult {
+        contract: CONTRACT_VERSION.into(),
+        tool: Tool {
+            name: "squint".into(),
+            version: version.into(),
+        },
+        action: action.into(),
+        run: Run {
+            resource: format!("squint://run/{id}/{RUN_FILE}"),
+            id,
+            dir: Some(dir.to_string_lossy().into_owned()),
+        },
+        status,
+        error,
+        started: rfc3339(started_ms),
+        finished: rfc3339(finished_ms),
+        duration_ms: finished_ms.saturating_sub(started_ms),
+        input_identity: format!(
+            "sha256:{}",
+            hex(&Sha256::digest(input.to_string().as_bytes()))
+        ),
+        spend: Spend {
+            usd: 0.0,
+            basis: SpendBasis::Measured,
+        },
+        cache: Cache::Off,
+        images: Some(Images {
+            taken: Vec::new(),
+            out: Vec::new(),
+        }),
+        locations: Some(Locations {
+            used: Vec::new(),
+            found: Vec::new(),
+        }),
+        notes: Vec::new(),
+        body,
+    }
 }

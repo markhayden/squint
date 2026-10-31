@@ -3,6 +3,7 @@
 //! of the `squint` binary only behind its `testkit` feature.
 
 pub mod images;
+pub mod mcp_client;
 pub mod mcp_server;
 pub mod provider;
 pub mod sets;
