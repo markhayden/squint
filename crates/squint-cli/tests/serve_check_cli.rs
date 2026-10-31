@@ -133,6 +133,45 @@ fn a_path_outside_the_clients_roots_is_invalid_input_and_spends_nothing() {
     assert_eq!(r["spend"]["usd"], 0.0);
 }
 
+/// `estimate` reads its images too, so it answers to the same roots as a check (review C1): a
+/// path outside them is refused before it is opened, and a missing path is refused in the same
+/// words, so nothing about the file (its digest, size or existence) comes back.
+#[test]
+fn estimate_refuses_a_path_outside_the_roots_without_reading_it() {
+    // A catalog model, so an estimate that ignored the roots would go on to read the image.
+    let mut c = client(&out("estimate-roots"), &["provider.model=claude-haiku-5-5"]);
+    c.roots = vec![format!(
+        "file://{}",
+        repo_root().join("fixtures/jobs").display()
+    )];
+    let expect = json!({ "file_sha256": "0".repeat(64), "width": 64, "height": 48,
+                         "projection": "flat", "topology": "bounded" });
+    let outside = repo_root().join("fixtures/images/candidate-64x48.png");
+    let missing = repo_root().join("fixtures/images/no-such-image.png");
+    let mut reasons = Vec::new();
+    for path in [&outside, &missing] {
+        let r = c
+            .call(
+                "estimate",
+                json!({ "use_case": "source-fidelity",
+                        "candidate": { "path": path, "expect": expect },
+                        "source": image("source-64x48.png") }),
+            )
+            .unwrap();
+        assert!(r.is_error, "{path:?}");
+        let r = r.structured.unwrap();
+        assert_eq!(r["status"], "invalid", "{r}");
+        assert_eq!(r["error"]["code"], "input", "{r}");
+        let reason = r["error"]["reason"].as_str().unwrap().to_string();
+        assert!(!reason.contains("file_sha256"), "{reason}");
+        reasons.push(reason.replace(&path.display().to_string(), "<path>"));
+    }
+    assert_eq!(
+        reasons[0], reasons[1],
+        "a missing file must read like one outside"
+    );
+}
+
 #[test]
 fn an_exhausted_session_budget_is_a_budget_error_before_any_request() {
     let mut c = client(&out("budget"), &["serve.session_budget_usd=0.000001"]);

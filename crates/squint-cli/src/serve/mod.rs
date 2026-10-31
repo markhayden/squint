@@ -171,17 +171,25 @@ impl Server {
 
     /// `estimate`: the envelope a check of the named use case would reserve, from the catalog's
     /// prices; a run of its own, with no spend.
-    fn estimate(&self, args: Map<String, Value>) -> Result<CallToolResult, ErrorData> {
+    fn estimate(
+        &self,
+        args: Map<String, Value>,
+        roots: Option<Vec<PathBuf>>,
+    ) -> Result<CallToolResult, ErrorData> {
         let use_case = args
             .get("use_case")
             .and_then(Value::as_str)
             .ok_or_else(|| ErrorData::invalid_params("use_case: required", None))?
             .to_string();
-        let job = match contract::job_from_call(&use_case, &args) {
+        let mut job = match contract::job_from_call(&use_case, &args) {
             Ok(job) => job,
             Err(squint_core::Error::Job(m)) => return Err(ErrorData::invalid_params(m, None)),
             Err(e) => return self.finished("estimate", &args, Some(&e), Map::new()),
         };
+        // The estimate reads its images' dimensions, so it answers to the roots a check does.
+        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &self.inner.config.serve.roots) {
+            return self.finished("estimate", &args, Some(&e), Map::new());
+        }
         let mut config = self.inner.config.clone();
         if let Some(max) = args.get("max_spend_usd") {
             let lowered = max
@@ -240,12 +248,12 @@ impl Server {
         hooks: Hooks,
     ) -> Result<CallToolResult, ErrorData> {
         let use_case = action.replace('_', "-");
-        let job = match contract::job_from_call(&use_case, &args) {
+        let mut job = match contract::job_from_call(&use_case, &args) {
             Ok(job) => job,
             Err(squint_core::Error::Job(m)) => return Err(ErrorData::invalid_params(m, None)),
             Err(e) => return self.finished(action, &args, Some(&e), Map::new()),
         };
-        if let Err(e) = inside_roots(&job, roots.as_deref(), &self.inner.config.serve.roots) {
+        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &self.inner.config.serve.roots) {
             return self.finished(action, &args, Some(&e), Map::new());
         }
         let mut config = self.inner.config.clone();
@@ -470,9 +478,12 @@ async fn send_progress(
 }
 
 /// Every image path of `job` inside the client's roots (when the client offers roots) and inside
-/// the config's `[serve] roots` (when it names any): an image elsewhere is `input`.
+/// the config's `[serve] roots` (when it names any): an image elsewhere is `input`. Each path is
+/// replaced by the real one it was checked as, so a symlink swapped afterwards cannot lead out. A
+/// path that does not resolve is refused in the words of one outside, so a refusal says nothing
+/// about what exists.
 fn inside_roots(
-    job: &squint_core::job::Job,
+    job: &mut squint_core::job::Job,
     client: Option<&[PathBuf]>,
     config: &[PathBuf],
 ) -> squint_core::Result<()> {
@@ -481,26 +492,33 @@ fn inside_roots(
             .iter()
             .any(|root| root.canonicalize().is_ok_and(|r| path.starts_with(r)))
     };
-    for image in &job.images {
-        let squint_core::job::ImageSource::Path { path, .. } = &image.source else {
+    for image in &mut job.images {
+        let squint_core::job::ImageSource::Path { path, .. } = &mut image.source else {
             continue;
         };
-        let real = path.canonicalize().map_err(|e| {
-            squint_core::Error::Input(format!("{}: {}: {e}", image.id, path.display()))
-        })?;
-        if client.is_some_and(|roots| !within(&real, roots)) {
-            return Err(squint_core::Error::Input(format!(
-                "{}: {} is outside the client's roots",
+        let refused = |which: &str| {
+            squint_core::Error::Input(format!(
+                "{}: {} is not a readable file inside {which}",
                 image.id,
                 path.display()
-            )));
+            ))
+        };
+        let real = path.canonicalize();
+        if client.is_some_and(|roots| !real.as_ref().is_ok_and(|r| within(r, roots))) {
+            return Err(refused("the client's roots"));
         }
-        if !config.is_empty() && !within(&real, config) {
-            return Err(squint_core::Error::Input(format!(
-                "{}: {} is outside [serve] roots",
-                image.id,
-                path.display()
-            )));
+        if !config.is_empty() && !real.as_ref().is_ok_and(|r| within(r, config)) {
+            return Err(refused("[serve] roots"));
+        }
+        match real {
+            Ok(real) => *path = real,
+            Err(e) => {
+                return Err(squint_core::Error::Input(format!(
+                    "{}: {}: {e}",
+                    image.id,
+                    path.display()
+                )));
+            }
         }
     }
     Ok(())
@@ -661,7 +679,7 @@ impl ServerHandler for Server {
         // Roots are part of revision 2025-11-25, the only one squint serves; SEP-2577 deprecates
         // them in a later revision, which the contract must answer before squint moves (v0.2).
         #[allow(deprecated)]
-        let roots = if is_check
+        let roots = if (is_check || name == "estimate")
             && context
                 .peer
                 .peer_info()
@@ -710,7 +728,7 @@ impl ServerHandler for Server {
             let _permit = permit;
             match name.as_str() {
                 "describe" => server.describe(),
-                "estimate" => server.estimate(args),
+                "estimate" => server.estimate(args, roots),
                 action if is_check => server.check(action, args, roots, hooks),
                 other => Err(ErrorData::invalid_params(
                     format!("no tool {other:?}; call describe for the actions"),

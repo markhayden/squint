@@ -91,6 +91,11 @@ fn describe_is_a_tool_and_equals_the_command() {
 fn estimate_is_a_run_with_its_own_run_json() {
     let dir = out("estimate");
     let mut client = Client::start(&mut server(&dir)).unwrap();
+    // An estimate reads its images, so they must be inside the client's roots like a check's.
+    client.roots = vec![format!(
+        "file://{}",
+        repo_root().join("fixtures/images").display()
+    )];
     let r = client
         .call(
             "estimate",

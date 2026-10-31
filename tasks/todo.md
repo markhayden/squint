@@ -151,7 +151,7 @@ tag.
 - [x] Checkpoint M7 → tag `m7` (2026-10-31): merged as `eef1f10`, released by the owner
 - [x] Follow-up: the M7 checkpoint's review and test-coverage pass (agent-skills review and test), skipped before the merge; run 2026-10-31; the release stands, findings are the M7 review fixes below
 - [ ] M7 review fixes (branch `m7-review`):
-  - [ ] `estimate` over MCP checks paths against roots like a check (review C1, security)
+  - [x] `estimate` over MCP checks paths against roots like a check (review C1, security); a missing path is refused in the words of one outside; the checked real path replaces the given one (S3)
   - [ ] an image path is a regular file read only up to the decode bound (I1)
   - [ ] every decision writes its own `run.json` on every exit; a cache-store failure is a note; serve returns the decision's run, never a second one (I2)
   - [ ] a reference's `images.in` slot is `references` (I3)
