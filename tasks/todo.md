@@ -141,7 +141,7 @@ tag.
 - [x] 7.8 Progress, cancellation and runs as resources (2026-10-31): a journal observer drives progress, heartbeats every 5 s, a cancel leaves a `cancelled` run and no response, `squint://runs` and per-run resources, a cache hit costs nothing
 - [ ] 7.9 `squint playground` — blocked on the launcher agreement (wafflehouse H1: executable, `--tool` argv, install confirmation, host reuse); no launcher flags are invented before it
 - [x] 7.10 Conformance fixtures (2026-10-31): `fixtures/contract/squint/` generated and held by `contract_fixtures.rs`; copied to table-manners `fixtures/squint/` (`6025a06`), which validates them
-- [ ] 7.11 The MCP client on `rmcp` (bounded)
+- [x] 7.11 The MCP client on `rmcp` (bounded) (2026-10-31): ADR 0019, the pack client stays in-house
 - [ ] Contract v0.2 from what M7 finds, before rascal's conformance merges; written up in table-manners `PROPOSALS.md`. Found so far:
   - an image slot that takes a list (squint's `references`; v0.1 slots take one image)
   - how a render command reports the URL it serves (wafflehouse brief, gap 1)
