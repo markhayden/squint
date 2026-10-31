@@ -1,0 +1,96 @@
+{
+  "action": "source_fidelity",
+  "body": {
+    "agree": null,
+    "exit_code": 1,
+    "report": "/runs/fail/report.json",
+    "verdict": "fail"
+  },
+  "cache": "off",
+  "contract": "0.1.0",
+  "duration_ms": 0,
+  "error": null,
+  "finished": "2026-01-01T00:00:00.000Z",
+  "images": {
+    "in": [
+      {
+        "image": {
+          "file_sha256": "7fb7b6859319d2977ef89ed044dcda94c94401358f4ac71b60ef2613de300556",
+          "height": 48,
+          "pixel_sha256": "9e75f7d58acb79c39101feb3715c44dda1e29e165a5106903093e1b5c2be9b0a",
+          "projection": "flat",
+          "topology": "bounded",
+          "width": 64
+        },
+        "role": "candidate",
+        "slot": "candidate"
+      },
+      {
+        "image": {
+          "file_sha256": "8c12b7425ca2c5cbc9cfa733fbab6f2bd267a379baaec01e0fecb2d2ab6b154f",
+          "height": 48,
+          "pixel_sha256": "10528ff682d842b99ab3028c02deeeccc6e0f8e4c63abb5a45814a7a7fd8cd77",
+          "projection": "flat",
+          "topology": "bounded",
+          "width": 64
+        },
+        "role": "source",
+        "slot": "source"
+      }
+    ],
+    "out": []
+  },
+  "input_identity": "sha256:f81a83e1f8561d7c8829fccc351e99192216e4d9a9630432be6b687f94495bf3",
+  "locations": {
+    "found": [
+      {
+        "confidence": "confident",
+        "disposition": "violation",
+        "image": {
+          "file_sha256": "7fb7b6859319d2977ef89ed044dcda94c94401358f4ac71b60ef2613de300556",
+          "height": 48,
+          "pixel_sha256": "9e75f7d58acb79c39101feb3715c44dda1e29e165a5106903093e1b5c2be9b0a",
+          "projection": "flat",
+          "topology": "bounded",
+          "width": 64
+        },
+        "kind": "bbox",
+        "label": "scripted",
+        "parts": [
+          {
+            "bbox": [
+              0.1,
+              0.1,
+              0.3,
+              0.3
+            ]
+          }
+        ],
+        "source": {
+          "item": "SF1",
+          "run": "fail",
+          "tool": "squint",
+          "version": "0.0.0"
+        },
+        "straddles_wrap": false
+      }
+    ],
+    "used": []
+  },
+  "notes": [],
+  "run": {
+    "dir": "/runs/fail",
+    "id": "fail",
+    "resource": "squint://run/fail/run.json"
+  },
+  "spend": {
+    "basis": "measured",
+    "usd": 0.0
+  },
+  "started": "2026-01-01T00:00:00.000Z",
+  "status": "completed",
+  "tool": {
+    "name": "squint",
+    "version": "0.0.0"
+  }
+}
