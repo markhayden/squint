@@ -311,6 +311,17 @@ pub fn is_credential_name(name: &str) -> bool {
 }
 
 impl Config {
+    /// Lowers the per-call spend cap to `max_usd` when that is lower; a call never raises it.
+    pub fn lower_spend_cap(&mut self, max_usd: f64) -> Result<()> {
+        if max_usd.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+            return Err(Error::Config(format!(
+                "max_spend_usd {max_usd} must be a positive amount"
+            )));
+        }
+        self.budget.spend_cap_usd = self.budget.spend_cap_usd.min(max_usd);
+        Ok(())
+    }
+
     /// Loads a config file with no overrides.
     pub fn load(path: &Path) -> Result<Config> {
         Config::load_with_overrides(path, &[])
@@ -509,6 +520,23 @@ mod tests {
 
     fn no_env(_: &str) -> Option<String> {
         None
+    }
+
+    /// A call may lower the configured cap and never raise it; a cap must stay positive
+    /// (table-manners 4.5).
+    #[test]
+    fn a_spend_cap_is_lowered_never_raised() {
+        let text = crate::fixture("config/minimal.toml");
+        let mut config = Config::parse(&text, &[], &no_env).expect("parses");
+        let configured = config.budget.spend_cap_usd;
+        config.lower_spend_cap(configured * 10.0).unwrap();
+        assert_eq!(config.budget.spend_cap_usd, configured);
+        config.lower_spend_cap(0.01).unwrap();
+        assert_eq!(config.budget.spend_cap_usd, 0.01);
+        for bad in [0.0, -1.0, f64::NAN] {
+            assert!(matches!(config.lower_spend_cap(bad), Err(Error::Config(_))));
+        }
+        assert_eq!(config.budget.spend_cap_usd, 0.01);
     }
 
     #[test]

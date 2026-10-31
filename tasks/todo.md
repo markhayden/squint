@@ -135,7 +135,7 @@ tag.
 - [x] 7.3 Contract locations out (2026-10-30): `contract::location`, the inverse EXIF orientation, quarter-pixel precision, seam footprints as two parts
 - [x] 7.4 `run.json`, the result header and exit codes (2026-10-30): written last and atomically on every surface; `invalid` exits 64; signals exit 130 and 143 for `check` and `eval run`
 - [x] 7.5 `squint describe --json` (2026-10-30): one action per use case and `estimate`, the vocabulary from squint's own types; argument errors exit 64
-- [ ] 7.6 `estimate` for a check
+- [x] 7.6 `estimate` for a check (2026-10-30): `squint estimate` from catalog prices with no credential, `--max-spend-usd` lowers the cap; every recorded replay spends within its estimate
 - [ ] 7.7a `squint serve`: the server, `describe` and `estimate`
 - [ ] 7.7b `check` over `serve`
 - [ ] 7.8 Progress, cancellation and runs as resources

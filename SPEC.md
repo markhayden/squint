@@ -1417,15 +1417,18 @@ section says what squint does with them.
   words as the label, its disposition and confidence, and its source (`squint`, version, run id,
   item id). Crop, view and aligned frames never leave squint.
 - **`squint serve`**: an MCP server over stdio at revision `2025-11-25`, under the contract's
-  server conventions. Tools: `check` (one decision; images by path or inline bytes in any slot;
-  paths only inside the client's MCP roots narrowed by config; inline bytes bounded), `estimate`
-  (worst-case cost of a check and the session budget left), and `describe`. squint's own
-  self-description (`rules`, `tools list`, `catalog`) stays on the command line and is referenced
-  from the description's `x-squint`. An `invalid` or `error` outcome is a result with `isError`
-  and the header; JSON-RPC errors are only for failures before a run exists. Each image out carries its reference and the locator the call asked for
+  server conventions. Tools: one per use case, as `describe` lists them (`source_fidelity`, …: one
+  decision each; images by path or inline bytes in any slot; paths only inside the client's MCP
+  roots narrowed by config; inline bytes bounded), `estimate` (worst-case cost of a check and the
+  session budget left; on the command line `squint estimate`, priced from the catalog with no
+  credential), and `describe`. squint's own self-description (`rules`, `tools list`, `catalog`)
+  stays on the command line and is referenced from the description's `x-squint`. An `invalid` or
+  `error` outcome is a result with `isError` and the header; JSON-RPC errors are only for failures
+  before a run exists. Each image out carries its reference and the locator the call asked for
   (path, inline, resource URI); image blocks only when asked. Calls are serial by default
-  (`[serve] concurrency`). Spend: the per-call cap from config, which a call may lower and never
-  raise, and a per-session budget (`[serve] session_budget_usd`) across the server's lifetime.
+  (`[serve] concurrency`). Spend: the per-call cap from config, which a call (`max_spend_usd`; on
+  the command line `--max-spend-usd`) may lower and never raise, and a per-session budget
+  (`[serve] session_budget_usd`) across the server's lifetime.
 - **Progress and cancellation**: `check` is a plain `tools/call`. With a progress token, squint
   sends a notification on every journal event and at least every ten seconds while waiting, with
   `progress` strictly increasing (steps, or elapsed seconds with no total) and the words (spend so
@@ -1503,6 +1506,8 @@ squint report rebuild ./squint-out/<run-id>
 squint report prune --older-than 30d
 squint tools list --config squint.toml      # manifests as the model will see them
 squint describe --json --config squint.toml # the contract's description document (ADR 0018)
+squint estimate --config squint.toml --job job.toml [--max-spend-usd 0.10]   # worst case of one check; nothing sent
+squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check, never raises it
 squint sets check evalsets/
 squint sets fetch --set reference-consistency/pets-v1
 squint sets seal --set <set> --attest "…"    # writes seal.toml; a blind set's labels move out (--labels-out)

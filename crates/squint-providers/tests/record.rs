@@ -641,6 +641,19 @@ fn replay(v: &Vendor) {
         assert_eq!(reached.turns, expected.turns, "{}", case.name);
         assert_eq!(reached.tool_calls, expected.tool_calls, "{}", case.name);
         assert_eq!(player.remaining(), 0, "{}: unserved exchanges", case.name);
+        // The worst case `squint estimate` prints bounds what the recorded run spent (task 7.6).
+        let report: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(outcome.dir.join("report.json")).unwrap(),
+        )
+        .unwrap();
+        if let Some(envelope) = report["cost"]["envelope"]["usd"].as_f64() {
+            let spent = report["cost"]["spent_usd"].as_f64().unwrap();
+            assert!(
+                spent <= envelope + 1e-9,
+                "{}: spent ${spent:.6} over the estimate ${envelope:.6}",
+                case.name
+            );
+        }
         // The decision header carries the recipient chain (SPEC "Data leaving the machine").
         let header: serde_json::Value = serde_json::from_str(
             &std::fs::read_to_string(outcome.dir.join("decision.json")).unwrap(),
