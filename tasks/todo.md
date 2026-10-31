@@ -126,6 +126,21 @@ tag.
 ## M7: contract conformance (ADR 0018)
 
 - [x] ADR 0018 and SPEC "External interface" (2026-10-30): the table-manners contract decisions recorded on squint's side
-- [ ] `table-manners` v0.1 drafted from rascal's seed section (one window owns the text; rascal reviews by diff), with the server conventions lifted from `rascal serve`, and tagged
-- [ ] M7 task list in PLAN.md, written against the v0.1 field names
+- [x] `table-manners` v0.1.0 (2026-10-30): drafted from rascal's seed section, split into a core and an images profile, reviewed from rascal's side against rascal `917c5c3`, tagged
+- [x] M7 task list in PLAN.md (2026-10-30), written against v0.1.0
+- [x] Owner: table-manners v0.1.0 published to crates.io (2026-10-30)
+- [ ] Owner: name the shared playground program and how it installs; blocks 7.9
+- [ ] 7.1 The contract pinned
+- [ ] 7.2 Image references in and verified
+- [ ] 7.3 Contract locations out
+- [ ] 7.4 `run.json`, the result header and exit codes
+- [ ] 7.5 `squint describe --json`
+- [ ] 7.6 `estimate` for a check
+- [ ] 7.7a `squint serve`: the server, `describe` and `estimate`
+- [ ] 7.7b `check` over `serve`
+- [ ] 7.8 Progress, cancellation and runs as resources
+- [ ] 7.9 `squint playground`
+- [ ] 7.10 Conformance fixtures
+- [ ] 7.11 The MCP client on `rmcp` (bounded)
 - [ ] Contract v0.2 from what M7 finds, before rascal's conformance merges
+- [ ] Checkpoint M7 → tag `m7`

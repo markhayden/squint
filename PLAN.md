@@ -26,7 +26,7 @@ called admitted.
 | M4 Built-in tools | alignment spike, Tool registry, `view`/`align`/`resize`/`edge_similarity`/`change_map`, full MCP client, arm C, MODEL.md | `m4` |
 | M5 First ML tool | Python pack, provisioning bundle, `regions` and `classes`, sealed blind set, initial gate | `m5` |
 | M6 Confirmation | a harder sealed initial set and a second initial gate (ADR 0017); then, only after an admission, a distinct sealed set of at least 50 items, confirmation gate, admission record | `m6` |
-| M7 Contract conformance | `squint serve`, `describe --json`, `run.json`, contract locations and image references, shared exit codes, `squint playground` (ADR 0018, SPEC "External interface"); tasks written once `table-manners` v0.1 is tagged; independent of M6 | `m7` |
+| M7 Contract conformance | `squint serve`, `describe --json`, `run.json`, contract locations and image references, shared exit codes, `squint playground` against `table-manners` v0.1.0 (ADR 0018, SPEC "External interface"); independent of M6 | `m7` |
 
 Deferred past M7 with their own ADRs: an HTTP transport for `squint serve`, the mask handoff
 from rascal (region-scoped `allowed` obligations), Bedrock and Vertex profiles, the ChatGPT-plan
@@ -91,6 +91,10 @@ M4  4.0 ← 1.2, 0.4    4.1 ← 1.5a, 1.7a 4.2a ← 4.1, 1.2   4.2b ← 4.2a, 3.
 M5  5.1 ← 4.4b, 1.14  5.3 ← 4.6, 5.1   5.4a ← 5.3        5.4b ← 5.3
     5.2 ← 5.3, 5.4a, 5.4b               5.5 ← 3.2a, 3.1   5.6 ← 5.4a, 5.5, 4.5, 3.5b, 5.2
 M6  6.0 ← 5.6, ADR 0017    6.1 ← 6.0 (admitted), 0.4    6.2 ← 6.1
+M7  7.1 ← table-manners v0.1.0 on crates.io            7.2 ← 7.1         7.3 ← 7.2
+    7.4 ← 7.2, 7.3    7.5 ← 7.1        7.6 ← 7.5         7.7a ← 7.5, 7.6
+    7.7b ← 7.7a, 7.4  7.8 ← 7.7b       7.9 ← 7.1 (owner names the playground)
+    7.10 ← 7.4, 7.5, 7.8                7.11 ← 7.7a
 ```
 
 Every M1 task names a CLI scenario that demonstrates its behaviour through the binary using only
@@ -1330,6 +1334,199 @@ money.
 ### Checkpoint M6
 - [ ] Owner review; merge; tag `m6`.
 
+## Milestone M7: Contract conformance
+
+squint conforms to `table-manners` v0.1.0, the core and the images profile (ADR 0018, SPEC
+"External interface"). Field names are the contract's; tasks name squint's side only. The branch
+`m7-contract` starts from `main` while M6 waits on an owner decision. What M7 finds wrong in the
+contract goes into table-manners v0.2 before rascal's conformance merges.
+
+### Task 7.1: The contract pinned
+
+**Description.** Depend on the `table-manners` crate at `=0.1.0` from `squint-core`; copy its
+schemas to `schemas/contract/` with a `SOURCES.toml` (tag, path, sha256) and a test that the copy
+matches both the hashes and the crate's embedded `SCHEMAS`; a CI step that warns, without
+failing, when a newer `table-manners` tag exists. The crate graph check and `cargo deny` accept the
+new edge.
+
+**Acceptance.** Editing a copied schema fails the test; the warn step prints the newer tag against
+a stubbed tag list and exits 0.
+
+**Dependencies.** table-manners v0.1.0 published to crates.io (owner). **Files.**
+`crates/squint-core/Cargo.toml`, `schemas/contract/`, `.github/workflows/ci.yml`,
+`scripts/check-contract-tag.sh`. **Size.** S.
+
+### Task 7.2: Image references in and verified
+
+**Description.** squint computes the contract's image reference for every image a job names:
+`file_sha256` of the bytes it was given, width and height as stored, projection and topology from
+the job, and `pixel_sha256` by the contract's recipe. A job may carry an `expect` reference per
+image; a mismatch in digest or dimensions ends the run as `invalid` with code `input` before any
+provider call.
+
+**Acceptance.** The contract's twelve pixel vectors reproduce through squint's own decode path;
+an `expect` with a wrong digest or a wrong width refuses the job and spends nothing; a JPEG whose
+`pixel_sha256` differs while `file_sha256` matches passes with a note.
+
+**Dependencies.** 7.1. **Files.** `crates/squint-core/src/image.rs`, `crates/squint-core/src/job.rs`.
+**Size.** M.
+
+### Task 7.3: Contract locations out
+
+**Description.** Every finding's location is mapped through the frames registry to the raw frame
+of its root image and written as a contract location: edge fractions at quarter-pixel precision,
+outward snapping documented, `parts` with `straddles_wrap` (a view footprint cut at the seam
+becomes two parts, up to 256 vertices each), kinds `bbox`, `polygon`, `whole_image` and `absent`
+(with a reason), the finding's words as `label`, its disposition, confidence and evidence kind,
+and `source` (`squint`, version, run id, item id). No crop, view or aligned frame leaves squint.
+
+**Acceptance.** Property tests: a box drawn in a crop or a view maps back onto the raw pixels it
+covers; a footprint across the seam becomes two parts on a `wrap` image and never on a `bounded`
+one; every emitted location validates against the contract's schema; a finding with no geometry
+is `absent` with a reason, never an invented box.
+
+**Dependencies.** 7.2. **Files.** `crates/squint-core/src/frames/`, `crates/squint-core/src/contract.rs`.
+**Size.** M.
+
+### Task 7.4: `run.json`, the result header and exit codes
+
+**Description.** `check` writes `run.json` last into every decision directory on every surface,
+atomically (a temporary name, then a rename): the contract header (status, error with code,
+`retryable` and reason, run, tool, timestamps, duration, input identity, spend with basis
+`measured`, cache, images in with slots and roles, images out, locations used and found, notes for
+repairs and tool refusals) and squint's body (verdict, policy outcome, findings, the report's
+path). squint's errors map to the contract's codes in one table. Exit codes across commands: 0,
+1 fail, 2 unsure, 3 error, 64 usage or input, 130 on SIGINT and 143 on SIGTERM; a cancelled run
+writes `run.json` with status `cancelled` and spend to date.
+
+**Acceptance.** Every terminal state of the M1 scenarios produces a `run.json` that validates
+against the contract's result schema; a killed write leaves the previous file or none, never half
+of one; SIGINT and SIGTERM exit 130 and 143 with `cancelled`; a provider 529 after retries is
+`error`, `provider`, `retryable: true`; a fail verdict is `completed`.
+
+**Dependencies.** 7.2, 7.3. **Files.** `crates/squint-core/src/run.rs`,
+`crates/squint-core/src/contract.rs`, `crates/squint-cli/src/main.rs`, `docs/`. **Size.** M.
+
+### Task 7.5: `squint describe --json`
+
+**Description.** The contract's description document from the shipped use cases, rule sets and
+catalog: `profiles: ["images"]`, one action per use case with its image slots, location slots and
+`params_schema`, `estimate`, the renders (`report view`, `report export`), cost with
+`needs_env`, duration, `vocabulary` (every disposition, confidence and evidence word squint
+emits), `limits.inline_bytes`, `progress_interval_s: 10` and the resources. squint's own
+self-description commands (`rules`, `tools list`, `catalog`) stay and are referenced under
+`x-squint`.
+
+**Acceptance.** The document validates against the contract's schema; a test fails when squint can
+emit a vocabulary word the document does not list; no environment variable value appears in it.
+
+**Dependencies.** 7.1. **Files.** `crates/squint-cli/src/describe.rs`. **Size.** S.
+
+### Task 7.6: `estimate` for a check
+
+**Description.** The worst-case cost of one check from its job, config and the catalog's prices
+(turns, tool calls, retries, repairs at their caps), with the per-call cap from config that a call
+may lower and never raise. Exposed as `squint estimate` and, in 7.7a, the `estimate` action; the
+session budget left is added by the server.
+
+**Acceptance.** The estimate bounds the measured spend of every recorded fixture run; lowering the
+cap below the estimate makes `check` refuse with `budget` before any provider call.
+
+**Dependencies.** 7.5. **Files.** `crates/squint-core/src/ledger.rs`, `crates/squint-cli/src/`.
+**Size.** S.
+
+### Task 7.7a: `squint serve`: the server, `describe` and `estimate`
+
+**Description.** An MCP server over stdio on `rmcp` `=3.8.0` at revision `2025-11-25` only,
+refusing other revisions at `initialize`; tools with pagination and resources capabilities; the
+`describe` and `estimate` tools; JSON-RPC errors only before a run exists. An independent MCP test
+client in `squint-testkit`, sharing no code with the server or the SDK, after rascal's
+`rascal_testkit::mcp_client`.
+
+**Acceptance.** The test client completes `initialize`, lists the tools and calls `describe`, whose
+result equals `describe --json`; a client asking for another revision is refused; an unknown tool
+is a JSON-RPC error; nothing but the protocol reaches stdout.
+
+**Dependencies.** 7.5, 7.6. **Files.** `crates/squint-cli/src/serve/`, `crates/squint-testkit/src/mcp_client.rs`,
+`docs/`. **Size.** M.
+
+### Task 7.7b: `check` over `serve`
+
+**Description.** The `check` tool: images in any slot by absolute path (local transport only,
+inside the client's roots narrowed by `[serve] roots`) or inline bytes up to
+`limits.inline_bytes`, each with an optional `expect`; images out by the locator the call asks
+for (`return_images`), image blocks only with `image_blocks: true`; the result as
+`structuredContent` with `isError` true for `invalid` and `error`; the per-call cap a call may
+lower, the session budget across the server's life (`[serve] session_budget_usd`), calls serial
+by default (`[serve] concurrency`).
+
+**Acceptance.** Against the scripted fake provider, the test client runs a check by path and by
+inline bytes with identical results; a path outside roots is `invalid`, `input`; an exhausted
+session budget is `error`, `budget`, before any provider call; image blocks appear only when
+asked.
+
+**Dependencies.** 7.7a, 7.4. **Files.** `crates/squint-cli/src/serve/`, `crates/squint-core/src/config.rs`.
+**Size.** M.
+
+### Task 7.8: Progress, cancellation and runs as resources
+
+**Description.** With a progress token, a notification on every journal event and at least every
+ten seconds while waiting, `progress` strictly increasing (steps, or elapsed seconds with no
+total), the first naming the run resource; `notifications/cancelled` stops the provider call,
+writes `run.json` as `cancelled` and returns nothing; resources `squint://runs` (newest first,
+including `running`), `squint://run/<id>/run.json`, `…/report.json` and `…/journal`; an identical
+retry within the cache policy answers from the decision cache with `cache: "hit"` and no spend.
+
+**Acceptance.** A scripted slow provider produces heartbeats no more than ten seconds apart and
+never a repeated value; a cancel mid-call leaves a readable `cancelled` run with spend to date; a
+run is found through `squint://runs` after the client drops its connection; a repeated call costs
+nothing.
+
+**Dependencies.** 7.7b. **Files.** `crates/squint-cli/src/serve/`, `crates/squint-core/src/run.rs`.
+**Size.** M.
+
+### Task 7.9: `squint playground`
+
+**Description.** Finds the shared playground program, offers to install it when missing (printing
+the command; never running an installer without a yes) and starts it pointed at squint's runs;
+squint carries no UI.
+
+**Acceptance.** With a fake playground on `PATH`, the command starts it with the expected
+arguments; without one it prints the install command and exits 0 after a no.
+
+**Dependencies.** 7.1; the owner names the playground program. **Files.**
+`crates/squint-cli/src/playground.rs`. **Size.** S.
+
+### Task 7.10: Conformance fixtures
+
+**Description.** squint's fixtures in table-manners under `fixtures/squint/` (a describe
+document and recorded `run.json` files for completed, fail, invalid, error and cancelled runs,
+replayable offline), and a squint CI job that regenerates them against the pinned release and
+fails on a difference. Findings that the contract got wrong are written up as table-manners v0.2
+changes.
+
+**Acceptance.** The fixtures validate in table-manners' CI; squint's job fails when a field
+drifts; the v0.2 list is committed to table-manners, or recorded as empty.
+
+**Dependencies.** 7.4, 7.5, 7.8. **Files.** table-manners `fixtures/squint/`, `scripts/`,
+`.github/workflows/`. **Size.** S.
+
+### Task 7.11: The MCP client on `rmcp` (bounded)
+
+**Description.** With the server on `rmcp`, a time-boxed look at moving squint's in-house pack
+client (ADR 0015) to `rmcp`'s client: the 4.4b failure modes (pagination, concurrency, a dying
+pack, cancellation) against the SDK. An ADR records the outcome either way; a move is its own
+change after M7.
+
+**Acceptance.** ADR committed with the failure modes tried and the decision.
+
+**Dependencies.** 7.7a. **Files.** `docs/adr/`. **Size.** S.
+
+### Checkpoint M7
+- [ ] Every conformance item of table-manners v0.1.0, core (7) and images (12), checked one by one.
+- [ ] `docs/` and README describe `serve`, `describe`, `estimate`, `run.json` and the exit codes.
+- [ ] Review and test skills (or checklist); owner review; merge; tag `m7`.
+
 ## Risks and mitigations
 
 | Risk | Impact | Mitigation |
@@ -1369,6 +1566,8 @@ begins before the earlier milestone merges, except M7, which is independent of M
 | 3.8, 4.5, 5.6, 6.2 | spend cap per run, approved against `eval estimate` |
 | 4.0, 4.6 | reuse approval for the prototype's views and segmenter export |
 | 6.1 | whether M6 is funded in this release |
+| 7.1 | publish table-manners v0.1.0 to crates.io |
+| 7.9 | the shared playground program's name and how it installs |
 
 ## Open questions
 

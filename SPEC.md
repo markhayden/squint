@@ -1389,8 +1389,8 @@ Schemas (the source of truth), test vectors, a fixture per tool and a Rust crate
 The contract has a core every tool follows and profiles a kind of tool adds; squint implements the
 core and the images profile, and lists `images` in its description's `profiles`. squint pins a
 tagged release, keeps a hash-checked copy of its schemas under `schemas/contract/`, and warns in CI
-when a newer tag exists. Field names and schemas are the contract's; this section says what squint
-does with them. Until contract v0.1 is tagged the summary below is the agreed shape, not the wire.
+when a newer tag exists. squint pins v0.1.0. Field names and schemas are the contract's; this
+section says what squint does with them.
 
 - **Image reference**: `file_sha256`, width and height of the caller's file (enforced), projection
   and topology, an optional `pixel_sha256` in the contract's canonical form. squint computes the
@@ -1399,34 +1399,41 @@ does with them. Until contract v0.1 is tagged the summary below is the agreed sh
 - **Location out**: every finding's location is mapped to the raw frame of its root image through
   the registry (as for the viewer) and written in the contract's form: fractions from the top-left
   measuring edges, quarter-pixel precision, a list of parts with `straddles_wrap` (a view's
-  footprint cut at the seam becomes two parts), kinds `bbox`, `polygon`, `whole_image`, `absent`,
-  with the finding's words as the label, its disposition and confidence, its evidence kind and its
+  footprint cut at the seam becomes two parts), kinds `bbox`, `polygon`, `whole_image`, `absent`
+  (with a reason, never an invented box), with the finding's words as the label, its disposition and confidence, its evidence kind and its
   source (`squint`, version, run id, item id). Crop, view and aligned frames never leave squint.
 - **`squint serve`**: an MCP server over stdio at revision `2025-11-25`, under the contract's
   server conventions. Tools: `check` (one decision; images by path or inline bytes in any slot;
   paths only inside the client's MCP roots narrowed by config; inline bytes bounded), `estimate`
-  (worst-case cost of a check and the session budget left), and `describe`, `rules`, `tools`,
-  `catalog` (read-only). Each image out carries its reference and the locator the call asked for
+  (worst-case cost of a check and the session budget left), and `describe`. squint's own
+  self-description (`rules`, `tools list`, `catalog`) stays on the command line and is referenced
+  from the description's `x-squint`. An `invalid` or `error` outcome is a result with `isError`
+  and the header; JSON-RPC errors are only for failures before a run exists. Each image out carries its reference and the locator the call asked for
   (path, inline, resource URI); image blocks only when asked. Calls are serial by default
   (`[serve] concurrency`). Spend: the per-call cap from config, which a call may lower and never
   raise, and a per-session budget (`[serve] session_budget_usd`) across the server's lifetime.
 - **Progress and cancellation**: `check` is a plain `tools/call`. With a progress token, squint
-  sends a notification on every journal event and every ten seconds while waiting (elapsed, spend
-  so far); the first one names the run resource. `notifications/cancelled` stops the provider
-  call; the run resource then holds the partial journal with status `cancelled` and spend to date,
+  sends a notification on every journal event and at least every ten seconds while waiting, with
+  `progress` strictly increasing (steps, or elapsed seconds with no total) and the words (spend so
+  far) in the message; the first one names the run resource. `notifications/cancelled` stops the
+  provider call; `run.json` and the run resource then hold status `cancelled` with spend to date,
   and no result is returned. An identical retry within the cache policy is answered from the
   decision cache and says so.
-- **Runs as resources**: `squint://run/<id>/run.json`, `…/report.json` and `…/journal` for every
-  decision the server ran, readable after a timeout or a dropped connection.
-- **`run.json`**: written last into every decision directory by `check` on every surface: the
+- **Runs as resources**: `squint://runs` (recent runs newest first, `running` included),
+  `squint://run/<id>/run.json`, `…/report.json` and `…/journal` for every decision the server ran,
+  readable after a timeout or a dropped connection.
+- **`run.json`**: written last and atomically (a temporary name, then a rename) into every
+  decision directory by `check` on every surface: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
   timestamps and duration, input identity, measured spend, cache hit, image references and
   locations with roles, notes for repairs and tool refusals) and squint's body (verdict, policy
   outcome, findings, the report's path). A failed image is `completed` with verdict `fail`.
-- **`squint describe --json`**: the contract's description document: one action per use case
-  with its inputs and parameters as JSON Schemas, the renders (`report view`, `report export`),
+- **`squint describe --json`**: the contract's description document with `profiles: ["images"]`:
+  one action per use case with its image and location slots and parameters as JSON Schemas, every
+  disposition, confidence and evidence word squint emits (`vocabulary`), the renders (`report view`, `report export`),
   the cost notice and the variable it needs, the expected duration and the inline limits.
-- **Exit codes** across commands: 0 success, 3 error, 64 usage, 130 on SIGINT and 143 on SIGTERM;
+- **Exit codes** across commands: 0 success, 3 error, 64 usage or input, 130 on SIGINT and 143
+  on SIGTERM;
   1 fail and 2 unsure remain `check`'s.
 - **`squint playground`** finds the shared playground program, offers to install it and starts it;
   it carries no UI.
