@@ -41,6 +41,8 @@ jobs:
           test -z "$(git ls-files docs/brief.md)"
       - run: just check
       - run: just deny-advisories
+      # A newer table-manners release is a warning; moving to it is a deliberate commit (ADR 0018).
+      - run: scripts/check-contract-tag.sh
 
   python:
     name: python tool pack

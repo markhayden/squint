@@ -37,6 +37,9 @@ jsonschema = { version = "0.60", default-features = false }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
 sha2 = "0.11"
 tracing = "0.1"
+# Pinned exactly: squint conforms to one release of the contract, and an update is a deliberate
+# commit with the copied schemas regenerated (ADR 0018, schemas/contract/SOURCES.toml).
+table-manners = "=0.1.0"
 # Pinned exactly: the bootstrap's resample indices must reproduce from a seed across builds (ADR 0016).
 rand = "=0.9.5"
 rand_chacha = "=0.9.0"

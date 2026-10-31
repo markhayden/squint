@@ -54,6 +54,15 @@ if grep -q 'checksum mismatch' <<< "$out"; then pass=$((pass+1));
 else echo "FAIL: archive-smoke accepted a wrong checksum: $out" >&2; fail=$((fail+1)); fi
 rm -rf "$probe"
 
+# check-contract-tag: a newer table-manners tag is a warning naming it, and never a failure.
+tags="$(mktemp)"; printf 'v0.1.0\nv0.10.0\nv0.2.0\nnot-a-version\n' > "$tags"
+if out="$(CONTRACT_TAGS_FILE="$tags" scripts/check-contract-tag.sh 2>&1)" && grep -q 'table-manners v0.10.0 is newer' <<< "$out"; then pass=$((pass+1));
+else echo "FAIL: check-contract-tag did not warn about v0.10.0: $out" >&2; fail=$((fail+1)); fi
+printf 'v0.1.0\n' > "$tags"
+if out="$(CONTRACT_TAGS_FILE="$tags" scripts/check-contract-tag.sh 2>&1)" && grep -q 'is the newest release' <<< "$out"; then pass=$((pass+1));
+else echo "FAIL: check-contract-tag warned with no newer tag: $out" >&2; fail=$((fail+1)); fi
+rm -f "$tags"
+
 # check-packaging: the shipped assets are listed as embedded by the crates that own them.
 out="$(scripts/check-packaging.sh 2>&1)"
 for want in "squint-core: embeds .*prompts/v1.md" "squint-core: embeds .*rules/source-fidelity.toml" "squint-providers: embeds catalog.toml" "squint-cli: embeds viewer/geometry.js, viewer/index.html, viewer/timeline.js, viewer/viewer.css, viewer/viewer.js"; do

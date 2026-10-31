@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:images:image-in",
+  "title": "Image in (CONTRACT.md 10.1)",
+  "description": "An image given to an action's slot, by absolute path (local transports only) or inline, with an optional expected reference.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "expect": {
+          "$ref": "urn:table-manners:images:image-reference"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inline"
+      ],
+      "properties": {
+        "inline": {
+          "$ref": "#/$defs/inline"
+        },
+        "expect": {
+          "$ref": "urn:table-manners:images:image-reference"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "inline": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "media_type",
+        "data"
+      ],
+      "properties": {
+        "media_type": {
+          "type": "string",
+          "pattern": "^image/[a-z0-9.+-]+$"
+        },
+        "data": {
+          "type": "string",
+          "contentEncoding": "base64"
+        }
+      }
+    }
+  }
+}

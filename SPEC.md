@@ -1518,7 +1518,8 @@ crates/
 tools/python/                   squint-tools uv project (MCP server, segmenter, MODEL.md, uv.lock, bundle build, tests)
 scripts/                        repository checks, the credential scanner, publish, install-from-registry, archive and live smoke scripts
 scripts/sets/                   the set-building toolkit (uv project): plans, generators, construction ops, draft labels
-schemas/                        generated JSON Schemas: submission, envelope, manifest, config, report, tools/
+schemas/                        generated JSON Schemas: submission, envelope, manifest, config, report, tools/;
+                                contract/: the pinned table-manners schemas, hash-checked (SOURCES.toml)
 fixtures/
   matrix/                       matrices the evaluation tests use
   adapters/<adapter>/           recorded conversations per capability combination

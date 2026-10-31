@@ -1,0 +1,458 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:images:location",
+  "title": "Location (CONTRACT.md 9)",
+  "description": "Where something is, on the original image, in fractions of its width and height measured at pixel edges.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "image",
+    "kind",
+    "parts",
+    "straddles_wrap"
+  ],
+  "properties": {
+    "image": {
+      "$ref": "urn:table-manners:images:image-reference"
+    },
+    "kind": {
+      "enum": [
+        "bbox",
+        "polygon",
+        "line",
+        "stroke",
+        "mask",
+        "whole_image",
+        "absent",
+        "view"
+      ]
+    },
+    "parts": {
+      "type": "array"
+    },
+    "straddles_wrap": {
+      "type": "boolean",
+      "description": "True when one shape was split at the wrap edge into several parts."
+    },
+    "label": {
+      "type": "string"
+    },
+    "disposition": {
+      "$ref": "#/$defs/word"
+    },
+    "confidence": {
+      "$ref": "#/$defs/word"
+    },
+    "evidence": {
+      "$ref": "#/$defs/word"
+    },
+    "score": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "A measured number, never comparable across tools or score kinds."
+    },
+    "score_kind": {
+      "$ref": "#/$defs/word"
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tool",
+        "version"
+      ],
+      "properties": {
+        "tool": {
+          "type": "string",
+          "minLength": 1
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "run": {
+          "type": "string",
+          "minLength": 1
+        },
+        "item": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  },
+  "dependentRequired": {
+    "score": [
+      "score_kind"
+    ],
+    "score_kind": [
+      "score"
+    ]
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "bbox"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parts": {
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/bbox_part"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "polygon"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parts": {
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/polygon_part"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "line"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parts": {
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/line_part"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "stroke"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parts": {
+            "minItems": 1,
+            "items": {
+              "$ref": "#/$defs/stroke_part"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "mask"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parts": {
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "$ref": "#/$defs/mask_part"
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "enum": [
+              "whole_image",
+              "absent"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parts": {
+            "maxItems": 0
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "absent"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "reason"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "view"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parts": {
+            "minItems": 1,
+            "maxItems": 1,
+            "items": {
+              "$ref": "#/$defs/view_part"
+            }
+          },
+          "image": {
+            "properties": {
+              "projection": {
+                "const": "equirectangular"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "straddles_wrap": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "parts": {
+            "minItems": 2
+          },
+          "image": {
+            "properties": {
+              "topology": {
+                "const": "wrap"
+              }
+            }
+          }
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "word": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]*$"
+    },
+    "fraction": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "point": {
+      "type": "array",
+      "prefixItems": [
+        {
+          "$ref": "#/$defs/fraction"
+        },
+        {
+          "$ref": "#/$defs/fraction"
+        }
+      ],
+      "items": false,
+      "minItems": 2
+    },
+    "length_px": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "bbox_part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bbox"
+      ],
+      "properties": {
+        "bbox": {
+          "type": "array",
+          "description": "[x0, y0, x1, y1] with x0 < x1 and y0 < y1.",
+          "items": {
+            "$ref": "#/$defs/fraction"
+          },
+          "minItems": 4,
+          "maxItems": 4
+        }
+      }
+    },
+    "polygon_part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "polygon"
+      ],
+      "properties": {
+        "polygon": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          },
+          "minItems": 3,
+          "maxItems": 256
+        }
+      }
+    },
+    "line_part": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "column",
+            "width_px"
+          ],
+          "properties": {
+            "column": {
+              "$ref": "#/$defs/fraction"
+            },
+            "width_px": {
+              "$ref": "#/$defs/length_px"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path",
+            "width_px"
+          ],
+          "properties": {
+            "path": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/point"
+              },
+              "minItems": 2,
+              "maxItems": 256
+            },
+            "width_px": {
+              "$ref": "#/$defs/length_px"
+            }
+          }
+        }
+      ]
+    },
+    "stroke_part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "radius_px"
+      ],
+      "properties": {
+        "path": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/point"
+          },
+          "minItems": 2,
+          "maxItems": 256
+        },
+        "radius_px": {
+          "$ref": "#/$defs/length_px"
+        }
+      }
+    },
+    "mask_part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "mask"
+      ],
+      "properties": {
+        "mask": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "image",
+            "threshold"
+          ],
+          "description": "A greyscale 8-bit rendering at the located image's width and height; pixels at or above threshold are inside.",
+          "properties": {
+            "image": {
+              "$ref": "urn:table-manners:images:image-reference"
+            },
+            "threshold": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 255
+            }
+          }
+        }
+      }
+    },
+    "view_part": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "yaw",
+        "pitch",
+        "fov"
+      ],
+      "description": "Input only. yaw 0 is the centre column, increasing to the right; pitch 0 the horizon, increasing upward; fov the horizontal field of a square view.",
+      "properties": {
+        "yaw": {
+          "type": "number",
+          "minimum": -180,
+          "maximum": 180
+        },
+        "pitch": {
+          "type": "number",
+          "minimum": -90,
+          "maximum": 90
+        },
+        "fov": {
+          "type": "number",
+          "minimum": 10,
+          "maximum": 120
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:core:result",
+  "title": "Result (CONTRACT.md 2; the images profile's fields, 11.1)",
+  "description": "One shape everywhere: the MCP result's structuredContent, the run resource and run.json. The header is the contract's; body is the tool's.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "tool",
+    "action",
+    "run",
+    "status",
+    "error",
+    "started",
+    "finished",
+    "duration_ms",
+    "input_identity",
+    "spend",
+    "cache",
+    "notes",
+    "body"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "#/$defs/version"
+    },
+    "tool": {
+      "$ref": "#/$defs/tool"
+    },
+    "action": {
+      "$ref": "#/$defs/action_name"
+    },
+    "run": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "resource",
+        "dir"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "resource": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9+.-]*://run/"
+        },
+        "dir": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The run directory on a local transport, else null."
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "completed",
+        "cancelled",
+        "error",
+        "invalid"
+      ]
+    },
+    "error": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "code",
+            "retryable",
+            "reason"
+          ],
+          "properties": {
+            "code": {
+              "enum": [
+                "usage",
+                "input",
+                "io",
+                "provider",
+                "budget",
+                "timeout",
+                "tool_process",
+                "internal"
+              ]
+            },
+            "retryable": {
+              "type": "boolean"
+            },
+            "reason": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        }
+      ]
+    },
+    "started": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "finished": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "duration_ms": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "input_identity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "spend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "usd",
+        "basis"
+      ],
+      "properties": {
+        "usd": {
+          "type": "number",
+          "minimum": 0
+        },
+        "basis": {
+          "enum": [
+            "measured",
+            "estimated"
+          ]
+        }
+      }
+    },
+    "cache": {
+      "enum": [
+        "hit",
+        "miss",
+        "off"
+      ]
+    },
+    "images": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "in",
+        "out"
+      ],
+      "properties": {
+        "in": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/image_taken"
+          }
+        },
+        "out": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:table-manners:images:image-out"
+          }
+        }
+      },
+      "description": "Images profile: required in every result of an images tool."
+    },
+    "locations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "used",
+        "found"
+      ],
+      "properties": {
+        "used": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:table-manners:images:location"
+          }
+        },
+        "found": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:table-manners:images:location"
+          }
+        }
+      },
+      "description": "Images profile: required in every result of an images tool."
+    },
+    "notes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "body": {
+      "type": "object",
+      "description": "The tool's own."
+    }
+  },
+  "if": {
+    "properties": {
+      "status": {
+        "enum": [
+          "error",
+          "invalid"
+        ]
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "error": {
+        "type": "object"
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "error": {
+        "type": "null"
+      }
+    }
+  },
+  "$defs": {
+    "version": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)$"
+    },
+    "tool": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "version"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9-]*$"
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "action_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "image_taken": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "slot",
+        "role",
+        "image"
+      ],
+      "description": "Images profile: an image the run took in: the slot it came through, its role and its reference.",
+      "properties": {
+        "slot": {
+          "type": "string",
+          "minLength": 1
+        },
+        "role": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*$"
+        },
+        "image": {
+          "$ref": "urn:table-manners:images:image-reference"
+        }
+      }
+    }
+  }
+}

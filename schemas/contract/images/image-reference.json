@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:images:image-reference",
+  "title": "Image reference (CONTRACT.md 8)",
+  "description": "How a tool names an image to another tool: the file's digest and dimensions, its projection and topology.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "file_sha256",
+    "width",
+    "height",
+    "projection",
+    "topology"
+  ],
+  "properties": {
+    "file_sha256": {
+      "$ref": "#/$defs/sha256",
+      "description": "SHA-256 of the file's bytes; the enforced check (2.1)."
+    },
+    "width": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Pixels as stored, EXIF orientation not applied."
+    },
+    "height": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "projection": {
+      "enum": [
+        "flat",
+        "equirectangular"
+      ]
+    },
+    "topology": {
+      "enum": [
+        "bounded",
+        "wrap"
+      ],
+      "description": "wrap: x = 0 and x = 1 are the same edge."
+    },
+    "pixel_sha256": {
+      "$ref": "#/$defs/sha256",
+      "description": "The canonical pixel digest (2.2); a convenience, never an error when it differs."
+    }
+  },
+  "if": {
+    "properties": {
+      "projection": {
+        "const": "equirectangular"
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "topology": {
+        "const": "wrap"
+      }
+    }
+  },
+  "$defs": {
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  }
+}

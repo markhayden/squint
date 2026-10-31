@@ -1625,6 +1625,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "squint-testkit",
+ "table-manners",
  "thiserror",
  "tokio",
  "toml",
@@ -1772,6 +1773,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 3.0.9",
+]
+
+[[package]]
+name = "table-manners"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c2c579d01d96290908d1ddd633e1ba0b9d491fdc39c50fb4a2882c42dfbd8cca"
+dependencies = [
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
