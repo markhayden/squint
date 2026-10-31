@@ -76,7 +76,9 @@ it gets wrong about long paid runs, and v0.2 follows before rascal's conformance
   (`squint://run/<id>/…`) announced in the first progress message, so an agent whose call timed
   out or whose connection dropped can still read it.
 - `squint playground`: finds the shared playground program, offers to install it, starts it
-  (`../playground-recommendation.md`). It carries no UI.
+  (`../playground-recommendation.md`). It carries no UI. *Amended 2026-10-31:* the program is
+  `wafflehouse`, run as `wafflehouse --tool squint`, by the launcher agreement wafflehouse H1;
+  SPEC "External interface" has the lookup and exit codes.
 
 **Results.** The MCP result, the run resource and `run.json` are one shape: a shared header and
 a body squint owns. The header: `status` (`completed`, `cancelled`, `error`, `invalid`); on error

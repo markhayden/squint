@@ -93,7 +93,7 @@ M5  5.1 ← 4.4b, 1.14  5.3 ← 4.6, 5.1   5.4a ← 5.3        5.4b ← 5.3
 M6  6.0 ← 5.6, ADR 0017    6.1 ← 6.0 (admitted), 0.4    6.2 ← 6.1
 M7  7.1 ← table-manners v0.1.0 on crates.io            7.2 ← 7.1         7.3 ← 7.2
     7.4 ← 7.2, 7.3    7.5 ← 7.1        7.6 ← 7.5         7.7a ← 7.5, 7.6
-    7.7b ← 7.7a, 7.4  7.8 ← 7.7b       7.9 ← 7.1 (owner names the playground)
+    7.7b ← 7.7a, 7.4  7.8 ← 7.7b       7.9 ← 7.1, wafflehouse H1
     7.10 ← 7.4, 7.5, 7.8                7.11 ← 7.7a
 ```
 
@@ -1488,15 +1488,21 @@ nothing.
 
 ### Task 7.9: `squint playground`
 
-**Description.** Finds the shared playground program, offers to install it when missing (printing
-the command; never running an installer without a yes) and starts it pointed at squint's runs;
-squint carries no UI.
+**Description.** Hands off to Wafflehouse by the launcher agreement (wafflehouse H1, accepted
+2026-10-31 with squint's amendments): finds `wafflehouse` (`WAFFLEHOUSE_BIN`, `PATH`,
+`~/.local/bin`), runs it with exactly `--tool squint` and keeps its exit code; when it is missing,
+offers to install on a terminal and otherwise exits 69 with instructions. Production install is
+unavailable until a release artifact is approved, so the installer is a testkit-only seam
+(`--installer`, like `--provider-script`). squint carries no UI.
 
-**Acceptance.** With a fake playground on `PATH`, the command starts it with the expected
-arguments; without one it prints the install command and exits 0 after a no.
+**Acceptance.** Fake executables show: the exact argv, a path with spaces run without a shell,
+child exit codes and signals kept (128 + N), an invalid override failing with 69 and no
+fall-through, the lookup order, a symlinked program accepted. Missing: no exits 0 and changes
+nothing; yes installs into `~/.local/bin` and runs that path; installer failure exits 74 and runs
+nothing; off a terminal exits 69; a release build exits 69 with no offer; extra arguments exit 64.
 
-**Dependencies.** 7.1; the owner names the playground program. **Files.**
-`crates/squint-cli/src/playground.rs`. **Size.** S.
+**Dependencies.** 7.1; wafflehouse H1. **Files.** `crates/squint-cli/src/playground.rs`,
+`crates/squint-cli/tests/playground_cli.rs`. **Size.** S.
 
 ### Task 7.10: Conformance fixtures
 
@@ -1568,7 +1574,7 @@ begins before the earlier milestone merges, except M7, which is independent of M
 | 4.0, 4.6 | reuse approval for the prototype's views and segmenter export |
 | 6.1 | whether M6 is funded in this release |
 | 7.1 | publish table-manners v0.1.0 to crates.io |
-| 7.9 | the shared playground program's name and how it installs |
+| 7.9 | decided 2026-10-31: `wafflehouse --tool squint` by wafflehouse H1; the release installer is a later subgate |
 
 ## Open questions
 

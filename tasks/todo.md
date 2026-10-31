@@ -129,7 +129,7 @@ tag.
 - [x] `table-manners` v0.1.0 (2026-10-30): drafted from rascal's seed section, split into a core and an images profile, reviewed from rascal's side against rascal `917c5c3`, tagged
 - [x] M7 task list in PLAN.md (2026-10-30), written against v0.1.0
 - [x] Owner: table-manners v0.1.0 published to crates.io (2026-10-30)
-- [ ] Owner: name the shared playground program and how it installs; blocks 7.9
+- [x] Owner: the shared program is `wafflehouse`, launched as `wafflehouse --tool squint` (wafflehouse H1, accepted 2026-10-31 with squint's amendments); its release installer is a later subgate
 - [x] 7.1 The contract pinned (2026-10-30): `table-manners =0.1.0`, schemas copied and hash-checked under `schemas/contract/`, CI warns on a newer tag
 - [x] 7.2 Image references in and verified (2026-10-30): `expect` on job images, `error: input`, stored dimensions and the contract pixel digest; the twelve vectors reproduce
 - [x] 7.3 Contract locations out (2026-10-30): `contract::location`, the inverse EXIF orientation, quarter-pixel precision, seam footprints as two parts
@@ -139,7 +139,7 @@ tag.
 - [x] 7.7a `squint serve`: the server, `describe` and `estimate` (2026-10-30): rmcp `=3.8.0` at 2025-11-25 only; the independent client `squint_testkit::mcp_client`; a call's arguments become a job (`contract::job_from_call`)
 - [x] 7.7b `check` over `serve` (2026-10-30): one tool per use case, paths inside the client's roots and `[serve] roots`, the session budget as a shared ledger, calls serial by default
 - [x] 7.8 Progress, cancellation and runs as resources (2026-10-31): a journal observer drives progress, heartbeats every 5 s, a cancel leaves a `cancelled` run and no response, `squint://runs` and per-run resources, a cache hit costs nothing
-- [ ] 7.9 `squint playground` — blocked on the launcher agreement (wafflehouse H1: executable, `--tool` argv, install confirmation, host reuse); no launcher flags are invented before it
+- [x] 7.9 `squint playground` (2026-10-31): `wafflehouse --tool squint` by wafflehouse H1, lookup `WAFFLEHOUSE_BIN`/`PATH`/`~/.local/bin`, the launcher's exit code kept; the installer a testkit-only seam until a release is approved
 - [x] 7.10 Conformance fixtures (2026-10-31): `fixtures/contract/squint/` generated and held by `contract_fixtures.rs`; copied to table-manners `fixtures/squint/` (`6025a06`), which validates them
 - [x] 7.11 The MCP client on `rmcp` (bounded) (2026-10-31): ADR 0019, the pack client stays in-house
 - [ ] Contract v0.2 from what M7 finds, before rascal's conformance merges; written up in table-manners `PROPOSALS.md`. Found so far:
@@ -148,4 +148,15 @@ tag.
   - MCP roots are deprecated by SEP-2577 after `2025-11-25`: the contract's path rule needs its replacement before any tool moves revision
   - readiness: `describe` without a config, telling installed-but-unconfigured from unavailable (wafflehouse C1/S1.2)
   - a provider's 401 or 403 is not retryable; squint maps every provider failure to `provider`, retryable (wafflehouse S1.4)
-- [ ] Checkpoint M7 → tag `m7`
+- [x] Checkpoint M7 → tag `m7` (2026-10-31): merged as `eef1f10`, released by the owner
+- [x] Follow-up: the M7 checkpoint's review and test-coverage pass (agent-skills review and test), skipped before the merge; run 2026-10-31; the release stands, findings are the M7 review fixes below
+- [ ] M7 review fixes (branch `m7-review`):
+  - [ ] `estimate` over MCP checks paths against roots like a check (review C1, security)
+  - [ ] an image path is a regular file read only up to the decode bound (I1)
+  - [ ] every decision writes its own `run.json` on every exit; a cache-store failure is a note; serve returns the decision's run, never a second one (I2)
+  - [ ] a reference's `images.in` slot is `references` (I3)
+  - [ ] serve honours `[rules]` and resolves rule paths as the CLI does (I6)
+  - [ ] client roots parsed as `file:` URLs (I5)
+  - [ ] `straddles_wrap` never on a bounded image; a running run listed under its action (coverage 3, 4)
+  - [ ] vacuous tests made to bite: cancelled spend, heartbeat gaps, path/inline identity; argument errors exit 64 per command; `status_of` exhaustive; `run.json` in the secret scan
+  - with C4 (K3): a heartbeat while a call waits for the permit (I4)
