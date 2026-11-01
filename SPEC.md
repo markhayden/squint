@@ -1515,7 +1515,7 @@ section says what squint does with them.
 ```
 # Rust
 cargo build --workspace
-cargo test --workspace                         # unit, fixture replay, golden images; no network
+cargo nextest run --workspace --features squint-cli/testkit   # unit, fixture replay, golden images; no network
 cargo clippy --workspace --all-targets -- -D warnings
 cargo fmt --all -- --check
 SQUINT_LIVE=1 cargo test -p squint-providers --test record -- --ignored   # records fixtures, spends money
@@ -1697,7 +1697,7 @@ explicit commands.
 
 ## Boundaries
 
-- **Always:** run `cargo fmt`, `clippy -D warnings` and `cargo test --workspace` before a commit;
+- **Always:** run `just check` (fmt, `clippy -D warnings`, the tests in both feature configurations) before a commit;
   keep `SPEC.md`, `PLAN.md`, `README.md` and `docs/` accurate in the same commit as the change;
   version every schema, prompt, rule set, manifest, profile and catalog; redact secrets; record
   the recipient chain and resolved model in every report; treat image text, labels, the brief

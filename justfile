@@ -4,11 +4,13 @@ set shell := ["bash", "-euo", "pipefail", "-c"]
 
 deny_version := "0.20.2"
 dist_version := "0.33.1"
+nextest_version := "0.9.148"
 
 # Install the pinned helper tools (idempotent).
 bootstrap:
     cargo install cargo-deny --version {{deny_version}} --locked
     cargo install cargo-dist --version {{dist_version}} --locked
+    cargo install cargo-nextest --version {{nextest_version}} --locked
     @command -v uv >/dev/null || echo "uv not found: install from https://docs.astral.sh/uv/ (the Python tool pack needs it)"
 
 # Everything a commit must pass: fmt, clippy and tests in both feature configurations, deny, graph.
@@ -17,13 +19,17 @@ check: fmt-check clippy test deny graph packaging attribution hooks-test checks-
 fmt-check:
     cargo fmt --all -- --check
 
+# Only squint-cli has a feature (`testkit`), so only it is checked both ways: the workspace with
+# the feature, then squint-cli without it (the release build's behaviour, no test seams).
 clippy:
-    cargo clippy --workspace --all-targets -- -D warnings
     cargo clippy --workspace --all-targets --features squint-cli/testkit -- -D warnings
+    cargo clippy -p squint-cli --all-targets -- -D warnings
 
+# nextest runs the test binaries in parallel (cargo test runs them one after another). There are
+# no doctests to lose.
 test:
-    cargo test --workspace
-    cargo test --workspace --features squint-cli/testkit
+    cargo nextest run --workspace --features squint-cli/testkit
+    cargo nextest run -p squint-cli
 
 # Licences, bans and sources work offline; advisories need the network and run in CI (`just deny-advisories`).
 deny:
