@@ -62,3 +62,58 @@ impl Tool for ScriptedTool {
         next.ok_or_else(|| squint_core::Error::Tool("scripted tool: script exhausted".into()))
     }
 }
+
+/// What a manifest's image and frame arguments fail to tell the model, one line per argument
+/// (empty when nothing is missing). Every `image_args` and `frame_args` property's description
+/// must name both forms the harness accepts: an image id (`candidate`) and a raw frame id
+/// (`raw:candidate`). Models that saw only one form sent the other and lost a turn to
+/// `invalid_args` (the arm C run, 2026-10-28).
+pub fn image_argument_gaps(manifest: &Manifest) -> Vec<String> {
+    let mut gaps = Vec::new();
+    for arg in manifest.image_args.iter().chain(&manifest.frame_args) {
+        let description = manifest.model_schema["properties"][arg.as_str()]["description"]
+            .as_str()
+            .unwrap_or("");
+        if !description.contains("image id") {
+            gaps.push(format!("{}.{arg}: names no image id", manifest.name));
+        }
+        if !description.contains("raw:") {
+            gaps.push(format!(
+                "{}.{arg}: names no raw frame id such as raw:candidate",
+                manifest.name
+            ));
+        }
+    }
+    gaps
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn with_description(description: &str) -> Manifest {
+        let text = FAKE_REGIONS_MANIFEST.replace(
+            "description = \"The image id to find changes in.\"",
+            &format!("description = {description:?}"),
+        );
+        Manifest::from_toml(&text).expect("valid manifest")
+    }
+
+    #[test]
+    fn an_image_argument_must_name_both_the_image_id_and_the_raw_frame() {
+        let both = with_description("The image: its image id (candidate) or raw:candidate.");
+        assert!(image_argument_gaps(&both).is_empty());
+        assert_eq!(
+            image_argument_gaps(&with_description("The image id to find changes in.")),
+            ["fake_regions.image: names no raw frame id such as raw:candidate"]
+        );
+        assert_eq!(
+            image_argument_gaps(&with_description("A frame such as raw:candidate.")),
+            ["fake_regions.image: names no image id"]
+        );
+        assert_eq!(
+            image_argument_gaps(&with_description("The image.")).len(),
+            2
+        );
+    }
+}

@@ -1,4 +1,4 @@
-"""The ``squint-tools`` executable: ``serve`` runs the MCP server on stdio."""
+"""The ``squint-tools`` executable: ``serve [<tool> ...]`` runs the MCP server on stdio."""
 
 from __future__ import annotations
 
@@ -35,14 +35,22 @@ def main(argv: list[str] | None = None) -> int:
     args = sys.argv[1:] if argv is None else argv
     if not args or args[0] in ("-h", "--help"):
         print(
-            "usage: squint-tools serve | fetch [--from <dir or URL>] [--models <dir>] | --version"
+            "usage: squint-tools serve [<tool> ...] | fetch [--from <dir or URL>] [--models <dir>]"
+            " | --version"
         )
         return 0 if args else 2
     if args[0] == "--version":
         print(__version__)
         return 0
     if args[0] == "serve":
-        server.serve()
+        # Named tools narrow what the server lists and calls; a server serving no tool that
+        # needs the segmenter starts without its artifact.
+        try:
+            served = server.select(args[1:])
+        except ValueError as e:
+            print(f"squint-tools: {e}", file=sys.stderr)
+            return 2
+        server.serve(served=served)
         return 0
     if args[0] == "fetch":
         return fetch(args[1:])

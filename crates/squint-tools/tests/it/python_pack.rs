@@ -1,7 +1,9 @@
 //! Task 5.1: the Rust client against the real Python pack. `echo_region` is called with an image
 //! and an aligned frame, both by path, and answers with a valid envelope whose one image arrives
-//! as an MCP image block. Needs `uv` and a synced `tools/python` environment (`just python-check`),
-//! so it runs with `--ignored`; CI's python job runs it.
+//! as an MCP image block. F4: without the segmenter artifact a pack serving the tools that need it
+//! refuses `initialize`, naming the file and the fetch command, and one serving only
+//! `echo_region` starts. Needs `uv` and a synced `tools/python` environment
+//! (`just python-check`), so it runs with `--ignored`; CI's python job runs it.
 #![allow(clippy::unwrap_used)]
 
 use std::path::PathBuf;
@@ -46,6 +48,7 @@ fn echo_region_cuts_a_box_from_an_aligned_frame_and_returns_it_as_an_image_block
                 "--no-sync",
                 "squint-tools",
                 "serve",
+                "echo_region",
             ]
             .iter()
             .map(|s| s.to_string())
@@ -114,5 +117,58 @@ fn echo_region_cuts_a_box_from_an_aligned_frame_and_returns_it_as_an_image_block
     let cut = image::load_from_memory(&bytes).unwrap().to_rgb8();
     assert_eq!(cut.dimensions(), (20, 10));
     assert_eq!(cut.get_pixel(0, 0).0, [200, 200, 200]);
+    pack.shutdown();
+}
+
+/// The synced environment's own executable, so the pack sees exactly the `XDG_CACHE_HOME` given
+/// (through `uv run` it would also move uv's cache).
+fn pack_with_models_in(cache_home: &std::path::Path, args: &[&str]) -> Spawn {
+    Spawn {
+        command: root().join("tools/python/.venv/bin/squint-tools"),
+        args: args.iter().map(|s| s.to_string()).collect(),
+        declared_env: vec![],
+        cwd: None,
+        extra_env: vec![("XDG_CACHE_HOME".into(), cache_home.display().to_string())],
+    }
+}
+
+fn timeouts() -> Timeouts {
+    Timeouts {
+        startup: Duration::from_secs(60),
+        call: Duration::from_secs(30),
+        shutdown_grace: Duration::from_millis(500),
+    }
+}
+
+#[test]
+#[ignore = "needs a synced tools/python environment (just python-check)"]
+fn without_the_segmenter_initialize_names_the_missing_file_and_echo_region_alone_starts() {
+    let cache_home = tempdir("no-models");
+    let artifact = cache_home.join("squint/models/segmenter-v1/eomt-large-ade20k-512.onnx");
+    let Err(e) = Pack::connect(
+        "python",
+        pack_with_models_in(&cache_home, &["serve"]),
+        timeouts(),
+        std::env::vars(),
+    ) else {
+        panic!("the pack started without the segmenter");
+    };
+    let message = e.to_string();
+    assert!(
+        message.contains("initialize failed: regions and classes need the segmenter artifact")
+            && message.contains(&format!("{} is missing", artifact.display()))
+            && message.contains("`squint-tools fetch`"),
+        "{message}"
+    );
+
+    let pack = Pack::connect(
+        "python",
+        pack_with_models_in(&cache_home, &["serve", "echo_region"]),
+        timeouts(),
+        std::env::vars(),
+    )
+    .unwrap();
+    let names: Vec<&str> = pack.manifests().iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(names, ["echo_region"]);
     pack.shutdown();
 }

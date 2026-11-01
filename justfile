@@ -14,7 +14,14 @@ bootstrap:
     @command -v uv >/dev/null || echo "uv not found: install from https://docs.astral.sh/uv/ (the Python tool pack needs it)"
 
 # Everything a commit must pass: fmt, clippy and tests in both feature configurations, deny, graph.
-check: fmt-check clippy test deny graph packaging attribution hooks-test checks-test
+# CI runs the same three groups as separate steps (lint, test-testkit, test-release, repo-checks)
+# so one failure never hides the next: keep the CI steps in step with this line.
+check: lint test repo-checks
+
+lint: fmt-check clippy
+
+# The checks that are neither lint nor tests.
+repo-checks: deny graph packaging attribution hooks-test checks-test
 
 fmt-check:
     cargo fmt --all -- --check
@@ -26,12 +33,21 @@ clippy:
     cargo clippy -p squint-cli --all-targets -- -D warnings
 
 # nextest runs the test binaries in parallel (cargo test runs them one after another). There are
-# no doctests to lose.
+# no doctests to lose. Locally a run stops at the first failure; CI sets NEXTEST_PROFILE=ci
+# (.config/nextest.toml), which runs every test and lists every failure at the end.
+# Two passes: the workspace with the testkit feature, then squint-cli alone without it (the
+# release build's behaviour, no test seams).
+test: test-testkit test-release
+
 # The fake MCP server is built once first: nextest runs every test as its own process, and a
 # build per process would race to replace the binary under the tests running it.
-test:
+test-mcp-server:
     cargo build -p squint-testkit --bin squint-testkit-mcp
+
+test-testkit: test-mcp-server
     SQUINT_TESTKIT_MCP="$PWD/target/debug/squint-testkit-mcp" cargo nextest run --workspace --features squint-cli/testkit
+
+test-release: test-mcp-server
     SQUINT_TESTKIT_MCP="$PWD/target/debug/squint-testkit-mcp" cargo nextest run -p squint-cli
 
 # Licences, bans and sources work offline; advisories need the network and run in CI (`just deny-advisories`).

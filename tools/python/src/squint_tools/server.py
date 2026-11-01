@@ -8,10 +8,9 @@ from __future__ import annotations
 
 import json
 import sys
-from contextlib import suppress
 from typing import Any, TextIO
 
-from . import __version__, segmenter, tools
+from . import __version__, models, segmenter, tools
 from .context import Context, ContextError
 from .envelope import invalid_args, split_images
 from .segmenter import SegmenterUnavailable
@@ -33,9 +32,21 @@ def mcp_tool(manifest: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def select(names: list[str] | None) -> list[dict[str, Any]]:
+    """The manifests of the named tools in the pack's order, every tool when none are named."""
+    if not names:
+        return list(tools.MANIFESTS)
+    known = [m["name"] for m in tools.MANIFESTS]
+    unknown = [n for n in names if n not in known]
+    if unknown:
+        raise ValueError(f"unknown tool {unknown[0]!r}; this pack serves {', '.join(known)}")
+    return [m for m in tools.MANIFESTS if m["name"] in names]
+
+
 class Server:
-    def __init__(self, out: TextIO) -> None:
+    def __init__(self, out: TextIO, served: list[dict[str, Any]] | None = None) -> None:
         self.out = out
+        self.served = list(tools.MANIFESTS) if served is None else served
         self.calls_since_reset = 0
 
     def respond(self, message: dict[str, Any]) -> None:
@@ -55,11 +66,11 @@ class Server:
         request_id = message.get("id")
         params = message.get("params") or {}
         if method == "initialize":
-            # The segmenter is loaded once here when its artifact is present, so the first
-            # `regions` call does not pay the load inside its own timeout; when it is absent the
-            # tools that need it answer each call with an error and the rest serve.
-            with suppress(SegmenterUnavailable):
-                segmenter.shared()
+            problem = self.segmenter_problem()
+            if problem is not None:
+                # The harness ends the run at resolve with these words, before any spend.
+                self.error(request_id, -32603, problem)
+                return
             self.result(
                 request_id,
                 {
@@ -71,7 +82,7 @@ class Server:
         elif method in ("notifications/initialized", "notifications/cancelled"):
             return
         elif method == "tools/list":
-            self.result(request_id, {"tools": [mcp_tool(m) for m in tools.MANIFESTS]})
+            self.result(request_id, {"tools": [mcp_tool(m) for m in self.served]})
         elif method == "tools/call":
             self.call(request_id, params)
         elif method == "squint/reset":
@@ -80,11 +91,33 @@ class Server:
         elif request_id is not None:
             self.error(request_id, -32601, "Method not found")
 
+    def segmenter_problem(self) -> str | None:
+        """Why a served tool that needs the segmenter could not run, or None.
+
+        The artifact is checked (present, at the recorded size) and loaded once here, so the
+        first `regions` call does not pay the load inside its own timeout; a server serving no
+        such tool neither checks nor loads it.
+        """
+        needing = [m["name"] for m in self.served if m["name"] in tools.NEEDS_SEGMENTER]
+        if not needing:
+            return None
+        problem = models.artifact_problem(models.Record.load())
+        if problem is None:
+            try:
+                segmenter.shared()
+            except (RuntimeError, OSError, ValueError) as e:
+                # A file of the right size that onnxruntime cannot load (SegmenterUnavailable is
+                # a RuntimeError too).
+                problem = f"{type(e).__name__}: {e}"
+        if problem is None:
+            return None
+        return f"{' and '.join(needing)} need the segmenter artifact: {problem}"
+
     def call(self, request_id: Any, params: dict[str, Any]) -> None:
         self.calls_since_reset += 1
         name = params.get("name", "")
         arguments = params.get("arguments") or {}
-        handler = tools.HANDLERS.get(name)
+        handler = tools.HANDLERS.get(name) if any(m["name"] == name for m in self.served) else None
         if handler is None:
             self.error(request_id, -32602, f"unknown tool {name}")
             return
@@ -119,8 +152,12 @@ class Server:
         )
 
 
-def serve(stdin: TextIO = sys.stdin, stdout: TextIO = sys.stdout) -> None:
-    server = Server(stdout)
+def serve(
+    stdin: TextIO = sys.stdin,
+    stdout: TextIO = sys.stdout,
+    served: list[dict[str, Any]] | None = None,
+) -> None:
+    server = Server(stdout, served)
     for line in stdin:
         if not line.strip():
             continue

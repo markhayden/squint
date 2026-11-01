@@ -29,7 +29,8 @@ jobs:
       # Cache is a GitHub-only optimisation; act cannot run this Node action under emulation.
       - uses: Swatinem/rust-cache@v2
         if: ${{ !env.ACT }}
-      - name: Install pinned helper tools
+      - id: tools
+        name: Install pinned helper tools
         uses: taiki-e/install-action@v2
         with:
           tool: just@1.59.0,cargo-deny@0.20.2,cargo-nextest@0.9.148
@@ -39,10 +40,30 @@ jobs:
           test -x scripts/scan-secrets.sh
           git check-ignore -q docs/brief.md
           test -z "$(git ls-files docs/brief.md)"
-      - run: just check
-      - run: just deny-advisories
+      # `just check` as separate steps (keep in step with the justfile's `check` line). Once the
+      # tools are installed, each step runs even when an earlier one failed, so one failure never
+      # hides the next; nextest's `ci` profile runs every test of a pass rather than stopping at
+      # the first failure.
+      - name: Lint (fmt, clippy)
+        run: just lint
+      - name: Tests with the testkit feature
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: just test-testkit
+        env:
+          NEXTEST_PROFILE: ci
+      - name: Tests of squint-cli without the feature
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: just test-release
+        env:
+          NEXTEST_PROFILE: ci
+      - name: Repository checks (deny, graph, packaging, attribution, hooks, checks)
+        if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: just repo-checks
+      - if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: just deny-advisories
       # A newer table-manners release is a warning; moving to it is a deliberate commit (ADR 0018).
-      - run: scripts/check-contract-tag.sh
+      - if: ${{ !cancelled() && steps.tools.outcome == 'success' }}
+        run: scripts/check-contract-tag.sh
 
   python:
     name: python tool pack

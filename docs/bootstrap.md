@@ -17,7 +17,12 @@ CI as `just deny-advisories`), `scripts/check-crate-graph.sh`, `scripts/check-pa
 (every asset a crate embeds sits inside that crate and in the file list `cargo package` ships),
 `scripts/check-attribution.sh` (no agent attribution in any commit message or tracked file),
 `scripts/test-hooks.sh` (the credential scanner and both hooks, end to end in a scratch
-repository) and `scripts/test-checks.sh` (the checks fail when they should).
+repository) and `scripts/test-checks.sh` (the checks fail when they should). It is three groups,
+each a recipe of its own: `just lint`, `just test` (`test-testkit`, then `test-release`) and
+`just repo-checks`. Locally a test pass stops at its first failure; CI runs the groups and both
+test passes as separate steps that each run even after an earlier one failed, with
+`NEXTEST_PROFILE=ci` (`.config/nextest.toml`: no fail-fast, every failure repeated at the end),
+so one failing test never hides another.
 
 `just hooks` installs the hooks from `scripts/hooks/`. The pre-commit hook scans every staged blob
 for credential-shaped values first, then runs fmt and Clippy; only the exact synthetic values in
