@@ -330,3 +330,34 @@ fn no_image_blocks_unless_asked_and_none_to_send() {
         .unwrap();
     assert!(r.images.is_empty(), "squint returns no images");
 }
+
+/// Every tool's `inputSchema` from `tools/list` compiles as a document of its own, the way a
+/// strict client receives it (squint issue #2): no reference points outside it.
+#[test]
+fn every_tool_input_schema_compiles_on_its_own() {
+    let mut c = client(&out("input-schemas"), &[]);
+    let tools = c.list_tools().unwrap();
+    assert!(tools.len() >= 7, "{tools:?}");
+    for tool in tools {
+        jsonschema::draft202012::new(&tool.input_schema)
+            .unwrap_or_else(|e| panic!("{}: {e}", tool.name));
+    }
+}
+
+/// A server running the scripted provider declares what it can do: no check spends or needs a
+/// credential (squint issue #2), whatever profile the config names.
+#[test]
+fn a_scripted_server_declares_free_checks() {
+    let mut c = client(
+        &out("free"),
+        &[
+            "provider.profile=anthropic",
+            "provider.model=claude-haiku-5-5",
+        ],
+    );
+    let d = c.call("describe", json!({})).unwrap().structured.unwrap();
+    for action in d["actions"].as_array().unwrap() {
+        assert_eq!(action["cost"]["may_spend"], false, "{}", action["name"]);
+        assert_eq!(action["cost"]["needs_env"], json!([]), "{}", action["name"]);
+    }
+}

@@ -36,5 +36,6 @@ workspace = true
 
 [dev-dependencies]
 serde_json = "1"
+jsonschema = { workspace = true }
 # The independent MCP test client; path only, so the published manifest drops it.
 squint-testkit = { path = "../squint-testkit" }

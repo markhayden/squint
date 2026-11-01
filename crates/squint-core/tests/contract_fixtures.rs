@@ -101,8 +101,14 @@ fn description() -> Value {
     // them describes only its own use case).
     config.rules = None;
     serde_json::to_value(
-        squint_core::contract::description(&config, "0.0.0", &["ANTHROPIC_API_KEY".to_string()])
-            .unwrap(),
+        squint_core::contract::description(
+            &config,
+            "0.0.0",
+            &squint_core::contract::Executor::Paid {
+                needs_env: vec!["ANTHROPIC_API_KEY".to_string()],
+            },
+        )
+        .unwrap(),
     )
     .unwrap()
 }

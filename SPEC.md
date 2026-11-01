@@ -1475,8 +1475,11 @@ section says what squint does with them.
   so under `x-squint`), with the brief, requirements and a lower spend cap as parameters; an
   `estimate` action; every disposition and confidence word a finding can carry (`vocabulary`),
   the renders (`report view`, `report export`), the cost notice and the credential variable the
-  configured profile needs (its name, never its value), the expected duration, the inline limit
-  (the decode bound) and the resources. Argument errors on every command exit 64.
+  configured profile needs (its name, never its value; a check on the scripted fake, under the
+  `fake` profile or `--provider-script`, declares `may_spend: false` and no credential), the
+  expected duration, the inline limit (the decode bound) and the resources. Every
+  `params_schema` and MCP `inputSchema` is a schema of its own: the definitions it refers to sit
+  at its root. Argument errors on every command exit 64.
 - **Exit codes** across commands: 0 success, 3 error, 64 usage or input, 130 on SIGINT and 143
   on SIGTERM;
   1 fail and 2 unsure remain `check`'s; 69, 70 and 74 are `playground`'s (below).

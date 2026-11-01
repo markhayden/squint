@@ -44,6 +44,35 @@ fn describe_prints_the_description_and_no_secret() {
         sf["cost"]["needs_env"],
         serde_json::json!(["ANTHROPIC_API_KEY"])
     );
+    // A real provider may spend (squint issue #2).
+    assert_eq!(sf["cost"]["may_spend"], true);
+}
+
+/// The fake profile can never reach a paid provider: its checks declare no spend and no
+/// credential (squint issue #2), so a client that refuses paid work can run them.
+#[test]
+fn the_fake_profile_declares_free_checks() {
+    let o = Command::new(env!("CARGO_BIN_EXE_squint"))
+        .current_dir(repo_root())
+        .args([
+            "describe",
+            "--json",
+            "--config",
+            "fixtures/config/minimal.toml",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(o.status.code(), Some(0));
+    let doc: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+    for action in doc["actions"].as_array().unwrap() {
+        assert_eq!(action["cost"]["may_spend"], false, "{}", action["name"]);
+        assert_eq!(
+            action["cost"]["needs_env"],
+            serde_json::json!([]),
+            "{}",
+            action["name"]
+        );
+    }
 }
 
 #[test]
