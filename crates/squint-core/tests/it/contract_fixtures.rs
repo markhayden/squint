@@ -48,12 +48,17 @@ fn run_case(case: &str, script: &str, job: &str, overrides: &[&str], cancelled: 
     let tools = ToolRegistry::new(tools, &["fake_regions".into()], &[]).unwrap();
     let job = Job::load(&root().join("fixtures/jobs").join(job)).unwrap();
     let cancel = run::Cancel::new();
-    if cancelled {
-        cancel.cancel();
-    }
     let mut services = run::Services::new(&provider, &tools);
     if cancelled {
-        services = services.with_cancel(&cancel);
+        // Cancelled once the decision is allocated and reserved, before its first request.
+        let trigger = cancel.clone();
+        services = services
+            .with_cancel(&cancel)
+            .with_observer(std::sync::Arc::new(move |_: &Path, event: &str| {
+                if event == "reserved" {
+                    trigger.cancel();
+                }
+            }));
     }
     let outcome = block_on(run::check(&config, &job, &root(), &services, &out, "0.0.0")).unwrap();
     let mut result: Value =

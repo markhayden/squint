@@ -482,12 +482,12 @@ impl AnthropicProvider {
             tool_calls,
             content,
             stop_reason,
-            usage: Usage {
-                input_tokens: parsed.usage.input_tokens,
-                output_tokens: parsed.usage.output_tokens,
-                cache_read_tokens: parsed.usage.cache_read_input_tokens,
-                cache_write_tokens: parsed.usage.cache_creation_input_tokens,
-            },
+            usage: parsed.usage.map(|u| Usage {
+                input_tokens: u.input_tokens,
+                output_tokens: u.output_tokens,
+                cache_read_tokens: u.cache_read_input_tokens,
+                cache_write_tokens: u.cache_creation_input_tokens,
+            }),
             provider_request_id: request_id.or(Some(parsed.id)),
         })
     }

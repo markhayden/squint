@@ -357,9 +357,10 @@ fn anthropic_parses_responses_and_keeps_every_block_for_the_echo() {
     assert_eq!(r.tool_calls.len(), 1);
     assert_eq!(r.tool_calls[0].id, "toolu_9");
     assert_eq!(r.stop_reason, StopReason::ToolUse);
-    assert_eq!(r.usage.input_tokens, 100);
-    assert_eq!(r.usage.cache_read_tokens, 40);
-    assert_eq!(r.usage.cache_write_tokens, 5);
+    let usage = r.usage.unwrap();
+    assert_eq!(usage.input_tokens, 100);
+    assert_eq!(usage.cache_read_tokens, 40);
+    assert_eq!(usage.cache_write_tokens, 5);
     assert_eq!(r.provider_request_id.as_deref(), Some("req_1"));
     assert_eq!(r.content.len(), 3);
     assert!(
@@ -490,4 +491,13 @@ fn anthropic_reports_recipient_pricing_and_preparation() {
         ),
         ("image/jpeg", 10, 8, "1")
     );
+}
+
+/// An answer without a usage block reports none: not zero tokens (table-manners 4.5).
+#[test]
+fn anthropic_without_usage_reports_none() {
+    let (p, _) = provider("claude-opus-5-5", "", json!({}));
+    let body = json!({ "id": "m", "content": [{ "type": "text", "text": "hi" }], "stop_reason": "end_turn" });
+    let r = p.parse_response(&body.to_string(), None).unwrap();
+    assert_eq!(r.usage, None);
 }

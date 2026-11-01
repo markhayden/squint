@@ -1450,9 +1450,11 @@ section says what squint does with them.
   `_meta["table-manners/run"]` (id, resource, session id, client run id). A request may carry
   `_meta["table-manners/client_run_id"]` (`^[A-Za-z0-9._:-]{1,128}$`): claimed for the session
   when the request is accepted, written into the run's directory when it is made, and a reuse is
-  `-32602` with the earlier request's run (null while it has none). `notifications/cancelled` stops the
+  `-32602` with the earlier request's run (null while it has none). A claim is never released, so
+  the server keeps one small entry per id for the session's life, unbounded: fine over stdio with
+  one trusted host, to bound before any networked transport. `notifications/cancelled` stops the
   provider call; `run.json` and the run resource then hold status `cancelled` with spend to date,
-  and no result is returned. An identical retry within the cache policy is answered from the
+  and no result is returned; a call cancelled before its run is allocated makes no run. An identical retry within the cache policy is answered from the
   decision cache and says so.
 - **The session**: `squint://session` (table-manners 4.6), one atomic observation of the serving
   process's ledger: a random UUID (v4) made at start, when it started, the budget
@@ -1467,9 +1469,11 @@ section says what squint does with them.
 - **`run.json`**: written last and atomically (a temporary name, then a rename) into every
   decision directory by `check` on every surface, cache hits and cancelled decisions included: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
-  timestamps and duration, input identity, measured spend (with `unresolved_usd`: a provider call
-  that never left costs nothing, an authentication rejection costs nothing, and one sent with no
-  answer reporting usage, or cancelled in flight, counts at its bound), cache, the images taken in with their
+  timestamps and duration, input identity, spend (with `unresolved_usd`: a provider call that
+  never left costs nothing, an authentication rejection costs nothing, and one that failed with no
+  usage reported, or was cancelled in flight, counts at its bound, unresolved; a successful answer
+  that reports no usage counts its bound too, settled, and makes the basis `estimated` rather
+  than `measured`), cache, the images taken in with their
   slots and roles, every finding's location, notes for image warnings and repairs) and squint's
   body (verdict, exit code, whether two runs agreed, the report's path). The result's `action` is
   the use case's as `describe` names it (`source_fidelity`), from the command line as from MCP. A

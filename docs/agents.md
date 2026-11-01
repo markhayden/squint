@@ -52,7 +52,9 @@ ordinary decision (its directory, journal, report and `run.json`).
   lost connection; an id is good once per server session (a reuse is `-32602`, reason
   `client_run_id_reused`, naming the earlier run).
 - **Cancellation**: `notifications/cancelled` stops the provider call; the run's `run.json` says
-  `cancelled` with spend to date, and the request gets no response.
+  `cancelled` with spend to date, and the request gets no response. A call cancelled before its
+  run is allocated (queued, or while its arguments are resolved) makes no run; its
+  `client_run_id` stays claimed.
 - **Resources**: `squint://runs` (newest first, running ones included, fifty to a page; the next
   page is `squint://runs?cursor=<next_cursor>`), `squint://session` (the session id, budget,
   spent, unresolved, reserved and remaining), and per run `squint://run/<id>/run.json`,
@@ -64,8 +66,9 @@ ordinary decision (its directory, journal, report and `run.json`).
 
 Every decision directory ends with `run.json`, written atomically, from the command line and from
 MCP alike, cache hits and cancellations included: the contract's header (status, error code with
-`retryable`, timestamps, input identity, measured spend (`unresolved_usd` is the part no provider
-answer settled, counted at its worst case: show it as "at most"), cache, the images taken in with their
+`retryable`, timestamps, input identity, spend (`unresolved_usd` is the part no provider
+answer settled, counted at its worst case: show it as "at most"; `basis` is `estimated` when an
+answer reported no usage and counts its worst case), cache, the images taken in with their
 roles, every finding as a contract location on the file as stored) and squint's body (verdict,
 exit code, whether two runs agreed, the report's path). A `fail` verdict is `completed`.
 

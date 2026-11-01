@@ -60,8 +60,9 @@ struct ResponseObject {
     error: Option<ResponseError>,
     #[serde(default)]
     output: Vec<Value>,
+    /// `None` when the answer carried no usage block.
     #[serde(default)]
-    usage: ResponseUsage,
+    usage: Option<ResponseUsage>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -476,15 +477,14 @@ impl OpenAiProvider {
             tool_calls,
             content,
             stop_reason,
-            usage: Usage {
-                input_tokens: parsed
-                    .usage
+            usage: parsed.usage.map(|u| Usage {
+                input_tokens: u
                     .input_tokens
-                    .saturating_sub(parsed.usage.input_tokens_details.cached_tokens),
-                output_tokens: parsed.usage.output_tokens,
-                cache_read_tokens: parsed.usage.input_tokens_details.cached_tokens,
-                cache_write_tokens: parsed.usage.input_tokens_details.cache_write_tokens,
-            },
+                    .saturating_sub(u.input_tokens_details.cached_tokens),
+                output_tokens: u.output_tokens,
+                cache_read_tokens: u.input_tokens_details.cached_tokens,
+                cache_write_tokens: u.input_tokens_details.cache_write_tokens,
+            }),
             provider_request_id: header_request_id.or(parsed.id),
         })
     }

@@ -155,6 +155,9 @@ pub struct CostSummary {
     /// or cancelled in flight, counted at their bound (table-manners 2.3).
     #[serde(default)]
     pub unresolved_usd: f64,
+    /// Some answer reported no usage and counts its bound: the spend is estimated, not measured.
+    #[serde(default)]
+    pub estimated: bool,
     /// What the envelope gave back.
     pub released_usd: f64,
     /// Spend beyond the envelope (bounds are estimates).
@@ -274,6 +277,9 @@ pub struct TurnEntry {
     /// The part of `cost_usd` charged at the bound because no answer settled it.
     #[serde(default)]
     pub unresolved_usd: f64,
+    /// The answer reported no usage, so its cost is the turn's bound, estimated.
+    #[serde(default)]
+    pub estimated: bool,
     /// Whether the response entered provider history (false for an excluded or unanswered turn).
     pub entered_history: bool,
     /// The model-visible response body, redacted and bounded.
@@ -416,6 +422,7 @@ impl RunReport {
                     attempts: 1,
                     cost_usd: 0.0,
                     unresolved_usd: 0.0,
+                    estimated: false,
                     entered_history: false,
                     response: None,
                 }),
@@ -441,6 +448,7 @@ impl RunReport {
                         t.provider_request_id = e.provider_request_id.clone();
                         t.attempts = e.attempts;
                         t.cost_usd = e.cost_usd;
+                        t.estimated = e.estimated;
                         t.entered_history = true;
                         t.response = Some(e.response.clone());
                     }
@@ -684,6 +692,10 @@ impl Report {
             cap_usd: header.cap_usd,
             spent_usd,
             unresolved_usd,
+            estimated: runs
+                .iter()
+                .flat_map(|r| r.turns.iter())
+                .any(|t| t.estimated),
             released_usd: (envelope_usd - spent_usd).max(0.0),
             overrun_usd: (spent_usd - envelope_usd).max(0.0),
             attempts,

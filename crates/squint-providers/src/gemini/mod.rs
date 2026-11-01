@@ -59,8 +59,9 @@ struct GenerateContentResponse {
     candidates: Vec<Candidate>,
     #[serde(default, rename = "promptFeedback")]
     prompt_feedback: Option<PromptFeedback>,
+    /// `None` when the answer carried no `usageMetadata`.
     #[serde(default, rename = "usageMetadata")]
-    usage: UsageMetadata,
+    usage: Option<UsageMetadata>,
     #[serde(default, rename = "responseId")]
     response_id: Option<String>,
 }
@@ -404,15 +405,12 @@ impl GeminiProvider {
     ) -> Result<TurnResponse> {
         let parsed: GenerateContentResponse = serde_json::from_str(body)
             .map_err(|e| Error::Provider(format!("unreadable generateContent response: {e}")))?;
-        let usage = Usage {
-            input_tokens: parsed
-                .usage
-                .prompt_tokens
-                .saturating_sub(parsed.usage.cached_tokens),
-            output_tokens: parsed.usage.candidates_tokens + parsed.usage.thoughts_tokens,
-            cache_read_tokens: parsed.usage.cached_tokens,
+        let usage = parsed.usage.map(|u| Usage {
+            input_tokens: u.prompt_tokens.saturating_sub(u.cached_tokens),
+            output_tokens: u.candidates_tokens + u.thoughts_tokens,
+            cache_read_tokens: u.cached_tokens,
             cache_write_tokens: 0,
-        };
+        });
         let request_id = parsed.response_id.clone().or(header_request_id);
         let Some(candidate) = parsed.candidates.into_iter().next() else {
             let reason = parsed

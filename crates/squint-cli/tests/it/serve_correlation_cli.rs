@@ -141,11 +141,17 @@ fn an_accepted_id_is_the_runs_and_a_reused_one_is_refused_with_that_run() {
 #[test]
 fn a_malformed_id_is_invalid_params() {
     let mut c = client(&out("malformed"), "held.json");
-    for bad in ["has space", "", &"x".repeat(129)] {
+    for bad in [
+        json!("has space"),
+        json!(""),
+        json!("x".repeat(129)),
+        json!(5),
+        json!(["a"]),
+    ] {
         let (code, data) =
-            refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: bad })));
-        assert_eq!(code, -32602, "{bad:?}");
-        assert!(data.get("reason").is_none(), "{bad:?}: not a reuse: {data}");
+            refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: bad.clone() })));
+        assert_eq!(code, -32602, "{bad}");
+        assert!(data.get("reason").is_none(), "{bad}: not a reuse: {data}");
     }
 }
 
@@ -180,8 +186,87 @@ fn an_id_cancelled_before_its_run_stays_claimed_with_no_run() {
     call["use_case"] = json!("source-fidelity");
     let (code, data) = refused(c.call_with_meta("estimate", call, json!({ CLIENT: "q" })));
     assert_eq!(code, -32602);
+    valid("urn:table-manners:core:refusal", &data);
     assert_eq!(data["reason"], "client_run_id_reused");
     assert!(data["run"].is_null(), "{data}");
+    c.cancel(running).unwrap();
+}
+
+/// Two requests sent together with one id: the first accepted takes it, the other is refused.
+#[test]
+fn concurrent_requests_with_one_id_run_once() {
+    let mut c = client(&out("concurrent"), "held.json");
+    let mut call = pair();
+    call["use_case"] = json!("source-fidelity");
+    let one = c
+        .start_call_with_meta("estimate", call.clone(), json!({ CLIENT: "same" }))
+        .unwrap();
+    let two = c
+        .start_call_with_meta("estimate", call, json!({ CLIENT: "same" }))
+        .unwrap();
+    let results = [c.finish(one), c.finish(two)];
+    let accepted = results.iter().filter(|r| r.is_ok()).count();
+    assert_eq!(accepted, 1, "{results:?}");
+    let refusal = results.into_iter().find(|r| r.is_err()).unwrap();
+    let (code, data) = refused(refusal);
+    assert_eq!(code, -32602);
+    valid("urn:table-manners:core:refusal", &data);
+    assert_eq!(data["reason"], "client_run_id_reused");
+}
+
+/// An id is refused while its request still waits for the permit (no run yet) and while its run
+/// is going (that run); a queued call's heartbeats carry no run reference until it has one.
+#[test]
+fn an_id_in_use_is_refused_while_queued_and_while_running() {
+    let mut c = client(&out("in-use"), "slow-retry.json");
+    let running = c
+        .start_call_with_meta(
+            "source_fidelity",
+            pair(),
+            json!({ "progressToken": "a", CLIENT: "a" }),
+        )
+        .unwrap();
+    let reference = loop {
+        let n = c.next_notification().unwrap();
+        if n["params"]["progressToken"] == "a" {
+            break n["params"]["_meta"][RUN].clone();
+        }
+    };
+    let queued = c
+        .start_call_with_meta(
+            "source_fidelity",
+            pair(),
+            json!({ "progressToken": "q", CLIENT: "q" }),
+        )
+        .unwrap();
+    let mut call = pair();
+    call["use_case"] = json!("source-fidelity");
+    let (code, data) = refused(c.call_with_meta("estimate", call.clone(), json!({ CLIENT: "q" })));
+    assert_eq!(code, -32602);
+    valid("urn:table-manners:core:refusal", &data);
+    assert!(data["run"].is_null(), "queued, so no run yet: {data}");
+    let (code, data) = refused(c.call_with_meta("estimate", call, json!({ CLIENT: "a" })));
+    assert_eq!(code, -32602);
+    assert_eq!(data["run"], reference, "running, so its run");
+    // The queued call's heartbeat comes before any allocation: no reference.
+    let heartbeat = loop {
+        let n = c.next_notification().unwrap();
+        if n["params"]["progressToken"] == "q" {
+            break n;
+        }
+    };
+    assert!(
+        heartbeat["params"]["message"]
+            .as_str()
+            .unwrap()
+            .starts_with("waiting"),
+        "{heartbeat}"
+    );
+    assert!(
+        heartbeat["params"]["_meta"].get(RUN).is_none(),
+        "{heartbeat}"
+    );
+    c.cancel(queued).unwrap();
     c.cancel(running).unwrap();
 }
 

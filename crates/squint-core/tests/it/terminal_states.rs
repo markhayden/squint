@@ -319,12 +319,21 @@ fn a_cancel_before_the_first_turn_ends_in_cancelled_at_the_reserved_state() {
     let t = tools("empty.json");
     let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
     let cancel = run::Cancel::new();
-    cancel.cancel();
+    let trigger = cancel.clone();
+    let services = run::Services::new(&p, &t)
+        .with_cancel(&cancel)
+        .with_observer(std::sync::Arc::new(
+            move |_: &std::path::Path, event: &str| {
+                if event == "reserved" {
+                    trigger.cancel();
+                }
+            },
+        ));
     let o = block_on(run::check(
         &config(&[]),
         &job,
         &root(),
-        &run::Services::new(&p, &t).with_cancel(&cancel),
+        &services,
         &out,
         "test",
     ))

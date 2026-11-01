@@ -6,7 +6,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use schemars::JsonSchema;
 
@@ -173,25 +173,40 @@ pub async fn check(
     if !(1..=2).contains(&config.budget.decision_runs) {
         return Err(Error::Config("decision_runs must be 1 or 2".into()));
     }
-    let started_ms = crate::contract::now_ms();
-    let dir = new_decision_dir(out_dir)?;
-    if let Some(association) = &services.association {
-        association.write(&dir)?;
+    // Checked again just before the run is allocated: a cancellation that landed while the call
+    // was being resolved makes no run (table-manners 4.2).
+    if services.cancel.is_some_and(Cancel::is_cancelled) {
+        return Err(Error::Cancelled(
+            "cancelled before the run was allocated".into(),
+        ));
     }
+    let started_ms = crate::contract::now_ms();
+    let dir = new_decision_dir(out_dir, started_ms)?;
+    // The caller hears of the directory even when its association cannot be written, so a
+    // failure here closes this run rather than making a second one.
+    let associated = services
+        .association
+        .as_ref()
+        .map_or(Ok(()), |association| association.write(&dir));
     if let Some(allocated) = &services.allocated {
         allocated(&dir);
     }
-    match decide(
-        config,
-        job,
-        job_base,
-        services,
-        &dir,
-        started_ms,
-        harness_version,
-    )
-    .await
-    {
+    let decided = match associated {
+        Ok(()) => {
+            decide(
+                config,
+                job,
+                job_base,
+                services,
+                &dir,
+                started_ms,
+                harness_version,
+            )
+            .await
+        }
+        Err(e) => Err(e),
+    };
+    match decided {
         Ok(outcome) => Ok(outcome),
         Err(e) => {
             // Whatever failed, the decision's directory ends with its own result (table-manners
@@ -1349,7 +1364,12 @@ async fn send_turn(
     };
     let response = sent.response;
     let hold = account.hold(bound_usd);
-    let settled_usd = pricing.cost(&response.usage);
+    // An answer that reports no usage still cost something: the turn's bound, the configured
+    // worst case, estimated (table-manners 4.5).
+    let (settled_usd, estimated) = match &response.usage {
+        Some(usage) => (pricing.cost(usage), false),
+        None => (bound_usd, true),
+    };
     account.settle(hold, settled_usd);
     let response_ref = state
         .artifacts
@@ -1358,7 +1378,8 @@ async fn send_turn(
         turn,
         stop_reason: response.stop_reason.clone(),
         tool_calls: response.tool_calls.iter().map(|c| c.name.clone()).collect(),
-        usage: response.usage,
+        usage: response.usage.unwrap_or_default(),
+        estimated,
         provider_request_id: response.provider_request_id.clone(),
         attempts: sent.attempts,
         cost_usd: settled_usd + charged_usd,
@@ -2017,23 +2038,21 @@ fn root_location(
     })
 }
 
-fn new_decision_dir(out_dir: &Path) -> Result<PathBuf> {
+/// A fresh decision directory named for `started_ms`, the decision's start as `run.json` records
+/// it, so the runs list's order and its times agree.
+fn new_decision_dir(out_dir: &Path, started_ms: u64) -> Result<PathBuf> {
     std::fs::create_dir_all(out_dir)?;
     // Absolute, so the paths handed to tools resolve whatever working directory a tool process
     // runs in (a pack is restarted in the run directory).
     let out_dir = std::path::absolute(out_dir)?;
     let out_dir = out_dir.as_path();
-    let unix_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis())
-        .unwrap_or(0);
     let pid = std::process::id();
     let mut suffix = 0u32;
     loop {
         let name = if suffix == 0 {
-            format!("decision-{unix_ms}-{pid}")
+            format!("decision-{started_ms}-{pid}")
         } else {
-            format!("decision-{unix_ms}-{pid}-{suffix}")
+            format!("decision-{started_ms}-{pid}-{suffix}")
         };
         let dir = out_dir.join(name);
         match std::fs::create_dir(&dir) {

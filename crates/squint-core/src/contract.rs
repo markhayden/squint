@@ -216,12 +216,18 @@ pub const ASSOCIATION_FILE: &str = "association.json";
 pub struct Association {
     pub session_id: Option<String>,
     pub client_run_id: Option<String>,
+    /// The action the run is for, as `describe` names it, so a run still going is listed under it.
+    #[serde(default)]
+    pub action: Option<String>,
 }
 
 impl Association {
-    /// Written into a run's directory as soon as it exists.
+    /// Written into a run's directory as soon as it exists, whole: to a temporary name, then
+    /// renamed, so a reader never sees half of it.
     pub fn write(&self, dir: &Path) -> crate::Result<()> {
-        std::fs::write(dir.join(ASSOCIATION_FILE), serde_json::to_vec(self)?)?;
+        let tmp = dir.join(format!(".{ASSOCIATION_FILE}.tmp"));
+        std::fs::write(&tmp, serde_json::to_vec(self)?)?;
+        std::fs::rename(&tmp, dir.join(ASSOCIATION_FILE))?;
         Ok(())
     }
 
@@ -380,7 +386,11 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
             } else {
                 usd(report.cost.unresolved_usd)
             },
-            basis: SpendBasis::Measured,
+            basis: if report.cost.estimated && cache != Cache::Hit {
+                SpendBasis::Estimated
+            } else {
+                SpendBasis::Measured
+            },
         },
         cache,
         images: Some(Images {
@@ -579,8 +589,7 @@ pub fn description(
     actions.push(Action {
         name: "estimate".into(),
         title: "Estimate".into(),
-        purpose: "The worst-case cost of one check of a use case, and the session budget left."
-            .into(),
+        purpose: "The worst-case cost of one check of a use case, against the per-call cap.".into(),
         params_schema: params_schema(Some(
             &use_cases
                 .iter()

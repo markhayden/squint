@@ -373,7 +373,11 @@ fn check(args: &CheckArgs) -> i32 {
         }
         Err(e) => {
             eprintln!("squint: {}", redacted(&e.to_string(), &config));
-            squint_core::run::EXIT_ERROR
+            // A signal that landed before the decision was allocated still exits as signalled.
+            match signalled.load(std::sync::atomic::Ordering::SeqCst) {
+                0 => squint_core::run::EXIT_ERROR,
+                code => code,
+            }
         }
     }
 }

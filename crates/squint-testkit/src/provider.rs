@@ -2,7 +2,8 @@
 //! so the run loop can be driven through every state offline. An entry may instead be a
 //! transport error (`{"error": {"status": 429, "retry_after_s": 2}}`, with `"sent": false` for a
 //! connection that never carried the request) to drive the retries, or a stall
-//! (`{"stall_s": 30}`: the next entry comes only after that long, a call in flight).
+//! (`{"stall_s": 30}`: the next entry comes only after that long, a call in flight). A response
+//! without `usage` reported zero tokens; `"usage": null` is an answer that reported none.
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -225,7 +226,7 @@ mod tests {
                 tool_calls: vec![],
                 content: vec![],
                 stop_reason: StopReason::EndTurn,
-                usage: Default::default(),
+                usage: Some(Default::default()),
                 provider_request_id: None,
             }
         }
