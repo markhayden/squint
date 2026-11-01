@@ -276,6 +276,29 @@ fn roots_are_read_as_file_urls() {
     }
 }
 
+/// With no roots from the client and none in `[serve] roots`, a path names nothing squint may read
+/// (table-manners 10.1): closed by default. Inline images still work.
+#[test]
+fn with_no_roots_anywhere_a_path_is_refused() {
+    let mut c = Client::start_without_roots(&mut server(&out("no-roots"), &[])).unwrap();
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+        )
+        .unwrap();
+    let r = r.structured.unwrap();
+    assert_eq!(r["status"], "invalid", "{r}");
+    assert_eq!(r["error"]["code"], "input", "{r}");
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": inline("candidate-64x48.png"), "source": inline("source-64x48.png") }),
+        )
+        .unwrap();
+    assert_eq!(r.structured.unwrap()["status"], "completed");
+}
+
 #[test]
 fn an_exhausted_session_budget_is_a_budget_error_before_any_request() {
     let mut c = client(&out("budget"), &["serve.session_budget_usd=0.000001"]);

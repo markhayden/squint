@@ -529,7 +529,8 @@ fn file_url_path(uri: &str) -> Option<PathBuf> {
 }
 
 /// Every image path of `job` inside the client's roots (when the client offers roots) and inside
-/// the config's `[serve] roots` (when it names any): an image elsewhere is `input`. Each path is
+/// the config's `[serve] roots` (when it names any): an image elsewhere is `input`. With neither,
+/// no path is allowed (closed by default, table-manners 10.1); inline images need no roots. Each path is
 /// replaced by the real one it was checked as, so a symlink swapped afterwards cannot lead out. A
 /// path that does not resolve is refused in the words of one outside, so a refusal says nothing
 /// about what exists.
@@ -554,6 +555,14 @@ fn inside_roots(
                 path.display()
             ))
         };
+        if client.is_none() && config.is_empty() {
+            return Err(squint_core::Error::Input(format!(
+                "{}: {} is refused: neither the client nor [serve] roots names a directory squint \
+                 may read; send the image inline or configure roots",
+                image.id,
+                path.display()
+            )));
+        }
         let real = path.canonicalize();
         if client.is_some_and(|roots| !real.as_ref().is_ok_and(|r| within(r, roots))) {
             return Err(refused("the client's roots"));

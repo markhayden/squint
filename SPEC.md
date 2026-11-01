@@ -1228,7 +1228,7 @@ dir = "./squint-out"
 [serve]                       # squint serve only (table-manners 4.5, 10.1)
 concurrency = 1               # checks at once; serial by default
 session_budget_usd = 20.0     # across every call one server process serves; default ten checks at the default cap
-roots = ["/srv/images"]       # image paths must sit inside these as well as the client's MCP roots; empty: the client's alone
+roots = ["/srv/images"]       # image paths must sit inside these as well as the client's MCP roots; empty: the client's alone, and with neither, inline images only
 ```
 
 Loading: parse, validate against the config schema, resolve the profile, check the model in the
@@ -1436,8 +1436,10 @@ section says what squint does with them.
   the command line `--max-spend-usd`) may lower and never raise, and a per-session budget
   (`[serve] session_budget_usd`) across the server's lifetime, a ledger every decision reserves
   against before its first request. Paths: when the client offers roots, squint asks for them on
-  every check and refuses (`invalid`, `input`) a path outside them, or outside `[serve] roots` when
-  the config names any. A check over `serve` is an ordinary decision: its directory, journal,
+  every check and estimate and refuses (`invalid`, `input`) a path outside them, or outside
+  `[serve] roots` when the config names any; a client that offers no roots, under a config that
+  names none, can send images only inline (closed by default). A refusal says nothing about the
+  file, not even whether it exists. A check over `serve` is an ordinary decision: its directory, journal,
   report and `run.json`, with the action's name.
 - **Progress and cancellation**: `check` is a plain `tools/call`. With a progress token, squint
   sends a notification on every journal line of every run (through an observer the journal calls

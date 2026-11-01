@@ -40,7 +40,8 @@ ordinary decision (its directory, journal, report and `run.json`).
 
 - **Images** by absolute `path` or `inline` bytes, each with an optional `expect` reference whose
   digest and dimensions are verified before anything runs. When the client offers MCP roots, a
-  path must sit inside them, and inside `[serve] roots` when the config names any.
+  path must sit inside them, and inside `[serve] roots` when the config names any; with no roots
+  from either, images go inline (a path is refused).
 - **Spend**: the per-call cap from config, lowered (never raised) by `max_spend_usd`; a session
   budget (`[serve] session_budget_usd`, default $20) every decision reserves against before its
   first request. Calls are serial unless `[serve] concurrency` allows more.

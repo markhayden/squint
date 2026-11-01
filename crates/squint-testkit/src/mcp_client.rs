@@ -78,6 +78,19 @@ impl Client {
     /// `server` whatever revision it names, and `notifications/initialized` follows only when it
     /// names the one offered.
     pub fn start_at(command: &mut Command, protocol: &str) -> Result<Client, Failure> {
+        Client::open(command, protocol, serde_json::json!({ "roots": {} }))
+    }
+
+    /// Starts the server as a client that offers no roots at all (no `roots` capability).
+    pub fn start_without_roots(command: &mut Command) -> Result<Client, Failure> {
+        Client::open(command, PROTOCOL, serde_json::json!({}))
+    }
+
+    fn open(
+        command: &mut Command,
+        protocol: &str,
+        capabilities: serde_json::Value,
+    ) -> Result<Client, Failure> {
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -108,7 +121,7 @@ impl Client {
             "initialize",
             serde_json::json!({
                 "protocolVersion": protocol,
-                "capabilities": { "roots": {} },
+                "capabilities": capabilities,
                 "clientInfo": { "name": "squint-testkit-independent-client", "version": "0" }
             }),
         )?;
