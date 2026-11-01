@@ -58,8 +58,8 @@ feature and reject `--provider-script` as an unknown flag; that rejection is tes
 separately built feature-off executable, since a feature-on binary cannot prove it. Dev-dependency
 edges (every crate's tests may use testkit) are declared separately from production edges, and the
 crate-graph check runs with all features enabled. `just check` runs both feature configurations:
-`cargo test --workspace` and `cargo test --workspace --features squint-cli/testkit`, plus Clippy in
-both; every filtered test invocation in this plan must enumerate and execute at least one test
+`cargo nextest run --workspace --features squint-cli/testkit` and, for the only crate with a
+feature, `cargo nextest run -p squint-cli` without it, plus Clippy the same two ways; every filtered test invocation in this plan must enumerate and execute at least one test
 (`--list` compared in the `just` recipe). Availability of all six package names on crates.io is
 confirmed in 0.1 and a fallback recorded by ADR if needed.
 
@@ -120,9 +120,9 @@ pushed only at tagged checkpoints, so the public repository shows reviewed, work
 run locally with `just ci-local` before any push.
 
 **Commits.** Conventional Commits with a scope. Every commit on a milestone branch leaves
-`just check` green, which runs `cargo fmt --all -- --check`, `cargo clippy --workspace
---all-targets -- -D warnings` in both feature configurations, `cargo test --workspace`,
-`cargo test --workspace --features squint-cli/testkit` and `cargo deny check`; a commit that cannot
+`just check` green, which runs `cargo fmt --all -- --check`, Clippy with `-D warnings` and the
+tests (`cargo nextest run`) over the workspace with `squint-cli/testkit` and over `squint-cli`
+without it, and `cargo deny check`; a commit that cannot
 is not made. `Cargo.lock` is committed. The
 spec, plan, README and docs are updated in the same commit as the change they describe.
 Attribution lines follow the repository's conventions. Secrets, private images and
@@ -1504,7 +1504,7 @@ nothing; yes installs into `~/.local/bin` and runs that path; installer failure 
 nothing; off a terminal exits 69; a release build exits 69 with no offer; extra arguments exit 64.
 
 **Dependencies.** 7.1; wafflehouse H1. **Files.** `crates/squint-cli/src/playground.rs`,
-`crates/squint-cli/tests/playground_cli.rs`. **Size.** S.
+`crates/squint-cli/tests/it/playground_cli.rs`. **Size.** S.
 
 ### Task 7.10: Conformance fixtures
 

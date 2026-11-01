@@ -2,7 +2,7 @@
 //! `recommend_disable`, the reset after requalification, and the refusals.
 #![allow(clippy::unwrap_used)]
 
-mod common;
+use super::common;
 
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
