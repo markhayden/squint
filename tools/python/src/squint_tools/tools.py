@@ -77,6 +77,10 @@ ECHO_REGION = {
 
 MANIFESTS = [ECHO_REGION, regions.MANIFEST, classes.MANIFEST]
 
+# The tools that run the segmenter: a server serving any of them checks for its artifact at
+# `initialize` and refuses to start without it.
+NEEDS_SEGMENTER = frozenset({"regions", "classes"})
+
 
 def _bbox(value: Any) -> list[float] | None:
     if (

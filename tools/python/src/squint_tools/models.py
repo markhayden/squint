@@ -64,6 +64,24 @@ def artifact_path(record: Record, models: Path | None = None) -> Path:
     return (models or models_dir()) / record.name / record.artifact
 
 
+def artifact_problem(record: Record, models: Path | None = None) -> str | None:
+    """Why the record's artifact cannot be loaded, naming the file and how to fetch it, or None.
+
+    A cheap check (present, at the recorded size) for the server's ``initialize``; the hash is
+    ``fetch``'s business.
+    """
+    path = artifact_path(record, models)
+    if not path.is_file():
+        return f"{path} is missing; run `squint-tools fetch` to download and verify it"
+    size = path.stat().st_size
+    if size != record.data["size_bytes"]:
+        return (
+            f"{path} is {size} bytes, the record says {record.data['size_bytes']}; "
+            "run `squint-tools fetch` again"
+        )
+    return None
+
+
 def sha256_of(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:

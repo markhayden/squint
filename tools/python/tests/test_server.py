@@ -5,15 +5,24 @@ import io
 import json
 
 import numpy as np
+import pytest
 from PIL import Image
 
-from squint_tools import __version__, server, tools
+from squint_tools import __version__, models, server, tools
+
+RECORD = models.Record.load()
+INITIALIZE = {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {"protocolVersion": "2025-11-25"},
+}
 
 
-def run(messages):
+def run(messages, served=None):
     out = io.StringIO()
     stdin = io.StringIO("".join(json.dumps(m) + "\n" for m in messages))
-    server.serve(stdin, out)
+    server.serve(stdin, out, server.select(served))
     return [json.loads(line) for line in out.getvalue().splitlines()]
 
 
@@ -46,14 +55,10 @@ def context(images=("candidate",), frames=None):
 
 
 def test_initialize_lists_and_calls():
+    # Served alone, `echo_region` needs no segmenter, so this holds with or without the artifact.
     responses = run(
         [
-            {
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {"protocolVersion": "2025-11-25"},
-            },
+            INITIALIZE,
             {"jsonrpc": "2.0", "method": "notifications/initialized"},
             {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
             {
@@ -69,9 +74,11 @@ def test_initialize_lists_and_calls():
                     },
                 },
             },
-        ]
+        ],
+        served=["echo_region"],
     )
     init, listed, called = responses
+    assert [t["name"] for t in listed["result"]["tools"]] == ["echo_region"]
     assert init["result"]["protocolVersion"] == "2025-11-25"
     assert "tools" in init["result"]["capabilities"]
     assert init["result"]["serverInfo"]["version"] == __version__
@@ -249,14 +256,15 @@ def test_reset_acknowledges_and_unknown_methods_are_not_found():
     assert len(responses) == 2
 
 
-def test_a_missing_segmenter_is_an_error_reply_and_the_server_goes_on(monkeypatch):
+def test_a_segmenter_failing_at_call_time_is_an_error_reply_and_the_server_goes_on(monkeypatch):
+    # `initialize` refuses to start without the artifact (below); this is the file going missing
+    # or failing to load after that.
     from squint_tools import regions, segmenter
 
     def unavailable():
         raise segmenter.SegmenterUnavailable("the artifact is missing; run `squint-tools fetch`")
 
     monkeypatch.setattr(regions.segmenter, "shared", unavailable)
-    monkeypatch.setattr(server.segmenter, "shared", unavailable)
     img = handle(20, 10, base64=base64.b64encode(png(20, 10)).decode("ascii"))
     ctx = {
         "run_id": "run-1",
@@ -274,7 +282,7 @@ def test_a_missing_segmenter_is_an_error_reply_and_the_server_goes_on(monkeypatc
         },
         "hints": {},
     }
-    failed, later, init = run(
+    failed, later = run(
         [
             {
                 "jsonrpc": "2.0",
@@ -302,17 +310,61 @@ def test_a_missing_segmenter_is_an_error_reply_and_the_server_goes_on(monkeypatc
                     },
                 },
             },
-            {
-                "jsonrpc": "2.0",
-                "id": 3,
-                "method": "initialize",
-                "params": {"protocolVersion": "2025-11-25"},
-            },
         ]
     )
     assert failed["error"]["code"] == -32603 and "fetch" in failed["error"]["message"]
     assert later["result"]["structuredContent"]["status"] == "ok"
+
+
+def test_initialize_without_the_segmenter_names_the_missing_file_and_the_fetch_command(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    artifact = models.artifact_path(RECORD)
+    assert str(artifact).startswith(str(tmp_path))
+    [init] = run([INITIALIZE])
+    message = init["error"]["message"]
+    assert init["error"]["code"] == -32603 and "result" not in init
+    assert message.startswith("regions and classes need the segmenter artifact")
+    assert f"{artifact} is missing" in message and "`squint-tools fetch`" in message
+
+    # A file of the wrong size is refused the same way, without loading it.
+    artifact.parent.mkdir(parents=True)
+    artifact.write_bytes(b"not the model")
+    [init] = run([INITIALIZE], served=["classes"])
+    message = init["error"]["message"]
+    assert message.startswith("classes need the segmenter artifact")
+    assert f"{artifact} is 13 bytes" in message and "`squint-tools fetch` again" in message
+
+
+def test_a_server_serving_only_echo_region_starts_without_the_segmenter(tmp_path, monkeypatch):
+    def never():
+        raise AssertionError("echo_region alone must not load the segmenter")
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    monkeypatch.setattr(server.segmenter, "shared", never)
+    init, listed, refused = run(
+        [
+            INITIALIZE,
+            {"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}},
+            {"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "regions"}},
+        ],
+        served=["echo_region"],
+    )
     assert init["result"]["protocolVersion"] == "2025-11-25"
+    assert [t["name"] for t in listed["result"]["tools"]] == ["echo_region"]
+    assert refused["error"]["code"] == -32602 and "regions" in refused["error"]["message"]
+
+
+@pytest.mark.segmenter
+@pytest.mark.skipif(
+    models.artifact_problem(RECORD) is not None,
+    reason=f"the segmenter is not under {models.artifact_path(RECORD).parent}: run `squint-tools fetch`",
+)
+def test_with_the_segmenter_present_every_tool_serves():
+    init, listed = run([INITIALIZE, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}])
+    assert init["result"]["protocolVersion"] == "2025-11-25"
+    assert [t["name"] for t in listed["result"]["tools"]] == ["echo_region", "regions", "classes"]
 
 
 def test_unreadable_pixels_are_an_error_reply_not_a_crash():
@@ -343,6 +395,8 @@ def test_an_unknown_tool_is_a_method_error_and_the_cli_reports_version_and_unkno
     [reply] = run([{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "nope"}}])
     assert reply["error"]["code"] == -32602
     assert cli.main(["--version"]) == 0 and capsys.readouterr().out.strip() == __version__
+    assert cli.main(["serve", "echo_region", "nope"]) == 2
+    assert "unknown tool 'nope'" in capsys.readouterr().err
     assert cli.main(["bogus"]) == 2 and "unknown command" in capsys.readouterr().err
 
 

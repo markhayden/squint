@@ -3,7 +3,8 @@
 This module runs the artifact and turns its two heads into a semantic map; preprocessing an
 image of any shape into the fixed 512×512 input is the tools' business (task 5.4a). The artifact
 is loaded from the models directory that ``fetch`` filled; a missing or wrong-sized file is a
-``SegmenterUnavailable``, which the tools report as a resolve failure, never a verdict.
+``SegmenterUnavailable``. The server checks for it at ``initialize`` whenever it serves a tool in
+``tools.NEEDS_SEGMENTER``, so the harness ends the run at resolve, before any spend.
 """
 
 from __future__ import annotations
@@ -71,16 +72,10 @@ class Segmenter:
         import onnxruntime as ort
 
         self.record = models.Record.load()
+        problem = models.artifact_problem(self.record, models_dir)
+        if problem is not None:
+            raise SegmenterUnavailable(problem)
         path = models.artifact_path(self.record, models_dir)
-        if not path.is_file():
-            raise SegmenterUnavailable(
-                f"{path} is missing; run `squint-tools fetch` to download and verify it"
-            )
-        if path.stat().st_size != self.record.data["size_bytes"]:
-            raise SegmenterUnavailable(
-                f"{path} is {path.stat().st_size} bytes, the record says "
-                f"{self.record.data['size_bytes']}; run `squint-tools fetch` again"
-            )
         self.session = ort.InferenceSession(str(path), providers=[PROVIDER])
         self.classes = int(self.record.data.get("classes", 150))
 

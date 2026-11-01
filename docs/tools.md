@@ -183,16 +183,21 @@ An MCP tool is the same contract over stdio: the manifest's fields travel in the
 ## The Python pack and its provisioning bundle
 
 `tools/python/` is a uv project (`squint-tools`, on numpy, Pillow and onnxruntime) whose
-`squint-tools serve` runs the stdio server. `context.py` parses the `_squint` the harness
+`squint-tools serve` runs the stdio server (`serve <tool> ...` serves only the named tools). `context.py` parses the `_squint` the harness
 injects into every call (the run and call ids, the images named by `image_args` and the frames
 named by `frame_args`, each with lossless pixels by path under the run directory or inline, and
 the rules' hints) and loads pixels as RGB arrays; a malformed context is a JSON-RPC error, which
 the harness records as a tool error, never an answer the model acts on. `envelope.py` builds
 result envelopes and returned images (lossless PNG named `crop:<call id>:<n>` or an aligned frame,
 with its mapping in the parent), and splits the images' bytes out of `structuredContent` into the
-MCP image blocks the client pairs with them by position and media type. A handler that cannot
-answer (the segmenter artifact missing, an image that will not decode) gets a JSON-RPC error with
-its words, which the harness records as a tool error, and the server goes on serving. The pack
+MCP image blocks the client pairs with them by position and media type. A server serving a tool
+that needs the segmenter (`regions`, `classes`) checks its artifact at `initialize` (present, at
+the recorded size) and loads it there; without it the server answers `initialize` with a JSON-RPC
+error naming the file and `squint-tools fetch`, so the harness stops at resolve, before any
+provider call, with those words. A server serving only `echo_region` neither needs nor loads it.
+A handler that cannot answer (the artifact gone after startup, an image that will not decode) gets
+a JSON-RPC error with its words, which the harness records as a tool error, and the server goes on
+serving. The pack
 carries three tools: `echo_region`, the transport proof, which places the given box on the image
 as a region and returns the box cut from the named frame (or the image's raw frame) as its one
 image; and `regions` and `classes` below.
@@ -200,7 +205,7 @@ image; and `regions` and `classes` below.
 server from the Rust client (`crates/squint-tools/tests/it/python_pack.rs`: an image and an
 aligned frame by path in, a valid envelope with one image block out) and puts every manifest the
 pack lists through the three adapters' wire transformations beside `submit_verdict`
-(`crates/squint-cli/tests/it/python_pack_manifests.rs`).
+(`crates/squint-cli/tests/it/python_pack_manifests.rs`, which needs the fetched segmenter).
 
 **`regions`** (`regions.py`, task 5.4a) is the first real tool: where an aligned pair differs, as
 high-recall pointers. It takes two frames in one grid, `frame` (usually the aligned candidate) and
@@ -240,8 +245,8 @@ pins `squint-tools==<version>` by path to that wheel, its `uv.lock`, `MODEL.md`,
 `uv sync --frozen --no-dev --python <declared>` there, and then the installed pack's `fetch`, so
 the model artifacts are in `$XDG_CACHE_HOME/squint/models/` before the first run: from the
 release the pack's record names, or with `--models-from <dir>` from a directory (the export's
-output before publication); `--no-fetch` skips the step, and a tool that needs the artifact then
-reports it missing. A fetch the pack refuses (a hash mismatch, an unreachable source) fails the
+output before publication); `--no-fetch` skips the step, and a run using the pack then stops at
+resolve naming the missing file. A fetch the pack refuses (a hash mismatch, an unreachable source) fails the
 setup as `error: resolve` with the pack's own words. A pack configured by `package` and
 `version` is then launched as `<dir>/.venv/bin/squint-tools serve` with `UV_OFFLINE=1`,
 `UV_PYTHON_DOWNLOADS=never` and the lock digest in `SQUINT_LOCK_DIGEST`, which the pack echoes
