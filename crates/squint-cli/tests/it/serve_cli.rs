@@ -115,6 +115,21 @@ fn estimate_is_a_run_with_its_own_run_json() {
     let on_disk: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(run_dir.join("run.json")).unwrap()).unwrap();
     assert_eq!(on_disk, result);
+
+    // Every run resource the server advertises is readable for this run, by this server and by a
+    // new one on the same output (wafflehouse estimate-journal handoff): an estimate has no
+    // decision journal, so its journal is empty, not missing. An unknown run stays unavailable.
+    let id = result["run"]["id"].as_str().unwrap().to_string();
+    let journal = format!("squint://run/{id}/journal");
+    assert_eq!(client.read_resource(&journal).unwrap(), "");
+    assert!(
+        client
+            .read_resource("squint://run/no-such-run/journal")
+            .is_err()
+    );
+    drop(client);
+    let mut again = Client::start(&mut server(&dir)).unwrap();
+    assert_eq!(again.read_resource(&journal).unwrap(), "");
 }
 
 /// A relative path is a run that is `invalid` with code `input`; arguments the input schema
