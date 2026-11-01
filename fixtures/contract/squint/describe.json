@@ -1059,7 +1059,7 @@
         ],
         "type": "object"
       },
-      "purpose": "The worst-case cost of one check of a use case, and the session budget left.",
+      "purpose": "The worst-case cost of one check of a use case, against the per-call cap.",
       "renders": [],
       "title": "Estimate"
     }

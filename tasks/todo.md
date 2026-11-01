@@ -176,6 +176,6 @@ tag.
 - [ ] Follow-ups from the M8 review:
   - [x] I3 (2026-11-01): a successful answer with no usage (OpenAI and Gemini parsers default it to zeros) counts the configured price with `basis: estimated`, not zero `measured` (4.5)
   - [x] cancellation re-checked just before the decision directory is made; `association.json` written atomically and with `action`; a failed association write leaves no second run; a directory named for the start its `run.json` records (2026-11-01, review S1, S2, S5)
-  - [ ] tests: concurrent requests with one id, reuse while queued (not cancelled) or running, progress before allocation has no `_meta`, a non-string `client_run_id`, the no-run refusal validated against the schema, runs of one start time split across a page, connection-refused mapped to not sent through the real HTTP client
-  - [ ] the claims map grows for the life of a session (bound it, or say so in the SPEC)
+  - [x] (2026-11-01) tests: concurrent requests with one id, reuse while queued (not cancelled) or running, progress before allocation has no `_meta`, a non-string `client_run_id`, the no-run refusal validated against the schema, runs of one start time split across a page, connection-refused mapped to not sent through the real HTTP client
+  - [x] the claims map grows for the life of a session: said so in the SPEC (2026-11-01; a bound would let an evicted id be reused, against 4.4); S3, an id used up by a request refused with no run, raised with rascal for v0.3
 - [x] Checkpoint M8 → tag `m8` (2026-11-01: merged into main at `3e6223a` on table-manners 0.2.0 from crates.io; pushed and tagged by the owner)

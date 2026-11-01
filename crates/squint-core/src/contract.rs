@@ -589,8 +589,7 @@ pub fn description(
     actions.push(Action {
         name: "estimate".into(),
         title: "Estimate".into(),
-        purpose: "The worst-case cost of one check of a use case, and the session budget left."
-            .into(),
+        purpose: "The worst-case cost of one check of a use case, against the per-call cap.".into(),
         params_schema: params_schema(Some(
             &use_cases
                 .iter()

@@ -263,6 +263,17 @@ impl Client {
         }
     }
 
+    /// Waits for the response to a call started with [`Client::start_call_with_meta`].
+    pub fn finish(&mut self, id: u64) -> Result<CallResult, Failure> {
+        loop {
+            if let Some(message) = self.pending.remove(&id) {
+                return response_of(message).map(|r| call_result(&r));
+            }
+            let message = self.receive()?;
+            self.dispatch(message)?;
+        }
+    }
+
     /// Cancels a request (`notifications/cancelled`).
     pub fn cancel(&mut self, id: u64) -> Result<(), Failure> {
         self.notify(

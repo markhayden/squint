@@ -165,3 +165,28 @@ fn the_runs_template_is_listed() {
         "{listed}"
     );
 }
+
+/// Runs that share a start time are still walked each once when a page boundary falls among
+/// them: the cursor carries the id as well as the time.
+#[test]
+fn runs_of_one_start_time_split_across_a_page() {
+    let dir = out("same-ms");
+    for n in 0..75 {
+        std::fs::create_dir_all(dir.join(format!("estimate-5000-1-{n:02}"))).unwrap();
+    }
+    let mut c = client(&dir, "held.json");
+    let first = page(&mut c, None);
+    let second = page(&mut c, first["next_cursor"].as_str());
+    assert!(second["next_cursor"].is_null(), "{second}");
+    let mut ids: Vec<String> = [&first, &second]
+        .iter()
+        .flat_map(|doc| doc["runs"].as_array().unwrap().clone())
+        .map(|run| run["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(ids.len(), 75);
+    let walked = ids.clone();
+    ids.sort();
+    ids.dedup();
+    ids.reverse();
+    assert_eq!(walked, ids, "newest first by (started, id), none twice");
+}

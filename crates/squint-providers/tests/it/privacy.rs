@@ -234,6 +234,8 @@ async fn privacy_http_client_reports_a_refused_connection_as_retryable_transport
         squint_core::Error::Transport(t) => {
             assert_eq!(t.status, None);
             assert!(t.retryable());
+            // The connection carried no request: not sent, so it costs nothing (table-manners 4.5).
+            assert!(!t.sent && !t.unresolved(), "{t:?}");
             assert!(
                 !t.message.contains("127.0.0.1"),
                 "no URL in messages: {}",
