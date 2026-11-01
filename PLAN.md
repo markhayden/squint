@@ -25,8 +25,7 @@ called admitted.
 | M3 Sets and baseline | set tooling, five public dev sets plus five adversarial sets, eval runner with execution descriptor and durable ledger, metrics, gate lifecycle, viewer, arm A baseline | `m3` |
 | M4 Built-in tools | alignment spike, Tool registry, `view`/`align`/`resize`/`edge_similarity`/`change_map`, full MCP client, arm C, MODEL.md | `m4` |
 | M5 First ML tool | Python pack, provisioning bundle, `regions` and `classes`, sealed blind set, initial gate | `m5` |
-| M6 Confirmation | a harder sealed initial set and a second initial gate (ADR 0017); then, only after an admission, a distinct sealed set of at least 50 items, confirmation gate, admission record | `m6` |
-| M7 Contract conformance | `squint serve`, `describe --json`, `run.json`, contract locations and image references, shared exit codes, `squint playground` against `table-manners` v0.1.0 (ADR 0018, SPEC "External interface"); independent of M6 | `m7` |
+| M7 Contract conformance | `squint serve`, `describe --json`, `run.json`, contract locations and image references, shared exit codes, `squint playground` against `table-manners` v0.1.0 (ADR 0018, SPEC "External interface") | `m7` |
 
 Deferred past M7 with their own ADRs: an HTTP transport for `squint serve`, the mask handoff
 from rascal (region-scoped `allowed` obligations), Bedrock and Vertex profiles, the ChatGPT-plan
@@ -90,7 +89,6 @@ M4  4.0 ← 1.2, 0.4    4.1 ← 1.5a, 1.7a 4.2a ← 4.1, 1.2   4.2b ← 4.2a, 3.
     4.4a ← 1.13, 4.1  4.4b ← 4.4a      4.5 ← 4.2a, 4.3b, 4.3c, 3.8        4.6 ← 0.4
 M5  5.1 ← 4.4b, 1.14  5.3 ← 4.6, 5.1   5.4a ← 5.3        5.4b ← 5.3
     5.2 ← 5.3, 5.4a, 5.4b               5.5 ← 3.2a, 3.1   5.6 ← 5.4a, 5.5, 4.5, 3.5b, 5.2
-M6  6.0 ← 5.6, ADR 0017    6.1 ← 6.0 (admitted), 0.4    6.2 ← 6.1
 M7  7.1 ← table-manners v0.1.0 on crates.io            7.2 ← 7.1         7.3 ← 7.2
     7.4 ← 7.2, 7.3    7.5 ← 7.1        7.6 ← 7.5         7.7a ← 7.5, 7.6
     7.7b ← 7.7a, 7.4  7.8 ← 7.7b       7.9 ← 7.1, wafflehouse H1
@@ -111,9 +109,8 @@ and `git check-ignore docs/brief.md` is the test.
 **Branches.** `main` holds only reviewed checkpoints. Each milestone is one branch `mN-<name>`
 from the previous checkpoint tag. Tasks are committed on the milestone branch, or on short task
 branches `mN/<task>` merged into the milestone branch when two tasks are in flight. Code work on
-a later milestone never starts before the earlier milestone merges, with one exception: M7 does
-not depend on M6 and branches from `main` while M6 waits on an owner decision (ADR 0018); owner
-labelling happens outside git and may overlap. A milestone merges into `main` with a merge commit (no squash) after
+a later milestone never starts before the earlier milestone merges; owner labelling happens
+outside git and may overlap. A milestone merges into `main` with a merge commit (no squash) after
 the owner's review and the checkpoint checklist passes. Nothing is pushed by the agent; the owner
 pushes. The owner's preference (2026-10-26): branches stay on the owner's machine and `main` is
 pushed only at tagged checkpoints, so the public repository shows reviewed, working states; CI is
@@ -226,7 +223,7 @@ judge-model subset (recommendation: one model per vendor at first); which Anthro
 (enforced-thinking or not) records fixtures; spend caps and approval points for fixture recording,
 release and gateway smoke tests, image generation, the baseline, arm C, the initial gate and the
 confirmation gate; the labelling plan (worksheet format, batch size, adjudicator); which prototype
-images, outputs and artifacts are approved for reuse; whether M6 is funded in this release.
+images, outputs and artifacts are approved for reuse.
 Generators and licence are deferred to 3.2a. Blank entries name the task they block.
 
 **Acceptance.**
@@ -1287,60 +1284,15 @@ split files); the owner reviews and commits the publication; publish
 - [ ] README "How it is built" updated with measured results and links.
 - [ ] Review and test skills (or checklist); owner review; merge; tag `m5`.
 
-## Milestone M6: Confirmation
-
-### Task 6.0: Harder initial set and second initial gate (ADR 0017)
-
-**Description.** The first initial gate of `regions` was rejected because the control detected
-every planted failure. Build `source-fidelity/blind-v2`: at least 25 items in at least 5 families
-new to every earlier set, designed so the control sometimes misses (small removals, one subject
-among several alike, partial changes, removals under a strong restyle, changes near panorama
-edges), from a seeded plan in owner storage with opaque item ids, owner-adjudicated, labels
-external, sealed before any run. Score a second initial gate of `regions` with the configuration
-frozen for 5.6 and `gate.hypotheses = 2`; the receipt names ADR 0017. Publish the result whatever
-the outcome; 6.1 and 6.2 proceed only on `admitted (provisional)`.
-
-**Acceptance.** `sets check` and `verify-seal` pass; family disjointness verified by a test; the
-agent never views the blind items; the receipt records two hypotheses and ADR 0017; results and
-findings committed; spend under cap.
-
-**Dependencies.** 5.6, ADR 0017. **Files.** owner storage plan, `evalsets/source-fidelity/blind-v2/`,
-`docs/results/`. **Size.** M; owner time; real money.
-
-### Task 6.1: Confirmation set
-
-**Description.** At least 50 source-fidelity items, families disjoint from every earlier set,
-built with the 3.2a procedure in two batches of 25, owner-adjudicated from construction, labels
-external, sealed before any run.
-
-**Acceptance.** `sets check` and `verify-seal` pass; family disjointness against every published
-set verified by a test; owner attestation recorded.
-
-**Dependencies.** 6.0 admitted, 0.4 (M6 funding). **Files.** `evalsets/source-fidelity/confirm-v1/`.
-**Size.** M per batch; owner time.
-
-### Task 6.2: Confirmation gate and admission record
-
-**Description.** Same frozen configuration as 6.0, referencing its receipt; run C and D_regions;
-`eval gate --stage confirmation`; owner reviews and commits publication; publish
-`docs/results/gate-regions-confirmation-<date>.md`; `admissions.toml` becomes `confirmed` only if
-both stages are admitted, and arm D then includes `regions`; otherwise the outcome is recorded and
-the tool stays out of D.
-
-**Acceptance.** Receipt references the initial receipt; configuration equality verified by the
-gate; results, publication and admission record committed; spend under cap.
-
-**Dependencies.** 6.1. **Files.** `docs/results/`, `evalsets/admissions.toml`. **Size.** M; real
-money.
-
-### Checkpoint M6
-- [ ] Owner review; merge; tag `m6`.
+The confirmation of `regions` (formerly M6) is out of the plan: both initial gates were rejected
+because the control caught every planted failure, and `regions` stays an optional tool. Retesting
+it under a cheaper model is tracked in GitHub issue #3.
 
 ## Milestone M7: Contract conformance
 
 squint conforms to `table-manners` v0.1.0, the core and the images profile (ADR 0018, SPEC
 "External interface"). Field names are the contract's; tasks name squint's side only. The branch
-`m7-contract` starts from `main` while M6 waits on an owner decision. What M7 finds wrong in the
+`m7-contract` starts from `main`. What M7 finds wrong in the
 contract goes into table-manners v0.2 before rascal's conformance merges.
 
 ### Task 7.1: The contract pinned
@@ -1631,11 +1583,11 @@ moves to crates.io `=0.2.0`.
 |---|---|---|
 | Provider APIs differ from the documentation read at M2 | High | Record fixtures early; every catalog entry cites source and date; preflight fails loudly; re-verify before `m2`. |
 | Preserved-thinking prefix check rejects a request believed append-only | High | Provider-history invariant test in 1.7a; frozen tool list; `refuse` mechanism; record on the enforced account named in 0.4. |
-| Owner labelling time dominates M3, M5, M6 | Medium | Toolkit drafts labels from construction; worksheets before each set; batches of 20 to 25; labelling overlaps M2 outside git. |
+| Owner labelling time dominates M3 and M5 | Medium | Toolkit drafts labels from construction; worksheets before each set; batches of 20 to 25; labelling overlaps M2 outside git. |
 | Generated sets easier than real failures | Medium | Generator recorded per item; real failures added over time; stated in every results document. |
 | Model artifact unavailable, incompatible or not licence-clean | Medium | 4.6 is an M4 exit prerequisite; fallback is an alternative segmenter with the same contract, by ADR. |
 | Alignment infeasible at the needed accuracy | Medium | 4.0 spike with tolerances and failure fixtures; `align` may return `not_applicable` honestly. |
-| Too few independent families for a conclusive gate | Medium | Family minimum frozen before unsealing; `inconclusive`, never post-hoc expansion; M6 set of 50 or more. |
+| Too few independent families for a conclusive gate | Medium | Family minimum frozen before unsealing; `inconclusive`, never post-hoc expansion. |
 | `rmcp` does not fit | Low | 1.13 proves the lifecycle in-house; 4.4a decides by ADR. |
 | Rust velocity on orchestration | Medium | Plain types, boxed traits, every task S or M, walking slice first. |
 | Evaluation and recording spend | Medium | Caps and approval points in 0.4; `eval estimate` before every paid run; durable ledger with holds persisted before send. |
@@ -1650,7 +1602,7 @@ and 1.3 after 1.1; 1.4a after 1.3 alongside 1.5a; 1.15 at any time after 0.1; 1.
 after 1.12. In M2, 2.6a and 2.7a after 2.5a; recordings after their implementations. In M3, 3.6
 alongside 3.4 and 3.5; owner adjudication of 3.3a to 3.3e outside git while 3.4 and 3.5 are
 built. In M4, 4.0 alongside 4.1; 4.4a after 4.1 alongside 4.2a. No code work on a later milestone
-begins before the earlier milestone merges, except M7, which is independent of M6.
+begins before the earlier milestone merges.
 
 ## Owner decision points (from 0.4)
 
@@ -1660,10 +1612,9 @@ begins before the earlier milestone merges, except M7, which is independent of M
 | 2.5b, 2.6b, 2.7b | recording cap; which Anthropic account (enforced thinking) |
 | 2.8, 2.10b | gateway accounts and the release and gateway smoke cap |
 | 3.2a | generators, licence, reuse of prototype assets |
-| 3.2b, 3.3a to 3.3e, 5.5, 6.1 | labelling capacity and batch schedule |
-| 3.8, 4.5, 5.6, 6.2 | spend cap per run, approved against `eval estimate` |
+| 3.2b, 3.3a to 3.3e, 5.5 | labelling capacity and batch schedule |
+| 3.8, 4.5, 5.6 | spend cap per run, approved against `eval estimate` |
 | 4.0, 4.6 | reuse approval for the prototype's views and segmenter export |
-| 6.1 | whether M6 is funded in this release |
 | 7.1 | publish table-manners v0.1.0 to crates.io |
 | 7.9 | decided 2026-10-31: `wafflehouse --tool squint` by wafflehouse H1; the release installer is a later subgate |
 
@@ -1672,4 +1623,3 @@ begins before the earlier milestone merges, except M7, which is independent of M
 1. Generators and licence for public sets (3.2a, ADR 0013).
 2. Decided 2026-10-26: nothing from the prototype is reused (owner decision 11); 5.4a uses new
    synthetic pairs and 4.6 exports its own segmenter.
-3. Decided 2026-10-26: M6 is funded.

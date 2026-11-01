@@ -65,3 +65,10 @@ confirmation set of PLAN 6.1 follows only if that gate admits.
   fidelity, and the receipt names this ADR in its `adr` field.
 - SPEC "Gates" gains one sentence: a rejected tool may be scored again on a new blind set only
   under an ADR that counts every earlier attempt in the hypothesis count.
+
+## Amendment 2026-11-01
+
+The second initial gate (blind-v2) was rejected the same way: both arms caught 15 of 15. The owner
+took M6 out of the plan. `regions` stays an optional tool, off unless a config enables it, and the
+question left open, whether it helps a cheaper model that misses failures on its own, is GitHub
+issue #3. A later gate still counts both earlier attempts.

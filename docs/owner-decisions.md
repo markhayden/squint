@@ -16,7 +16,7 @@ A blank entry blocks the task named in its row. Dates are when the owner decided
 | 9 | Spend cap: confirmation gate | 6.2 | decide before 6.2, against `eval estimate` |
 | 10 | Labelling plan: worksheet format, batch size, adjudicator | 3.2b | 2026-10-26: draft answer key from construction plus a contact sheet per batch; batches of 20 to 25; the owner confirms or corrects |
 | 11 | Reuse of prototype images, outputs and the segmenter export | 3.2a, 4.0, 4.6 | 2026-10-26: nothing from the prototype. Public upstream models (for example the EoMT-L ADE20K weights on Hugging Face under their own licences) are not prototype assets and may be exported afresh; golden panoramas are newly generated. Task 4.6 produces its own export and provenance record |
-| 12 | Whether M6 (confirmation) is funded in this release | 6.1 | 2026-10-26: yes, funded |
+| 12 | Whether M6 (confirmation) is funded in this release | 6.1 | 2026-10-26: yes, funded; 2026-11-01: M6 out of the plan, issue #3 |
 | 13 | Set generators and publication licence | 3.2a | 2026-10-27: a family-level mix of three generators so no set carries one vendor's fingerprint: FLUX.2 klein 4B (via fal, seeded), OpenAI gpt-image-2 and Gemini 3.1 Flash Image; one generator per family, recorded per item. Chosen after one sample from each on the same prompt. Publication licence and each vendor's output terms verified and recorded in ADR 0013 |
 
 ## Notes on the decisions
@@ -30,7 +30,9 @@ A blank entry blocks the task named in its row. Dates are when the owner decided
   Public upstream weights and code under their own licences are not prototype assets; task 4.6
   exports afresh and records provenance. Golden panoramas for the equirectangular path are
   generated or taken from CC-licensed sources.
-- **12.** M6 is funded; `regions` can reach confirmed admission in this release.
+- **12.** M6 is funded; `regions` can reach confirmed admission in this release. Superseded
+  2026-11-01: both initial gates were rejected and the owner took M6 out of the plan; the retest
+  of `regions` under a cheaper model is GitHub issue #3.
 - **3 to 9.** Spend caps are set when each paid task is about to run, against `squint eval
   estimate` where it exists; the task refuses to start without its cap entry.
 

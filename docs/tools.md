@@ -243,8 +243,8 @@ setup as `error: resolve` with the pack's own words. A pack configured by `packa
 `version` is then launched as `<dir>/.venv/bin/squint-tools serve` with `UV_OFFLINE=1`,
 `UV_PYTHON_DOWNLOADS=never` and the lock digest in `SQUINT_LOCK_DIGEST`, which the pack echoes
 in every envelope's provenance and the harness folds into the cache key (the same manifest from
-a pack whose lock differs is a different tool). Downloading a published bundle by name arrives
-with M6.
+a pack whose lock differs is a different tool). Downloading a published bundle by name is not
+planned yet.
 
 **The segmenter artifact** (task 4.6, `tools/python/MODEL.md`). `scripts/export_segmenter.py`
 exports `tue-mps/ade20k_semantic_eomt_large_512` (EoMT-L on DINOv2, MIT weights and code) to ONNX

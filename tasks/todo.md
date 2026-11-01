@@ -113,15 +113,12 @@ tag.
 - [x] 5.6 Initial gate D_regions versus C (2026-10-29: `evalsets/matrix/gate-regions.toml` frozen, estimate approved under the standing posture, 40 decisions for $1.32 with no errors; `eval gate --stage initial` scored against the owner-held labels: rejected, both arms detected 10 of 10, the tool took back the one false reject and lifted localisation to 10 of 10; receipt `8e0c8307a72475ac`, labels published and the set now `heldout`, admissions unchanged; results in `docs/results/gate-regions-initial-2026-10/`, the entry in `docs/results/findings.md`)
 - [x] Checkpoint M5 → tag `m5` (2026-10-29: review and coverage passes done, findings fixed or recorded in `docs/reviews/m5-checkpoint.md` with the spec success criteria checked one by one; the two test passes take about three minutes each; README "How it is built" carries the measured results; final artifacts rebuilt: staged-registry install smoke, this machine's release archive and its smoke, the Python bundle's clean install; published to crates.io as squint 0.1.0 on 2026-10-29 after the rename from dejaview (six crates, the `squint-cli` binary crate last under the new-crate rate limit), and `cargo install squint-cli --version 0.1.0 --locked` from outside the repository installs a binary that passes the offline smoke; `m5-ml-tool` merged into `main`)
 
-## M6 Confirmation
-- [x] Owner decision on ADR 0017 (2026-10-30): option 1, a harder blind set and a second initial gate of `regions` at `gate.hypotheses = 2`; PLAN task 6.0
-- [x] Task 6.0 (2026-10-30): blind-v2 built (seed 20261030), owner-confirmed 25 of 25, sealed, and scored as the second initial gate of `regions` at two hypotheses: **rejected** (both arms 15/15, receipt `be41ae402334a394`); results in docs/results/gate-regions-initial-2-2026-10
-- [x] Owner: check `boatyard-5` (2026-10-30): the door moved; the label is corrected to fail in `evalsets/source-fidelity/blind-v2/corrections.toml`
-- [ ] Scoring reads a set's `corrections.toml` before blind-v2 is run again (the exploratory Flash run would otherwise score `boatyard-5` as pass)
-- [ ] Owner decision after the second rejection: a gate under a cheaper model, a gate on false rejects and localisation (ADR 0017 option 2), or `regions` out of source fidelity (option 3); M6 6.1 and 6.2 stay blocked
-- [ ] 6.1 Confirmation set (50+, two batches of 25)
-- [ ] 6.2 Confirmation gate and admission record
-- [ ] Checkpoint M6 → tag `m6`
+## Formerly M6: confirmation of `regions`
+
+Out of the plan (owner, 2026-11-01). Both initial gates were rejected, `regions` stays an optional
+tool, and its retest under a cheaper model is GitHub issue #3. Done before it left the plan: ADR
+0017 option 1, blind-v2 built, sealed and gated (rejected, receipt `be41ae402334a394`), and
+`boatyard-5` corrected to fail in `corrections.toml`.
 
 ## M7: contract conformance (ADR 0018)
 
