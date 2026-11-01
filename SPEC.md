@@ -1452,7 +1452,8 @@ section says what squint does with them.
   decision cache and says so.
 - **Runs as resources**: `squint://runs` (recent runs newest first, `running` included),
   `squint://run/<id>/run.json`, `…/report.json` and `…/journal` for every decision the server ran,
-  readable after a timeout or a dropped connection.
+  readable after a timeout or a dropped connection; every run has a journal, an empty one when it
+  made no decision (an `estimate`, a call refused before its first run).
 - **`run.json`**: written last and atomically (a temporary name, then a rename) into every
   decision directory by `check` on every surface, cache hits and cancelled decisions included: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
