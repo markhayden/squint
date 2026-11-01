@@ -270,6 +270,22 @@ fn a_footprint_away_from_the_seam_is_one_part() {
     assert!(!loc.straddles_wrap);
 }
 
+/// A bounded image has no wrap edge to straddle (table-manners 9.2): seam parts handed in for a
+/// flat image are not honoured, and the location leaves as its one polygon.
+#[test]
+fn a_flat_image_never_straddles_the_wrap() {
+    let polygon = vec![[10.0, 10.0], [40.0, 10.0], [40.0, 30.0], [10.0, 30.0]];
+    let root = RootLocation {
+        polygon: Some(polygon.clone()),
+        seam_parts: Some(vec![polygon.clone(), polygon]),
+        ..root(LocationKind::Polygon, None)
+    };
+    let image = canonical((64, 48), Orientation::NoTransforms, Projection::Flat);
+    let loc = emit(&image, &root);
+    assert!(!loc.straddles_wrap);
+    assert_eq!(loc.parts.len(), 1);
+}
+
 #[test]
 fn absent_and_whole_image_carry_no_geometry_and_absent_has_its_reason() {
     let image = canonical((640, 480), Orientation::NoTransforms, Projection::Flat);

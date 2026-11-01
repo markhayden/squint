@@ -394,7 +394,7 @@ impl Server {
                             resource: r.run.resource,
                         },
                         None => table_manners::RunSummary {
-                            action: id.split('-').next().unwrap_or("check").to_string(),
+                            action: running_action(&dir, &id),
                             status: table_manners::RunState::Running,
                             started: contract::rfc3339(ms),
                             resource: format!("squint://run/{id}/{}", contract::RUN_FILE),
@@ -493,6 +493,39 @@ async fn send_progress(
             return;
         }
     }
+}
+
+/// The action of a run still going: a decision's use case from its header (written before the
+/// first run), as `describe` names it; else the directory name's leading word (`estimate`).
+fn running_action(dir: &Path, id: &str) -> String {
+    std::fs::read_to_string(dir.join(squint_core::report::HEADER_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|header| header["use_case"].as_str().map(|u| u.replace('-', "_")))
+        .unwrap_or_else(|| id.split('-').next().unwrap_or_default().to_string())
+}
+
+/// The local path of a `file:` URL (RFC 8089): an empty or `localhost` host, the path
+/// percent-decoded. Anything else names no local directory and is dropped, so it admits nothing.
+fn file_url_path(uri: &str) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let rest = uri.strip_prefix("file://")?;
+    let path = match rest.find('/') {
+        Some(0) => rest,
+        Some(i) if rest[..i].eq_ignore_ascii_case("localhost") => &rest[i..],
+        _ => return None,
+    };
+    let mut bytes = Vec::with_capacity(path.len());
+    let mut raw = path.bytes();
+    while let Some(b) = raw.next() {
+        if b == b'%' {
+            let hex = [raw.next()?, raw.next()?];
+            bytes.push(u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?);
+        } else {
+            bytes.push(b);
+        }
+    }
+    Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
 }
 
 /// Every image path of `job` inside the client's roots (when the client offers roots) and inside
@@ -721,7 +754,7 @@ impl ServerHandler for Server {
                 listed
                     .roots
                     .iter()
-                    .filter_map(|r| r.uri.strip_prefix("file://").map(PathBuf::from))
+                    .filter_map(|r| file_url_path(&r.uri))
                     .collect(),
             )
         } else {

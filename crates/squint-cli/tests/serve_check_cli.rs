@@ -243,6 +243,39 @@ fn a_config_with_rules_serves_its_use_case_with_its_files() {
     assert_eq!(r["status"], "completed", "{r}");
 }
 
+/// Roots are `file:` URLs (RFC 8089): a percent-encoded space and a `localhost` host name the
+/// same directory as the plain path (review I5).
+#[test]
+fn roots_are_read_as_file_urls() {
+    let dir = out("root-urls");
+    let images = dir.join("my images");
+    std::fs::create_dir_all(&images).unwrap();
+    for name in ["candidate-64x48.png", "source-64x48.png"] {
+        std::fs::copy(
+            repo_root().join("fixtures/images").join(name),
+            images.join(name),
+        )
+        .unwrap();
+    }
+    let encoded = images.display().to_string().replace(' ', "%20");
+    for root in [
+        format!("file://{encoded}"),
+        format!("file://localhost{encoded}"),
+    ] {
+        let mut c = client(&dir.join("runs"), &[]);
+        c.roots = vec![root.clone()];
+        let r = c
+            .call(
+                "source_fidelity",
+                json!({ "candidate": { "path": images.join("candidate-64x48.png") },
+                        "source": { "path": images.join("source-64x48.png") } }),
+            )
+            .unwrap();
+        let r = r.structured.unwrap();
+        assert_eq!(r["status"], "completed", "{root}: {r}");
+    }
+}
+
 #[test]
 fn an_exhausted_session_budget_is_a_budget_error_before_any_request() {
     let mut c = client(&out("budget"), &["serve.session_budget_usd=0.000001"]);

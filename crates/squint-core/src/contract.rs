@@ -91,7 +91,12 @@ pub fn location(
     item: &str,
 ) -> Option<Location> {
     let grid = Grid::of(image);
-    let (kind, parts, straddles_wrap) = match (root.kind, &root.seam_parts) {
+    // Only a panorama wraps; a bounded image has no seam to split at (table-manners 9.2).
+    let seam_parts = root
+        .seam_parts
+        .as_ref()
+        .filter(|_| image.projection == Projection::Equirectangular);
+    let (kind, parts, straddles_wrap) = match (root.kind, seam_parts) {
         (LocationKind::Polygon, Some(pieces)) => (
             ContractKind::Polygon,
             pieces.iter().map(|p| grid.polygon(p)).collect(),
