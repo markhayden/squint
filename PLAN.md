@@ -96,7 +96,7 @@ M7  7.1 ← table-manners v0.1.0 on crates.io            7.2 ← 7.1         7.3
 M8  8.1 ← table-manners v0.2-contract    8.2 ← 8.1    8.3 ← 8.2    8.4 ← 8.1
     8.5 ← 8.3                            8.6 ← 8.2–8.5, then v0.2.0 published
 M9  9.1 ← table-manners v0.3 branch      9.2 ← 9.1    9.3 ← 9.2    9.4 ← 9.3
-    9.5 ← 9.4         9.6 ← 9.3          9.7 ← 9.1    9.8 ← 9.1    9.9 ← 9.1
+    9.5 ← 9.4         9.6 ← 9.3, 9.7     9.7 ← 9.1    9.8 ← 9.1    9.9 ← 9.1
     9.10 ← 9.2–9.9                       9.11 ← 9.10, then v0.3.0 published
 FU  F1 ← none (or 9.5)   F2 ← none   F3 ← none (or 9.6)   F4 ← none
     F5 ← none (or 9.6)   F6 ← none
@@ -1587,7 +1587,9 @@ moves to crates.io `=0.2.0`.
 squint conforms to `table-manners` v0.3.0: readiness without configuration (CONTRACT.md 3.1),
 renders a host can embed (3.2), claims released when a request gets no run (4.4), estimates bound
 to their inputs and checked caps (4.5), configuration owned by the session (4.6), list image
-slots (10.1, 11.2) and the `credential`, `cap` and `stale_estimate` codes (2.2). The work list is
+slots (10.1, 11.2), the `not_ready` refusal (3.1) and the `credential`, `cap` and `stale_estimate`
+codes (2.2). The coordinator settled squint's six planning questions in the contract at
+`7f9316c` (branch `v0.3`); the tasks below follow them. The work list is
 MAPPING.md's v0.3 table, squint column; every row is a task below. The branch `m9-v0.3` starts
 from `main` at `m8` or later. Two behaviours go away rather than gain a second shape: an estimate
 is never a run (no run directory, no runs entry, no `run.json`), and `cost.needs_env` is replaced
@@ -1596,8 +1598,8 @@ by per-action `readiness`. squint's own choices the contract leaves open are rec
 
 **Building against the unpublished contract.** Until the owner tags and publishes v0.3.0, squint
 builds against `table-manners = { version = "=0.3.0", path = "../table-manners" }` with
-`../table-manners` a checkout of the contract's `v0.3` branch (the coordinating session the only
-writer), as M8 did with `v0.2-contract`. The copied schemas under `schemas/contract/` are refreshed
+`../table-manners` a checkout of the contract's `v0.3` branch at `7f9316c` or later (the
+coordinating session the only writer), as M8 did with `v0.2-contract`. The copied schemas under `schemas/contract/` are refreshed
 from that checkout with `UPDATE_CONTRACT=1 cargo test -p squint-core --test contract_schemas`
 (`SOURCES.toml` records the branch and the commit it was copied from); squint's fixtures are
 regenerated with `UPDATE_CONTRACT_FIXTURES=1` and handed over as a directory for table-manners
@@ -1626,8 +1628,8 @@ directory handed over is superseded by the next one, never edited in place.
 
 **Description.** `table-manners` at `=0.3.0` by path to `../table-manners` (branch `v0.3`);
 `schemas/contract/` and `SOURCES.toml` refreshed with `UPDATE_CONTRACT=1` (the new
-`estimate.json`; `description.json` with `readiness`, render `kind` and `many`; `result.json` with
-the new codes). Code moved to the v0.3 types with each new field at its honest v0.2-equivalent
+`estimate.json`; `description.json` with `readiness`, the requirement kinds including `env`,
+render `kind` and `many`; `refusal.json` with `not_ready`; `result.json` with the new codes). Code moved to the v0.3 types with each new field at its honest v0.2-equivalent
 value: `cost.needs_env` gone and every action's `readiness` built from what `executor` already
 knows (the profile's credential variable `present` or `missing` by a local lookup of the name,
 never the value); `report` render `kind: "server"` with `ready_timeout_s: 10`, `export` render
@@ -1657,16 +1659,16 @@ One lookup, `Config::locate`: the given path, else `./squint.toml`, else
 and none is not an error (ADR 0018 amendment). `contract::description` takes an optional config:
 with none it describes every shipped use case with the default image limits. `describe --json`
 exits 0 with a missing or unparsable config (the config requirement says which, 9.3); `serve`
-starts without one, its actions `needs_setup`, and a call to one is answered `invalid`, `usage`,
-naming what is missing, with no provider call. Run directories of an unconfigured server go to
-`--out`, else `$XDG_STATE_HOME/squint/runs` (`~/.local/state/squint/runs`), the place the config
-would otherwise name (pending the coordinator's answer to question 2 below). `serve` still reads its
+starts without one and its actions report `needs_setup`. A call to one is refused before any run
+with the `not_ready` refusal (9.6): no run directory, so an unconfigured server needs no output
+directory and writes nothing. `serve` still reads its
 configuration once, at start (4.6); nothing reloads it.
 
 **Acceptance.** `describe --json` with no config file anywhere on the lookup, with an unreadable
 one and with one that does not parse: exit 0, a valid document, every action `needs_setup`; with
 `--config` naming a missing file, the same, naming that path; `serve` with no config completes
-`initialize`, lists the tools, answers `describe`, and refuses a check as `invalid`, `usage`; a
+`initialize`, lists the tools, answers `describe`, and refuses a check `not_ready` (once 9.6 lands; until then `invalid`, `usage`) with nothing
+written; a
 `./squint.toml` is found from the working directory and `--config` wins over it; `check` with no
 config exits 64 naming the lookup.
 
@@ -1684,13 +1686,14 @@ only, never a network call, a paid step or a run:
 
 | kind | name | state |
 |---|---|---|
-| `config` | the path the lookup found or would use | `missing`; `invalid` when it does not parse or a `${VAR}` it expands is unset (the setup sentence names the variable, never a value); `present` when it loads |
+| `config` | the path the lookup found or would use | `missing`; `invalid` when it does not load (it does not parse, or a `${VAR}` it expands is unset: the setup sentence names the variable, never a value); `present` when it loads |
 | `credential` | the catalog profile's `auth.env` (`ANTHROPIC_API_KEY`, …) | `missing` or `present` by name lookup; `valid` or `invalid` only from this session's provider answers |
 | `model` | `[provider] model` as configured | `present` when the catalog has it (an unknown model makes the config `invalid`); `valid` after a known answer in this session that was not a rejection |
-| `file` | the segmenter artifact path (`$XDG_CACHE_HOME/squint/models/<name>/<artifact>` from the record shipped with the pack) | `missing` or `present` (exists at the recorded size; never hashed here); listed only when the config enables a pack tool that needs it (`regions`, `classes`) |
+| `file` | the segmenter artifact path (`$XDG_CACHE_HOME/squint/models/<name>/<artifact>` from the record shipped with the pack) | `missing` or `present` (exists at the recorded size; describing never hashes 1.26 GB, so squint never reports it `valid`); listed only when the config enables a pack tool that needs it (`regions`, `classes`) |
 
 With no config only the `config` requirement is listed: the credential and model are the
-config's choice (ADR 0018 amendment). The fake profile lists no credential. `state` follows the
+config's choice (ADR 0018 amendment; the contract's example names are illustrative). squint reads
+no non-secret variable a host must pass, so it emits no `env` requirement in v0.3. The fake profile lists no credential. `state` follows the
 contract (`ready`, `needs_setup`; squint has no `unavailable` action today). The server keeps the
 session's answers per credential name and model: `Services` reports each settled provider answer
 (known and not a rejection: `valid`; 401 or 403: `invalid`), and `describe` is computed per call
@@ -1723,11 +1726,16 @@ limits check reserves), `cap_usd` (the configured cap lowered by `max_spend_usd`
 observation as `squint://session`), `expires` (one hour), and `binding`: sha256 over the
 canonical JSON of the action, the arguments with every image replaced by its `file_sha256` (path
 and inline of the same bytes bind equal) and its `expect` kept, the tool version, the config
-identity and the session id. The server records each binding it issues with its expiry. An
+identity and the session id; `return_images` and `image_blocks` are left out (they only choose
+how results are delivered). An estimate that cannot be priced (no configuration, or a model the
+catalog lacks) is `allowed: false`, `refused: "readiness"`, `worst_case_usd: null`, with
+`effective.model` null and, without a configuration, `effective.config_identity` null; never a
+made-up zero. The server records each binding it issues with its expiry. An
 estimate writes no directory, journal or runs entry, takes no permit, does not claim a
 `client_run_id`, and still answers to roots like a check (`m7-review` C1). Errors before an
 estimate exists are JSON-RPC errors. `squint estimate --json` prints the same document from the
-command line (session per question 1 below); the v0.2 body's `decision_runs`, `requests` and
+command line with `session_id` and `session` both null; no server accepts its binding. The v0.2
+body's `decision_runs`, `requests` and
 `attempts` move under `effective["x-squint"]`. Every test, doc and fixture that assumes an
 estimate run changes in this commit: `serve_cli.rs::estimate_is_a_run_with_its_own_run_json`
 becomes `estimate_is_never_a_run`; `run-served-estimate.json` leaves both generators' file lists
@@ -1740,7 +1748,10 @@ and README's contract paragraph.
 the output directory, `squint://runs` and the session's `spent_usd` and `reserved_usd` are
 unchanged after it; `estimate` is not in `actions` and is in `tools/list`; two estimates of the
 same call by path and by inline bytes have equal bindings, and any change to an image, an
-argument or `max_spend_usd` changes it; a key unset gives `allowed: false`, `refused: readiness`;
+argument or `max_spend_usd` changes it and `return_images` or `image_blocks` does not; a key unset
+gives `allowed: false`, `refused: readiness`; with no config, `refused: readiness` with
+`worst_case_usd`, `effective.model` and `effective.config_identity` null; the command-line estimate
+has null `session_id` and `session`, and its binding is stale on any server;
 a cap below the worst case gives `refused: cap`; a spent session gives `refused: budget`; every
 recorded replay still spends within its `worst_case_usd`.
 
@@ -1781,30 +1792,38 @@ directory; a matching binding runs.
 **Dependencies.** 9.4. **Files.** `crates/squint-core/src/{lib.rs,ledger.rs,run.rs,config.rs,contract.rs}`,
 `crates/squint-cli/src/{main.rs,serve/mod.rs}`. **Size.** M.
 
-### Task 9.6: `credential` failures
+### Task 9.6: `not_ready` before a run, `credential` during one
 
-**Description.** A credential the call needs and does not have is `Error::Credential` (code
-`credential`, never retryable, not sent, zero spend), no longer `Error::Auth` mapped to `usage`;
-the other failures `provider_for` reports today under `Auth` (an unknown profile or model, an
-unimplemented adapter) become `usage`. A provider's 401 or 403 is `credential`, never retryable,
-counting zero (as 8.4 already prices it), and marks the credential `invalid` for the session's
-readiness (9.3). `retryable` for the remaining `provider` failures becomes the tool's judgement
-per occurrence: a transport failure is retryable when `TransportError::retryable` says so (a 5xx,
-429 or timeout after the retries ran out), not for a 400, 404 or 422; a model-output failure stays
-retryable.
+**Description.** After the server parses a call's arguments, and before the permit or any
+allocation, it checks the requirements this call needs, from 9.3: the config, the profile's
+credential, the model, and the segmenter file only when the call's tools need it. A call that
+needs one that is `missing` or `invalid` is refused as JSON-RPC `-32602` with `data`
+`{"reason": "not_ready", "run": null, "requirements": [...]}` naming only those requirements: no
+run directory, no spend, and its `client_run_id` released (9.7). A call that does not need the
+missing thing runs. `squint check` on the command line exits 64 naming the same requirements.
+`Error::Auth` goes: the failures `provider_for` reports today under it (an unknown profile or
+model, an unimplemented adapter) are `usage`, and a missing key never reaches a run. A provider's
+401 or 403 during a run is `Error::Credential` (code `credential`, never retryable), counting
+zero (as 8.4 already prices it), and marks the credential `invalid` for the session's readiness
+(9.3). `retryable` for the remaining `provider` failures becomes the tool's judgement per
+occurrence: a transport failure is retryable when `TransportError::retryable` says so (a 5xx,
+429 or timeout after the retries ran out), not for a 400, 404 or 422; a model-output failure
+stays retryable.
 
-**Acceptance.** Scripted 401 and 403: `error`, `credential`, `retryable: false`, `spend.usd` 0, no
-retry attempted, the next `describe` shows the credential `invalid`; a key unset at call time:
-`error`, `credential`, zero spend, no request left; a 529 after retries: `provider`,
-`retryable: true`; a 400: `provider`, `retryable: false`; the exhaustive mapping test covers the
-new variant.
+**Acceptance.** With the key unset, a check is refused `not_ready` naming the credential, the
+refusal validates against `refusal.json`, the output directory and `squint://runs` are unchanged,
+and the same `client_run_id` is accepted by the next request that is not refused; with no config
+the refusal names the config; scripted 401 and 403: `error`, `credential`, `retryable: false`,
+`spend.usd` 0, no retry attempted, the next `describe` shows the credential `invalid`; a 529 after
+retries: `provider`, `retryable: true`; a 400: `provider`, `retryable: false`; the exhaustive
+mapping test covers the new variant.
 
 **Verification.** `crates/squint-core/tests/it/{repair_retry,terminal_states}.rs`,
-`crates/squint-cli/tests/it/{exit_codes,serve_check_cli}.rs`, the mapping test in
-`contract.rs`, `just check`.
+`crates/squint-cli/tests/it/{exit_codes,serve_check_cli,serve_correlation_cli}.rs`, the mapping
+test in `contract.rs`, `just check`.
 
-**Dependencies.** 9.3. **Files.** `crates/squint-core/src/{lib.rs,contract.rs,retry.rs,run.rs}`,
-`crates/squint-cli/src/{main.rs,serve/mod.rs}`, `docs/agents.md`. **Size.** S.
+**Dependencies.** 9.3, 9.7. **Files.** `crates/squint-core/src/{lib.rs,contract.rs,retry.rs,run.rs,readiness.rs}`,
+`crates/squint-cli/src/{main.rs,serve/mod.rs}`, `docs/agents.md`. **Size.** M.
 
 ### Task 9.7: A claim released when the request gets no run
 
@@ -1812,7 +1831,7 @@ new variant.
 `client_run_id` for the session even when the request ends in a JSON-RPC error before any run.
 The claim becomes a guard that releases the id when the request ends in a JSON-RPC error with no
 run (arguments `job_from_call` refuses, a malformed `max_spend_usd`, a failed `roots/list`, an
-empty `many` slot, a server error) and keeps it once the run is allocated or when the request is
+empty `many` slot, a `not_ready` refusal (9.6), a server error) and keeps it once the run is allocated or when the request is
 cancelled before allocation (4.4).
 
 **Acceptance.** A request refused for invalid arguments, then the corrected request under the
@@ -1853,7 +1872,10 @@ SIGTERM (or SIGINT), then exits 0; `--frame-ancestor <origin>` (an `http` or `ht
 path; anything else exits 64) adds `frame-ancestors <origin>` to every response's
 `Content-Security-Policy`, and with no flag the policy is `frame-ancestors 'none'`; the loopback
 host check stays. `squint report export`: `kind: "document"`; its only stdout is the absolute path
-it wrote (the size moves to stderr); exit 0 means the file exists. `scripts/offline-smoke.sh` and
+it wrote (the size moves to stderr); exit 0 means the file exists. A render never modifies the
+run directory (3.2), so export's default output moves out of it, from `<dir>/report.html` to
+`$XDG_CACHE_HOME/squint/reports/<run id>.html` (`--out` still chooses); `report view` already
+writes nothing. Placeholders stay whole arguments. `scripts/offline-smoke.sh` and
 its fake in `scripts/test-checks.sh` keep the viewer's stdin open (a pipe from a sleeping writer)
 and stop it with SIGTERM, since a background job's stdin is `/dev/null` and would now end it at
 once; `docs/viewer.md` says so.
@@ -1861,7 +1883,8 @@ once; `docs/viewer.md` says so.
 **Acceptance.** stdout of `report view` is one URL line and stays one line across requests; EOF on
 stdin and SIGTERM each end it with exit 0 within a second; a response framed for
 `http://127.0.0.1:4801` carries exactly that `frame-ancestors`, none for loopback in general; a
-bad origin exits 64; `report export` stdout is one absolute path that exists; the offline smoke
+bad origin exits 64; `report export` stdout is one absolute path that exists outside the run directory; a test
+hashes the run directory before and after both renders and finds it unchanged; the offline smoke
 passes on a built binary and fails on the fakes as before.
 
 **Verification.** `crates/squint-cli/tests/it/{viewer_serve,report_cli}.rs`, `scripts/test-checks.sh`,
@@ -1878,9 +1901,11 @@ passes on a built binary and fails on the fakes as before.
 drift test and rewritten with `UPDATE_CONTRACT_FIXTURES=1`, per CONTRACT 7 item 7:
 `describe-unconfigured.json`; `describe-credential-missing.json`, `-present`, `-valid`, `-invalid`
 and `describe-ready.json`; `estimate-allowed.json`, `estimate-refused-cap.json`, `-budget`,
-`-readiness`; `run-stale-estimate-image.json`, `-argument`, `-configuration`, `-session`,
-`-expired`; `run-cap.json`, `run-budget.json`, `run-credential.json`; a request refused with no
-run whose id is then accepted (`run-accepted-after-refusal.json`), and one cancelled before
+`-readiness`; `run-stale-estimate-image.json`, `-argument`, `-session`, `-expired` (with configuration owned
+by the session, `-session` stands for a changed configuration too, as agreed with the
+coordinator); `estimate-refused-readiness-unconfigured.json` (the nulls of 4.5); `run-cap.json`,
+`run-budget.json`, `run-credential.json` (a 401 during a run); `refusal-not-ready.json`; a
+request refused with no run whose id is then accepted (`run-accepted-after-refusal.json`), and one cancelled before
 allocation whose id is still refused (`refusal-cancelled-before-allocation.json`); the v0.2 set
 kept; `run-served-estimate.json` gone. The tool's own proof that `describe` and `estimate` made no
 provider call is 9.3's test, named in `fixtures/contract/README.md`. Written as a directory for
@@ -1921,28 +1946,26 @@ the fixture drift tests pass; `scripts/check-contract-tag.sh` reports no newer t
 - [ ] Review and test skills; owner review; merge; tag `m9` once table-manners v0.3.0 is
       published and 9.11 is in.
 
-### Questions for the coordinator (contract v0.3, not changed here)
+### Settled with the coordinator (table-manners `7f9316c`, 2026-11-01)
 
-1. `estimate.json` requires a non-null `session_id` and a `session`, but a command-line run has
-   `session_id: null`. squint plans a one-shot session for `squint estimate --json` (a fresh id,
-   the config's budget, nothing spent), so a command-line binding never matches a served call.
-   Should the two fields be nullable for the command line instead?
-2. "A call to [an unconfigured action] fails with `invalid` (`usage`)" (5): as a result, which is a
-   run with a run directory although no output directory is configured, or as a JSON-RPC error
-   with no run (which releases the claim)? squint plans a result under `--out`, else
-   `$XDG_STATE_HOME/squint/runs`.
-3. An estimate with no configuration cannot name a model or price anything, yet
-   `effective.config_identity` and `worst_case_usd` are required. JSON-RPC error, or an estimate
-   with `refused: readiness`, `worst_case_usd: 0` and the identity of the empty configuration?
-4. With configuration owned by the session (4.6), a changed configuration always comes with a new
-   session, so `run-stale-estimate-configuration.json` cannot differ from `-session`. Is one
-   fixture for both acceptable?
-5. With no configuration, squint's credential depends on the profile the config would choose, so
-   squint lists only the `config` requirement; the contract's example names `ANTHROPIC_API_KEY`
-   and `squint init`, which squint does not have. Is the example illustrative only? And is a config
-   that loads `present` (since `valid` is defined by provider answers)?
-6. The exit status of a server render after stdin EOF or SIGTERM is unspecified; squint plans 0 for
-   both. Worth one sentence in 3.2?
+squint's six planning questions, as the contract now answers them and the tasks above follow:
+
+1. A command-line estimate has `session_id: null` and `session: null`; no server accepts its
+   binding (9.4).
+2. A call that needs a missing or invalid requirement is refused before any run, `-32602`
+   `not_ready` with the requirements it needs: no run directory, no spend, the id released.
+   `credential` is a provider's 401 or 403 during a run (9.2, 9.6).
+3. An estimate that cannot be priced is `refused: "readiness"` with `worst_case_usd` null and,
+   without a configuration, `effective.config_identity` null (9.4).
+4. One stale-estimate fixture covers a changed configuration and a changed session (9.10).
+5. The contract's names are illustrative; a config is `present` when it loads and `invalid` when
+   it does not; listing only `config` when unconfigured is right (9.3).
+6. A server render exits 0 on stdin EOF or SIGTERM (3.2, 9.9).
+
+Settled from rascal's questions at the same commit and followed here: the requirement kind `env`
+(squint emits none), a `file` `valid` only after a digest check this session (squint never hashes
+while describing), placeholders only as whole arguments and a render never modifying the run
+directory (9.9), and the binding leaving out `return_images` and `image_blocks` (9.4).
 
 ## Follow-ups (before or beside M9)
 
@@ -2082,7 +2105,7 @@ after 1.12. In M2, 2.6a and 2.7a after 2.5a; recordings after their implementati
 alongside 3.4 and 3.5; owner adjudication of 3.3a to 3.3e outside git while 3.4 and 3.5 are
 built. In M4, 4.0 alongside 4.1; 4.4a after 4.1 alongside 4.2a. In M9, 9.7, 9.8 and 9.9 after 9.1
 alongside the chain 9.2 to 9.5 (9.7 and 9.8 share `serve/mod.rs` with it, so they merge first,
-small); 9.6 after 9.3 alongside 9.4 and 9.5. The follow-ups F2, F4 and F6 run beside M9 with no
+small); 9.6 after 9.3 and 9.7, alongside 9.4 and 9.5. The follow-ups F2, F4 and F6 run beside M9 with no
 shared files; F1 goes before M9 or after 9.5, F3 and F5 after 9.6 (table in "Follow-ups"). No code
 work on a later milestone begins before the earlier milestone merges.
 
@@ -2099,7 +2122,6 @@ work on a later milestone begins before the earlier milestone merges.
 | 4.0, 4.6 | reuse approval for the prototype's views and segmenter export |
 | 7.1 | publish table-manners v0.1.0 to crates.io |
 | 7.9 | decided 2026-10-31: `wafflehouse --tool squint` by wafflehouse H1; the release installer is a later subgate |
-| 9.1 | the coordinator's answers to the M9 contract questions (they may move fixtures, not tasks) |
 | 9.2 | the default config lookup (`./squint.toml`, then `$XDG_CONFIG_HOME/squint/squint.toml`; ADR 0018 amendment) |
 | 9.11 | publish table-manners v0.3.0 to crates.io |
 

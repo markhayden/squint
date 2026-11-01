@@ -180,20 +180,20 @@ tool, and its retest under a cheaper model is GitHub issue #3. Done before it le
 ## M9: table-manners v0.3 (branch `m9-v0.3`)
 
 PLAN.md "Milestone M9" (2026-11-01), against the contract's `v0.3` branch by path until v0.3.0 is
-published; squint's choices in ADR 0018 (amendment of 2026-11-01). Six questions for the
-coordinator are listed under the milestone; none blocks 9.1.
+published; squint's choices in ADR 0018 (amendment of 2026-11-01). squint's six planning questions
+were settled by the coordinator in table-manners `7f9316c` (2026-11-01) and the plan follows them.
 
 - [ ] Owner: M9 approved
-- [ ] 9.1 The contract at v0.3: path dependency on `../table-manners` (branch `v0.3`), schemas by `UPDATE_CONTRACT=1`, `readiness` replaces `cost.needs_env`, render `kind`, `estimate` out of `actions`, fixtures at 0.3.0 → tag `m9.1`
-- [ ] 9.2 No configuration needed: `--config` optional, the lookup `./squint.toml` then `$XDG_CONFIG_HOME/squint/squint.toml`; `describe` exits 0 and `serve` starts without one
+- [ ] 9.1 The contract at v0.3: path dependency on `../table-manners` (branch `v0.3` at `7f9316c` or later), schemas by `UPDATE_CONTRACT=1`, `readiness` replaces `cost.needs_env`, render `kind`, `estimate` out of `actions`, fixtures at 0.3.0 → tag `m9.1`
+- [ ] 9.2 No configuration needed: `--config` optional, the lookup `./squint.toml` then `$XDG_CONFIG_HOME/squint/squint.toml`; `describe` exits 0 and `serve` starts without one, writing nothing
 - [ ] 9.3 Readiness per action: `config`, `credential` by env name, `model`, the segmenter `file`; `valid`/`invalid` only from this session's answers; proof that `describe` and `estimate` make no provider call
-- [ ] 9.4 `estimate` the reserved tool: `{action, arguments}` in, `estimate.json` out, never a run; `estimate_is_a_run_with_its_own_run_json` and `run-served-estimate.json` go; SPEC, agents.md, README → tag `m9.2`
+- [ ] 9.4 `estimate` the reserved tool: `{action, arguments}` in, `estimate.json` out, never a run; the binding leaves out `return_images` and `image_blocks`; unpriceable → `refused: readiness` with nulls; the command line's `session_id` and `session` null; `estimate_is_a_run_with_its_own_run_json` and `run-served-estimate.json` go; SPEC, agents.md, README → tag `m9.2`
 - [ ] 9.5 The limits check: `cap` vs `budget`, `max_spend_usd` above the cap `invalid`, `_meta["table-manners/estimate"]` → `stale_estimate`
-- [ ] 9.6 `credential` for a missing key and 401/403, never retryable; `retryable` per occurrence for `provider`
-- [ ] 9.7 A JSON-RPC refusal releases the `client_run_id` claim (M8 review S3); a cancel before allocation keeps it
+- [ ] 9.6 A call needing a missing or invalid requirement refused `-32602` `not_ready` before any run (id released, nothing written); `credential` for a 401/403 during a run, never retryable; `retryable` per occurrence for `provider`
+- [ ] 9.7 A JSON-RPC refusal (including `not_ready`) releases the `client_run_id` claim (M8 review S3); a cancel before allocation keeps it
 - [ ] 9.8 `references` as a `many: true` slot; the `x-squint` workaround removed
-- [ ] 9.9 Renders: `report view` `kind: server`, URL-only stdout, stdin EOF/SIGTERM, `--frame-ancestor`, `ready_timeout_s`; `report export` `kind: document`, prints only the path; offline smoke updated → tag `m9.3`
-- [ ] 9.10 v0.3 fixtures (CONTRACT 7 item 7) by `contract_fixtures.rs` and `contract_fixtures_served.rs` with `UPDATE_CONTRACT_FIXTURES=1`, handed to table-manners `fixtures/squint/`; docs
+- [ ] 9.9 Renders: `report view` `kind: server`, URL-only stdout, stdin EOF/SIGTERM, `--frame-ancestor`, `ready_timeout_s`; `report export` `kind: document`, prints only the path and writes outside the run directory (a render never modifies it); exit 0 on EOF/SIGTERM; offline smoke updated → tag `m9.3`
+- [ ] 9.10 v0.3 fixtures (CONTRACT 7 item 7, with `refusal-not-ready.json` and one stale fixture for config and session) by `contract_fixtures.rs` and `contract_fixtures_served.rs` with `UPDATE_CONTRACT_FIXTURES=1`, handed to table-manners `fixtures/squint/`; docs
 - [ ] Owner: table-manners v0.3.0 published to crates.io
 - [ ] 9.11 `table-manners = "=0.3.0"` from crates.io instead of `../table-manners`
 - [ ] Checkpoint M9 → tag `m9`
