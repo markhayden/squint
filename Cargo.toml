@@ -39,8 +39,7 @@ sha2 = "0.11"
 tracing = "0.1"
 # Pinned exactly: squint conforms to one release of the contract, and an update is a deliberate
 # commit with the copied schemas regenerated (ADR 0018, schemas/contract/SOURCES.toml).
-# Until v0.2.0 is published: the agreed draft at ../table-manners (its v0.2-contract branch).
-table-manners = { version = "=0.2.0", path = "../table-manners" }
+table-manners = "=0.2.0"
 # The official MCP SDK for `squint serve`, pinned exactly as rascal pins it (ADR 0018); the client
 # squint uses for its tool packs stays in-house (ADR 0015).
 rmcp = { version = "=3.8.0", default-features = false, features = ["server", "transport-io"] }
