@@ -165,7 +165,7 @@ tag.
 ## M8: table-manners v0.2 (branch `m8-v0.2`)
 
 - [x] Owner: M8 approved 2026-10-31 ("keep going")
-- [ ] 8.1 The contract at v0.2 (path dependency until v0.2.0 is published)
+- [x] 8.1 The contract at v0.2 (2026-10-31): path dependency on `../table-manners` until v0.2.0 is published; schemas and fixtures at 0.2.0, new fields at their v0.1 values
 - [ ] 8.2 The session: UUID v4, `squint://session`, `session_id` on every served run
 - [ ] 8.3 Correlation and the run reference: `client_run_id` claimed on acceptance, the refusal, `_meta` on progress
 - [ ] 8.4 Unresolved spend

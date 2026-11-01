@@ -7,7 +7,7 @@
     "verdict": null
   },
   "cache": "off",
-  "contract": "0.1.0",
+  "contract": "0.2.0",
   "duration_ms": 0,
   "error": {
     "code": "provider",
@@ -51,12 +51,15 @@
   },
   "notes": [],
   "run": {
+    "client_run_id": null,
     "dir": "/runs/error",
     "id": "error",
-    "resource": "squint://run/error/run.json"
+    "resource": "squint://run/error/run.json",
+    "session_id": null
   },
   "spend": {
     "basis": "measured",
+    "unresolved_usd": 0.0,
     "usd": 0.0210054
   },
   "started": "2026-01-01T00:00:00.000Z",

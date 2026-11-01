@@ -32,22 +32,11 @@
       "$ref": "#/$defs/action_name"
     },
     "run": {
-      "type": "object",
-      "additionalProperties": false,
+      "$ref": "urn:table-manners:core:run-ref#/$defs/run_ref",
       "required": [
-        "id",
-        "resource",
         "dir"
       ],
       "properties": {
-        "id": {
-          "type": "string",
-          "minLength": 1
-        },
-        "resource": {
-          "type": "string",
-          "pattern": "^[a-z][a-z0-9+.-]*://run/"
-        },
         "dir": {
           "type": [
             "string",
@@ -55,7 +44,8 @@
           ],
           "description": "The run directory on a local transport, else null."
         }
-      }
+      },
+      "unevaluatedProperties": false
     },
     "status": {
       "enum": [
@@ -123,12 +113,18 @@
       "additionalProperties": false,
       "required": [
         "usd",
+        "unresolved_usd",
         "basis"
       ],
       "properties": {
         "usd": {
           "type": "number",
           "minimum": 0
+        },
+        "unresolved_usd": {
+          "type": "number",
+          "minimum": 0,
+          "description": "The part of usd no provider answer settled (4.5): an upper bound, not a charge."
         },
         "basis": {
           "enum": [

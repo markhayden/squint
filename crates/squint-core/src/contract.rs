@@ -325,6 +325,8 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
             resource: format!("squint://run/{id}/{RUN_FILE}"),
             id,
             dir: Some(dir.to_string_lossy().into_owned()),
+            session_id: None,
+            client_run_id: None,
         },
         status,
         error,
@@ -339,6 +341,7 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
             } else {
                 report.cost.spent_usd
             },
+            unresolved_usd: 0.0,
             basis: SpendBasis::Measured,
         },
         cache,
@@ -866,6 +869,8 @@ pub fn action_result(
             resource: format!("squint://run/{id}/{RUN_FILE}"),
             id,
             dir: Some(dir.to_string_lossy().into_owned()),
+            session_id: None,
+            client_run_id: None,
         },
         status,
         error,
@@ -878,6 +883,7 @@ pub fn action_result(
         ),
         spend: Spend {
             usd: 0.0,
+            unresolved_usd: 0.0,
             basis: SpendBasis::Measured,
         },
         cache: Cache::Off,

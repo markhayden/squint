@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:core:session",
+  "title": "Session (CONTRACT.md 4.6)",
+  "description": "The `<tool>://session` resource: one atomic observation of the serving process's spend ledger.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "tool",
+    "id",
+    "started",
+    "budget_usd",
+    "spent_usd",
+    "unresolved_usd",
+    "reserved_usd",
+    "remaining_usd"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "urn:table-manners:core:result#/$defs/version"
+    },
+    "tool": {
+      "$ref": "urn:table-manners:core:result#/$defs/tool"
+    },
+    "id": {
+      "$ref": "urn:table-manners:core:run-ref#/$defs/session_id"
+    },
+    "started": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "budget_usd": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "The session budget; null when uncapped."
+    },
+    "spent_usd": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Settled spend, unresolved_usd included."
+    },
+    "unresolved_usd": {
+      "type": "number",
+      "minimum": 0,
+      "description": "The part of spent_usd no provider answer settled: an upper bound."
+    },
+    "reserved_usd": {
+      "type": "number",
+      "minimum": 0,
+      "description": "Worst cases held by runs still going."
+    },
+    "remaining_usd": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "description": "max(0, budget_usd - spent_usd - reserved_usd); null exactly when budget_usd is."
+    }
+  },
+  "if": {
+    "properties": {
+      "budget_usd": {
+        "type": "null"
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "remaining_usd": {
+        "type": "null"
+      }
+    }
+  },
+  "else": {
+    "properties": {
+      "remaining_usd": {
+        "type": "number"
+      }
+    }
+  }
+}

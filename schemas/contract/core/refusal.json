@@ -1,0 +1,30 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:core:refusal",
+  "title": "Refusal data (CONTRACT.md 4.4)",
+  "description": "The `data` of a JSON-RPC -32602 error the contract names, so a host can tell it from other invalid params.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "reason",
+    "run"
+  ],
+  "properties": {
+    "reason": {
+      "enum": [
+        "client_run_id_reused"
+      ]
+    },
+    "run": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "urn:table-manners:core:run-ref"
+        }
+      ],
+      "description": "The earlier request's run; null while it has none (queued, or cancelled before allocation)."
+    }
+  }
+}

@@ -392,6 +392,8 @@ impl Server {
                             },
                             started: r.started,
                             resource: r.run.resource,
+                            session_id: r.run.session_id,
+                            client_run_id: r.run.client_run_id,
                         },
                         None => table_manners::RunSummary {
                             action: running_action(&dir, &id),
@@ -399,6 +401,8 @@ impl Server {
                             started: contract::rfc3339(ms),
                             resource: format!("squint://run/{id}/{}", contract::RUN_FILE),
                             id: id.clone(),
+                            session_id: None,
+                            client_run_id: None,
                         },
                     };
                     Some((ms, summary))
@@ -412,6 +416,7 @@ impl Server {
                 version: VERSION.into(),
             },
             runs: runs.into_iter().map(|(_, r)| r).collect(),
+            next_cursor: None,
         }
     }
 

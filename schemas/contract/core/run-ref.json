@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:core:run-ref",
+  "title": "Run reference (CONTRACT.md 4.3)",
+  "description": "A run's identity, the same wherever it appears: progress _meta (`table-manners/run`), the result's run (with `dir`), runs-list entries and a reuse refusal. The root is closed; the other schemas extend $defs/run_ref and close it themselves.",
+  "$ref": "#/$defs/run_ref",
+  "unevaluatedProperties": false,
+  "$defs": {
+    "run_ref": {
+      "type": "object",
+      "required": [
+        "id",
+        "resource",
+        "session_id",
+        "client_run_id"
+      ],
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unique per tool."
+        },
+        "resource": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9+.-]*://run/",
+          "description": "<tool>://run/<id>/run.json"
+        },
+        "session_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/session_id"
+            }
+          ],
+          "description": "The serving session; null for a run made outside one (a tool's CLI)."
+        },
+        "client_run_id": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "#/$defs/client_run_id"
+            }
+          ],
+          "description": "The caller's correlation id; null when the request sent none."
+        }
+      }
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "A random UUID (v4), lowercase, generated when the server starts."
+    },
+    "client_run_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9._:-]{1,128}$"
+    }
+  }
+}
