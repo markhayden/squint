@@ -372,6 +372,62 @@ fn a_failed_call_carries_the_servers_stderr() {
     );
 }
 
+/// A dying server's stderr can end after its stdout: the error still carries the last lines,
+/// because it waits for the end of stderr rather than taking what has arrived so far.
+#[test]
+fn stderr_written_after_stdout_ends_still_reaches_the_error() {
+    let client = Client::connect(
+        &spawn(&["--die-on-call", "--late-stderr-ms", "300"]),
+        env(),
+        Instant::now() + Duration::from_secs(10),
+    )
+    .unwrap();
+    let err = client
+        .call(
+            "probe_state",
+            json!({ "_squint": context("run-1") }),
+            Duration::from_secs(5),
+        )
+        .err()
+        .unwrap();
+    let text = err.to_string();
+    assert!(text.contains("ended the conversation"), "{text}");
+    assert!(
+        text.contains("server stderr: fake mcp: last words"),
+        "{text}"
+    );
+    client.shutdown(Duration::from_millis(300));
+}
+
+/// A server whose child holds stderr open long after the server died does not hang the error:
+/// it waits at most `STDERR_DRAIN`, then reports what arrived.
+#[test]
+fn a_stderr_held_open_by_a_child_delays_the_error_by_a_bounded_wait() {
+    let client = Client::connect(
+        &spawn(&["--die-on-call", "--late-stderr-ms", "5000"]),
+        env(),
+        Instant::now() + Duration::from_secs(10),
+    )
+    .unwrap();
+    let started = Instant::now();
+    let err = client
+        .call(
+            "probe_state",
+            json!({ "_squint": context("run-1") }),
+            Duration::from_secs(30),
+        )
+        .err()
+        .unwrap();
+    let waited = started.elapsed();
+    assert!(err.to_string().contains("ended the conversation"), "{err}");
+    assert!(!err.to_string().contains("last words"), "{err}");
+    assert!(
+        waited >= STDERR_DRAIN && waited < STDERR_DRAIN + Duration::from_secs(3),
+        "waited {waited:?}"
+    );
+    client.shutdown(Duration::from_millis(300));
+}
+
 // ---- task 4.4b: failure modes ----------------------------------------------------------------
 
 /// A server that dies mid-call fails the call as `error: tool` and is replaced for the next one.

@@ -30,6 +30,12 @@ struct Options {
     text_block: bool,
     /// The process exits as soon as a `tools/call` arrives.
     die_on_call: bool,
+    /// With `die_on_call`, the dying words come late: the process exits at once, leaving a child
+    /// that holds its stderr open, writes `fake mcp: last words` after this many milliseconds and
+    /// exits. Stdout ends well before stderr, as it can when a real server dies.
+    late_stderr_ms: Option<u64>,
+    /// The child of `late_stderr_ms`: wait this many milliseconds, write the last words, exit.
+    say_after_ms: Option<u64>,
     /// The process exits after answering this many calls (0: never): a server that dies between
     /// runs or between the calls of one run.
     exit_after_calls: u64,
@@ -56,6 +62,8 @@ fn options() -> Options {
         extra_measurement: false,
         text_block: false,
         die_on_call: false,
+        late_stderr_ms: None,
+        say_after_ms: None,
         exit_after_calls: 0,
         garbage_line: false,
         stray_response: false,
@@ -79,6 +87,8 @@ fn options() -> Options {
             "--extra-measurement" => o.extra_measurement = true,
             "--text-block" => o.text_block = true,
             "--die-on-call" => o.die_on_call = true,
+            "--late-stderr-ms" => o.late_stderr_ms = args.next().and_then(|s| s.parse().ok()),
+            "--say-after-ms" => o.say_after_ms = args.next().and_then(|s| s.parse().ok()),
             "--exit-after-calls" => {
                 o.exit_after_calls = args.next().and_then(|s| s.parse().ok()).unwrap_or(0)
             }
@@ -241,6 +251,11 @@ impl Server {
 
 fn main() {
     let mut o = options();
+    if let Some(ms) = o.say_after_ms {
+        std::thread::sleep(Duration::from_millis(ms));
+        eprintln!("fake mcp: last words");
+        return;
+    }
     let envelopes = std::mem::take(&mut o.envelopes);
     let mut fake_regions = manifest(include_str!("../../fixtures/fake_regions.toml"));
     let mut probe_state = manifest(include_str!("../../fixtures/probe_state.toml"));
@@ -324,7 +339,19 @@ fn main() {
             }
             "tools/call" => {
                 if o.die_on_call {
-                    eprintln!("fake mcp: dying on call");
+                    match o.late_stderr_ms {
+                        Some(ms) => {
+                            // The child inherits stderr only, so stdout closes when we exit.
+                            let _ = std::env::current_exe().and_then(|exe| {
+                                std::process::Command::new(exe)
+                                    .args(["--say-after-ms", &ms.to_string()])
+                                    .stdin(std::process::Stdio::null())
+                                    .stdout(std::process::Stdio::null())
+                                    .spawn()
+                            });
+                        }
+                        None => eprintln!("fake mcp: dying on call"),
+                    }
                     std::process::exit(3);
                 }
                 if o.garbage_line {
