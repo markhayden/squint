@@ -69,7 +69,9 @@ stdio.
   tests need (`--page-size`, `--loop-cursor`, `--concurrent`, `--extra-measurement`,
   `--text-block`, beside the lifecycle flags of 1.13; later `--late-stderr-ms`, a dying server
   whose stderr outlives its stdout, and `--bad-stderr` and `--stderr-flood-kib`, stderr that is
-  not UTF-8).
+  not UTF-8; and, so the tests observe events instead of timing them, `--trace` (start, end and
+  reset markers on stderr), `--rendezvous-ms` (concurrent calls wait for each other) and
+  `--threaded` (calls on threads under serial manifests)).
 - A batch of calls whose tools all declare `concurrent = true` is dispatched together by the run
   (task 4.4a) and ingested in call order, so evidence items keep their order whatever the
   completion order.
