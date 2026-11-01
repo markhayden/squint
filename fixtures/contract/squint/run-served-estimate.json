@@ -3,7 +3,7 @@
   "body": {
     "cap_usd": 2.0,
     "decision_runs": 1,
-    "envelope_usd": 0.6251859,
+    "envelope_usd": 0.625186,
     "fits": true,
     "model": "claude-haiku-5-5",
     "use_case": "source-fidelity"

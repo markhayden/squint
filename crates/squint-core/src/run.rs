@@ -353,8 +353,11 @@ async fn decide(
         let closing = account.close();
         job_ledger.settle(closing.envelope_usd, closing.spent_usd);
         if let Some(s) = shared {
-            s.settle(closing.envelope_usd, closing.spent_usd);
-            s.note_unresolved(closing.unresolved_usd);
+            s.settle_with_unresolved(
+                closing.envelope_usd,
+                closing.spent_usd,
+                closing.unresolved_usd,
+            );
         }
     }
     // A run that could not finish its own record: `check` closes the directory with a result
@@ -1319,6 +1322,8 @@ async fn send_turn(
             let unresolved = match &e {
                 Error::Cancelled(_) => !sleeper.sleeping(),
                 Error::Transport(t) => t.unresolved(),
+                // A retry the envelope refused was never sent; the attempt before it is charged.
+                Error::Budget(_) => false,
                 _ => true,
             };
             let charge = if unresolved {

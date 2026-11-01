@@ -153,6 +153,20 @@ fn the_session_answers_at_once_while_a_check_holds_its_reservation() {
             // The failed attempt was sent and settled by no answer: all the spend is unresolved.
             let spent = now["spent_usd"].as_f64().unwrap();
             assert!(spent > 0.0, "{now}");
+            // Every amount to at most six decimals (table-manners 4.6).
+            for key in [
+                "budget_usd",
+                "spent_usd",
+                "unresolved_usd",
+                "reserved_usd",
+                "remaining_usd",
+            ] {
+                let text = now[key].to_string();
+                assert!(
+                    text.split('.').nth(1).is_none_or(|d| d.len() <= 6),
+                    "{key}: {text}"
+                );
+            }
             assert!(
                 (now["unresolved_usd"].as_f64().unwrap() - spent).abs() < 1e-9,
                 "{now}"

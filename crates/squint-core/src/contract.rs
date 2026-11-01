@@ -198,6 +198,11 @@ impl Grid {
     }
 }
 
+/// An amount as the contract carries it: US dollars to at most six decimals (table-manners 4.6).
+pub fn usd(amount: f64) -> f64 {
+    (amount * 1e6).round() / 1e6
+}
+
 /// The file every decision directory ends with: the contract's result (table-manners 2).
 pub const RUN_FILE: &str = "run.json";
 
@@ -368,12 +373,12 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
             usd: if cache == Cache::Hit {
                 0.0
             } else {
-                report.cost.spent_usd
+                usd(report.cost.spent_usd)
             },
             unresolved_usd: if cache == Cache::Hit {
                 0.0
             } else {
-                report.cost.unresolved_usd
+                usd(report.cost.unresolved_usd)
             },
             basis: SpendBasis::Measured,
         },

@@ -55,8 +55,8 @@
   },
   "spend": {
     "basis": "measured",
-    "unresolved_usd": 0.0069827000000000005,
-    "usd": 0.0069827000000000005
+    "unresolved_usd": 0.006983,
+    "usd": 0.006983
   },
   "started": "2026-01-01T00:00:00.000Z",
   "status": "cancelled",

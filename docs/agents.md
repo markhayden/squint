@@ -26,7 +26,7 @@ squint estimate --config squint.toml --job job.toml [--max-spend-usd 0.10]
 
 The worst case one check would reserve, priced from the catalog with no credential, and whether
 the cap covers it (`fits`). Every recorded provider replay spends within its estimate. Over MCP,
-`estimate` also reports the session budget left.
+the session's budget, spent and remaining are the `squint://session` resource.
 
 ## Serve
 
@@ -53,9 +53,10 @@ ordinary decision (its directory, journal, report and `run.json`).
   `client_run_id_reused`, naming the earlier run).
 - **Cancellation**: `notifications/cancelled` stops the provider call; the run's `run.json` says
   `cancelled` with spend to date, and the request gets no response.
-- **Resources**: `squint://runs` (newest first, running ones included), and per run
-  `squint://run/<id>/run.json`, `…/report.json` and `…/journal`, readable after a timeout or a
-  dropped connection.
+- **Resources**: `squint://runs` (newest first, running ones included, fifty to a page; the next
+  page is `squint://runs?cursor=<next_cursor>`), `squint://session` (the session id, budget,
+  spent, unresolved, reserved and remaining), and per run `squint://run/<id>/run.json`,
+  `…/report.json` and `…/journal`, readable after a timeout or a dropped connection.
 - **Results**: the `run.json` below as `structuredContent`; `isError` for `invalid` and `error`.
   Arguments the input schema rejects and unknown tools are JSON-RPC errors, since no run exists.
 

@@ -197,9 +197,12 @@ pub trait Ledger: Send + Sync {
     fn settle(&self, reserved_usd: f64, spent_usd: f64);
     fn reserved(&self) -> f64;
     fn spent(&self) -> f64;
-    /// Notes the part of a settled spend no provider answer settled (table-manners 2.3). Ledgers
-    /// that do not report it ignore it.
-    fn note_unresolved(&self, _usd: f64) {}
+    /// [`Ledger::settle`] with the part of `spent_usd` no provider answer settled (table-manners
+    /// 2.3), in one step so an observer never sees one without the other. Ledgers that do not
+    /// report unresolved spend settle as usual.
+    fn settle_with_unresolved(&self, reserved_usd: f64, spent_usd: f64, _unresolved_usd: f64) {
+        self.settle(reserved_usd, spent_usd);
+    }
 }
 
 /// The per-job ledger: one cap, a mutex around the balances.
@@ -275,9 +278,11 @@ impl Ledger for CapLedger {
         self.balances().spent
     }
 
-    fn note_unresolved(&self, usd: f64) {
+    fn settle_with_unresolved(&self, reserved_usd: f64, spent_usd: f64, unresolved_usd: f64) {
         if let Ok(mut b) = self.balances.lock() {
-            b.unresolved += usd.max(0.0);
+            b.reserved = (b.reserved - reserved_usd).max(0.0);
+            b.spent += spent_usd;
+            b.unresolved += unresolved_usd.max(0.0);
         }
     }
 }

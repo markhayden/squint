@@ -59,8 +59,8 @@
   },
   "spend": {
     "basis": "measured",
-    "unresolved_usd": 0.0210054,
-    "usd": 0.0210054
+    "unresolved_usd": 0.021005,
+    "usd": 0.021005
   },
   "started": "2026-01-01T00:00:00.000Z",
   "status": "error",

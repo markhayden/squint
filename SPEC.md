@@ -1425,8 +1425,8 @@ section says what squint does with them.
   server conventions. Tools: one per use case, as `describe` lists them (`source_fidelity`, …: one
   decision each; images by path or inline bytes in any slot; paths only inside the client's MCP
   roots narrowed by config; inline bytes bounded), `estimate` (worst-case cost of a check and the
-  session budget left; on the command line `squint estimate`, priced from the catalog with no
-  credential), and `describe`. squint's own self-description (`rules`, `tools list`, `catalog`)
+  effective per-call cap; the session's budget is the `squint://session` resource; on the command
+  line `squint estimate`, priced from the catalog with no credential), and `describe`. squint's own self-description (`rules`, `tools list`, `catalog`)
   stays on the command line and is referenced from the description's `x-squint`. An `invalid` or
   `error` outcome is a result with `isError` and the header; JSON-RPC errors are only for failures
   before a run exists. Each image out carries its reference and the locator the call asked for
@@ -1454,6 +1454,10 @@ section says what squint does with them.
   provider call; `run.json` and the run resource then hold status `cancelled` with spend to date,
   and no result is returned. An identical retry within the cache policy is answered from the
   decision cache and says so.
+- **The session**: `squint://session` (table-manners 4.6), one atomic observation of the serving
+  process's ledger: a random UUID (v4) made at start, when it started, the budget
+  (`[serve] session_budget_usd`), spent with its unresolved part, reserved and remaining; every
+  amount in a result or the session is written to at most six decimals.
 - **Runs as resources**: `squint://runs` (the newest page of runs, newest first by start time and
   id, `running` included; `squint://runs?cursor=<next_cursor>` the next, fifty to a page, the
   cursor opaque base64url; a run started during a walk is seen by reading page one again),

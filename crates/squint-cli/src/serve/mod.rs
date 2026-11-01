@@ -290,8 +290,8 @@ impl Server {
                 let body = json!({
                     "use_case": use_case,
                     "model": config.provider.model,
-                    "envelope_usd": envelope.usd,
-                    "cap_usd": cap,
+                    "envelope_usd": contract::usd(envelope.usd),
+                    "cap_usd": contract::usd(cap),
                     "fits": envelope.usd <= cap,
                     "decision_runs": envelope.decision_runs,
                 });
@@ -350,11 +350,11 @@ impl Server {
             },
             id: self.inner.session_id.clone(),
             started: contract::rfc3339(self.inner.session_started_ms),
-            budget_usd: Some(budget),
-            spent_usd: spent,
-            unresolved_usd: unresolved,
-            reserved_usd: reserved,
-            remaining_usd: Some((budget - spent - reserved).max(0.0)),
+            budget_usd: Some(contract::usd(budget)),
+            spent_usd: contract::usd(spent),
+            unresolved_usd: contract::usd(unresolved),
+            reserved_usd: contract::usd(reserved),
+            remaining_usd: Some(contract::usd((budget - spent - reserved).max(0.0))),
         }
     }
 
