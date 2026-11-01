@@ -1463,7 +1463,9 @@ section says what squint does with them.
   retryable `error` with code `provider`; `tool` is `tool_process`; `budget`, `io` and anything
   else (`internal`) are not retryable; `cancelled` is its own status.
 - **`squint describe --json --config <file>`**: the contract's description document with
-  `profiles: ["images"]`: one action per shipped use case (`source_fidelity`, …), named for
+  `profiles: ["images"]`: one action per use case the config can check (`source_fidelity`, …:
+  the one `[rules]` names, its slots from the merged rules with relative files resolved against
+  the working directory as `check` resolves them; else every shipped use case), named for
   its rule set's `use_case` with a one-sentence purpose (kept beside the description, since sealed
   sets bind the rule files byte for byte), taking `candidate`, the `source` when the
   rule set requires one, and `references` (a list; contract v0.1 has no list slot, so squint says

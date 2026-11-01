@@ -54,6 +54,11 @@ pub struct ServeArgs {
     pub provider_script: Option<PathBuf>,
 }
 
+/// What a call's job resolves against. Its image paths are absolute (`job_from_call` refuses any
+/// other), so this resolves only the config's relative `[rules] extra` files: against the
+/// working directory, as `squint check` does.
+const JOB_BASE: &str = ".";
+
 pub fn run(args: &ServeArgs) -> i32 {
     let usage = |e: String| {
         eprintln!("squint: {e}");
@@ -80,7 +85,10 @@ pub fn run(args: &ServeArgs) -> i32 {
         .map(|p| p.auth.env.clone())
         .into_iter()
         .collect();
-    let description = contract::description(&config, VERSION, &needs_env);
+    let description = match contract::description(&config, VERSION, &needs_env) {
+        Ok(d) => d,
+        Err(e) => return usage(e.to_string()),
+    };
     let out_dir = args
         .out
         .clone()
@@ -207,8 +215,13 @@ impl Server {
             ));
             return self.finished("estimate", &args, Some(&e), Map::new());
         };
-        match squint_core::run::envelope(&config, &job, Path::new("/"), &self.inner.tools, pricing)
-        {
+        match squint_core::run::envelope(
+            &config,
+            &job,
+            Path::new(JOB_BASE),
+            &self.inner.tools,
+            pricing,
+        ) {
             Ok(envelope) => {
                 let cap = config.budget.spend_cap_usd;
                 let body = json!({
@@ -301,7 +314,7 @@ impl Server {
         let outcome = runtime.block_on(squint_core::run::check(
             &config,
             &job,
-            Path::new("/"),
+            Path::new(JOB_BASE),
             &services,
             &self.inner.out_dir,
             VERSION,

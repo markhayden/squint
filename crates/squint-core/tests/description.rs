@@ -17,7 +17,7 @@ fn root() -> PathBuf {
 fn described() -> (Description, serde_json::Value) {
     let text = std::fs::read_to_string(root().join("fixtures/config/minimal.toml")).unwrap();
     let config = Config::parse(&text, &[], &|_| None).unwrap();
-    let d = contract::description(&config, "0.9.0", &["GEMINI_API_KEY".to_string()]);
+    let d = contract::description(&config, "0.9.0", &["GEMINI_API_KEY".to_string()]).unwrap();
     let doc = serde_json::to_value(&d).unwrap();
     valid(&doc);
     (d, doc)
@@ -154,4 +154,28 @@ fn the_inline_limit_is_the_decode_bound() {
         d.limits.unwrap().inline_bytes,
         config.images.max_decode_bytes
     );
+}
+
+/// A config that names its rules describes only that use case (review I6): the one action a
+/// call can succeed with, and `estimate` offering only it. A rules file that cannot be read is an
+/// error, not a silent description of the shipped base.
+#[test]
+fn a_config_with_rules_describes_only_its_use_case() {
+    let minimal = std::fs::read_to_string(root().join("fixtures/config/minimal.toml")).unwrap();
+    let with_rules = |extra: &str| {
+        let text = format!("{minimal}\n[rules]\nbase = \"source-fidelity\"\nextra = [{extra:?}]\n");
+        Config::parse(&text, &[], &|_| None).unwrap()
+    };
+    let mine = root().join("fixtures/rules/mine.toml");
+    let d = contract::description(&with_rules(mine.to_str().unwrap()), "0.9.0", &[]).unwrap();
+    valid(&serde_json::to_value(&d).unwrap());
+    let names: Vec<&str> = d.actions.iter().map(|a| a.name.as_str()).collect();
+    assert_eq!(names, ["source_fidelity", "estimate"]);
+    let estimate = d.actions.iter().find(|a| a.name == "estimate").unwrap();
+    assert_eq!(
+        estimate.params_schema["properties"]["use_case"]["enum"],
+        serde_json::json!(["source-fidelity"])
+    );
+    let missing = root().join("fixtures/rules/no-such-rules.toml");
+    assert!(contract::description(&with_rules(missing.to_str().unwrap()), "0.9.0", &[]).is_err());
 }

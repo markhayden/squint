@@ -200,6 +200,49 @@ fn a_late_failure_is_answered_with_the_decisions_own_run() {
     assert_eq!(runs[0]["status"], "error");
 }
 
+/// A config that names its rules serves only that use case, and its relative rules files resolve
+/// against the working directory as `squint check` resolves them (review I6).
+#[test]
+fn a_config_with_rules_serves_its_use_case_with_its_files() {
+    let dir = out("rules");
+    std::fs::create_dir_all(&dir).unwrap();
+    let minimal =
+        std::fs::read_to_string(repo_root().join("fixtures/config/minimal.toml")).unwrap();
+    let config = dir.join("config.toml");
+    std::fs::write(
+        &config,
+        format!("{minimal}\n[rules]\nbase = \"source-fidelity\"\nextra = [\"fixtures/rules/mine.toml\"]\n"),
+    )
+    .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_squint"));
+    command
+        .current_dir(repo_root())
+        .args(["serve", "--config"])
+        .arg(&config)
+        .args(["--provider-script", "fixtures/scripts/held.json", "--out"])
+        .arg(dir.join("runs"));
+    let mut c = Client::start(&mut command).unwrap();
+    c.roots = vec![format!(
+        "file://{}",
+        repo_root().join("fixtures/images").display()
+    )];
+    let names: Vec<String> = c
+        .list_tools()
+        .unwrap()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+    assert_eq!(names, ["describe", "source_fidelity", "estimate"]);
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+        )
+        .unwrap();
+    let r = r.structured.unwrap();
+    assert_eq!(r["status"], "completed", "{r}");
+}
+
 #[test]
 fn an_exhausted_session_budget_is_a_budget_error_before_any_request() {
     let mut c = client(&out("budget"), &["serve.session_budget_usd=0.000001"]);

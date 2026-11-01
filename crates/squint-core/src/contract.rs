@@ -22,7 +22,7 @@ use crate::config::Config;
 use crate::frames::LocationKind;
 use crate::image::{CanonicalImage, hex};
 use crate::job::{Projection, Role};
-use crate::obligations::{RulesFile, SHIPPED_BASES, shipped};
+use crate::obligations::{MergeInput, RulesFile, SHIPPED_BASES, shipped};
 use crate::report::{Report, RootLocation};
 use crate::submission::FindingDisposition;
 
@@ -446,23 +446,29 @@ pub fn rfc3339(unix_ms: u64) -> String {
 /// The longest gap between progress notifications on a live run (table-manners 4.1).
 pub const PROGRESS_INTERVAL_S: u32 = 10;
 
-/// squint's description document (table-manners 3 and 11.2): one action per shipped use case,
-/// taking the images its rule set requires, plus `estimate`; every disposition and confidence
+/// squint's description document (table-manners 3 and 11.2): one action per use case a check can
+/// run (the one `[rules]` names, else every shipped base), taking the images its rules require,
+/// plus `estimate`; every disposition and confidence
 /// word a finding can carry; the inline limit from the decode bound. `needs_env` names the
 /// credential variable of the configured profile (from the catalog, which this crate does not
 /// read); never a value.
-pub fn description(config: &Config, version: &str, needs_env: &[String]) -> Description {
-    let mut actions: Vec<Action> = SHIPPED_BASES
+pub fn description(
+    config: &Config,
+    version: &str,
+    needs_env: &[String],
+) -> crate::Result<Description> {
+    let use_cases = use_cases(config)?;
+    let mut actions: Vec<Action> = use_cases
         .iter()
-        .filter_map(|base| {
-            let rules = RulesFile::parse(shipped(base)?, base).ok()?.rules;
-            let required = |role: Role| rules.requires_roles.contains(&role);
+        .map(|(base, requires_roles)| {
+            let base = base.as_str();
+            let required = |role: Role| requires_roles.contains(&role);
             let mut images = vec![slot("candidate", "candidate", true)];
             if required(Role::Source) {
                 images.push(slot("source", "source", true));
             }
             images.push(slot("references", "reference", required(Role::Reference)));
-            Some(Action {
+            Action {
                 name: base.replace('-', "_"),
                 title: title(base),
                 purpose: purpose(base).into(),
@@ -496,7 +502,7 @@ pub fn description(config: &Config, version: &str, needs_env: &[String]) -> Desc
                             .to_vec(),
                     },
                 ],
-            })
+            }
         })
         .collect();
     actions.push(Action {
@@ -504,7 +510,12 @@ pub fn description(config: &Config, version: &str, needs_env: &[String]) -> Desc
         title: "Estimate".into(),
         purpose: "The worst-case cost of one check of a use case, and the session budget left."
             .into(),
-        params_schema: params_schema(Some(SHIPPED_BASES)),
+        params_schema: params_schema(Some(
+            &use_cases
+                .iter()
+                .map(|(base, _)| base.as_str())
+                .collect::<Vec<_>>(),
+        )),
         images: Some(vec![
             slot("candidate", "candidate", true),
             slot("source", "source", false),
@@ -538,7 +549,7 @@ pub fn description(config: &Config, version: &str, needs_env: &[String]) -> Desc
             "references_slot": "takes a list of images, one per reference"
         }),
     );
-    Description {
+    Ok(Description {
         contract: CONTRACT_VERSION.into(),
         profiles: vec![Profile::Images],
         tool: DescribedTool {
@@ -577,7 +588,41 @@ pub fn description(config: &Config, version: &str, needs_env: &[String]) -> Desc
         .map(String::from)
         .to_vec(),
         extensions,
-    }
+    })
+}
+
+/// The use cases a check can run, each with the roles its rules require: the one `[rules]`
+/// names, merged with its profile and extra files (resolved as `check` resolves them, against the
+/// working directory), else every shipped base.
+fn use_cases(config: &Config) -> crate::Result<Vec<(String, Vec<Role>)>> {
+    let Some(rules) = &config.rules else {
+        return Ok(SHIPPED_BASES
+            .iter()
+            .filter_map(|base| {
+                let file = RulesFile::parse(shipped(base)?, base).ok()?;
+                Some((base.to_string(), file.rules.requires_roles))
+            })
+            .collect());
+    };
+    let extra = rules
+        .extra
+        .iter()
+        .map(|path| RulesFile::load(path))
+        .collect::<crate::Result<Vec<_>>>()?;
+    let names: Vec<String> = rules
+        .extra
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+    let merged = crate::obligations::merge(&MergeInput {
+        base: &rules.base,
+        profile: rules.profile.as_deref(),
+        extra: &extra,
+        extra_names: &names,
+        job: None,
+        enabled_tools: &[],
+    })?;
+    Ok(vec![(rules.base.clone(), merged.requires_roles)])
 }
 
 /// What each shipped use case checks, in one sentence. Kept here rather than in the rule sets:

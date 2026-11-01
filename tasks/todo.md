@@ -155,7 +155,7 @@ tag.
   - [x] an image path is a regular file read only up to the decode bound; inline data over the bound refused undecoded (I1)
   - [x] every decision writes its own `run.json` on every exit; a cache-store failure is a note; serve returns the decision's run, never a second one (I2); `Services::allocated` names the directory when it exists
   - [x] a reference's `images.in` slot is `references` (I3)
-  - [ ] serve honours `[rules]` and resolves rule paths as the CLI does (I6)
+  - [x] serve honours `[rules]` and resolves rule paths as the CLI does (I6); a rules file that cannot be read makes `describe` and `serve` exit 64
   - [ ] client roots parsed as `file:` URLs (I5)
   - [ ] `straddles_wrap` never on a bounded image; a running run listed under its action (coverage 3, 4)
   - [ ] vacuous tests made to bite: cancelled spend, heartbeat gaps, path/inline identity; argument errors exit 64 per command; `status_of` exhaustive; `run.json` in the secret scan
