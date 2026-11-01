@@ -98,6 +98,19 @@ fn refused(r: Result<squint_testkit::mcp_client::CallResult, Failure>) -> (i64, 
     }
 }
 
+/// The first progress notification for `token`. Progress starts only after the request is
+/// accepted, and so after its id is claimed: the claim is in place once this returns. Two
+/// requests in flight together have no guaranteed order, so a test that needs one accepted
+/// before the next is sent waits here first.
+fn first_progress(c: &mut Client, token: &str) -> serde_json::Value {
+    loop {
+        let n = c.next_notification().unwrap();
+        if n["params"]["progressToken"] == token {
+            return n;
+        }
+    }
+}
+
 #[test]
 fn an_accepted_id_is_the_runs_and_a_reused_one_is_refused_with_that_run() {
     let mut c = client(&out("reuse"), "held.json");
@@ -167,11 +180,7 @@ fn an_id_cancelled_before_its_run_stays_claimed_with_no_run() {
             json!({ "progressToken": "a", CLIENT: "a" }),
         )
         .unwrap();
-    loop {
-        if c.next_notification().unwrap()["params"]["progressToken"] == "a" {
-            break;
-        }
-    }
+    first_progress(&mut c, "a");
     let queued = c
         .start_call_with_meta(
             "source_fidelity",
@@ -179,7 +188,8 @@ fn an_id_cancelled_before_its_run_stays_claimed_with_no_run() {
             json!({ "progressToken": "q", CLIENT: "q" }),
         )
         .unwrap();
-    std::thread::sleep(Duration::from_millis(300));
+    // Its heartbeat: accepted, claimed and waiting for the permit, so the cancel lands there.
+    first_progress(&mut c, "q");
     c.cancel(queued).unwrap();
     std::thread::sleep(Duration::from_millis(300));
     let mut call = pair();
@@ -226,12 +236,7 @@ fn an_id_in_use_is_refused_while_queued_and_while_running() {
             json!({ "progressToken": "a", CLIENT: "a" }),
         )
         .unwrap();
-    let reference = loop {
-        let n = c.next_notification().unwrap();
-        if n["params"]["progressToken"] == "a" {
-            break n["params"]["_meta"][RUN].clone();
-        }
-    };
+    let reference = first_progress(&mut c, "a")["params"]["_meta"][RUN].clone();
     let queued = c
         .start_call_with_meta(
             "source_fidelity",
@@ -239,22 +244,10 @@ fn an_id_in_use_is_refused_while_queued_and_while_running() {
             json!({ "progressToken": "q", CLIENT: "q" }),
         )
         .unwrap();
-    let mut call = pair();
-    call["use_case"] = json!("source-fidelity");
-    let (code, data) = refused(c.call_with_meta("estimate", call.clone(), json!({ CLIENT: "q" })));
-    assert_eq!(code, -32602);
-    valid("urn:table-manners:core:refusal", &data);
-    assert!(data["run"].is_null(), "queued, so no run yet: {data}");
-    let (code, data) = refused(c.call_with_meta("estimate", call, json!({ CLIENT: "a" })));
-    assert_eq!(code, -32602);
-    assert_eq!(data["run"], reference, "running, so its run");
-    // The queued call's heartbeat comes before any allocation: no reference.
-    let heartbeat = loop {
-        let n = c.next_notification().unwrap();
-        if n["params"]["progressToken"] == "q" {
-            break n;
-        }
-    };
+    // The queued call's heartbeat, before any allocation: no reference. It also shows "q" is
+    // accepted and claimed; sent without waiting for it, the estimate below could be accepted
+    // first and take the id itself.
+    let heartbeat = first_progress(&mut c, "q");
     assert!(
         heartbeat["params"]["message"]
             .as_str()
@@ -266,6 +259,15 @@ fn an_id_in_use_is_refused_while_queued_and_while_running() {
         heartbeat["params"]["_meta"].get(RUN).is_none(),
         "{heartbeat}"
     );
+    let mut call = pair();
+    call["use_case"] = json!("source-fidelity");
+    let (code, data) = refused(c.call_with_meta("estimate", call.clone(), json!({ CLIENT: "q" })));
+    assert_eq!(code, -32602);
+    valid("urn:table-manners:core:refusal", &data);
+    assert!(data["run"].is_null(), "queued, so no run yet: {data}");
+    let (code, data) = refused(c.call_with_meta("estimate", call, json!({ CLIENT: "a" })));
+    assert_eq!(code, -32602);
+    assert_eq!(data["run"], reference, "running, so its run");
     c.cancel(queued).unwrap();
     c.cancel(running).unwrap();
 }
