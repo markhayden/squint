@@ -1445,8 +1445,12 @@ section says what squint does with them.
   sends a notification on every journal line of every run (through an observer the journal calls
   after each write) and a heartbeat after five seconds of silence, well inside the ten the
   description states; `progress` is elapsed seconds with no total, nudged so it never repeats,
-  and the message carries the words (`run-1: turn_sent`, `waiting, 12 s`); the first names the
-  run resource. `notifications/cancelled` stops the
+  and the message carries the words (`run-1: turn_sent`, `waiting, 12 s`). From the moment the
+  run is allocated every notification, heartbeats included, carries its reference in
+  `_meta["table-manners/run"]` (id, resource, session id, client run id). A request may carry
+  `_meta["table-manners/client_run_id"]` (`^[A-Za-z0-9._:-]{1,128}$`): claimed for the session
+  when the request is accepted, written into the run's directory when it is made, and a reuse is
+  `-32602` with the earlier request's run (null while it has none). `notifications/cancelled` stops the
   provider call; `run.json` and the run resource then hold status `cancelled` with spend to date,
   and no result is returned. An identical retry within the cache policy is answered from the
   decision cache and says so.

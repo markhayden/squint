@@ -83,11 +83,9 @@ fn progress_names_the_run_first_and_increases_on_every_step() {
     let run = r.structured.unwrap();
     let p = progress(&c, "tok-1");
     assert!(!p.is_empty());
-    assert!(
-        p[0]["message"]
-            .as_str()
-            .unwrap()
-            .contains(run["run"]["resource"].as_str().unwrap()),
+    // The first notification already names the run, in `_meta` (table-manners 4.3, v0.2).
+    assert_eq!(
+        p[0]["_meta"]["table-manners/run"]["resource"], run["run"]["resource"],
         "{:?}",
         p[0]
     );

@@ -46,7 +46,11 @@ ordinary decision (its directory, journal, report and `run.json`).
   budget (`[serve] session_budget_usd`, default $20) every decision reserves against before its
   first request. Calls are serial unless `[serve] concurrency` allows more.
 - **Progress**: with a progress token, a notification per journal line and a heartbeat after five
-  seconds of silence; `progress` is elapsed seconds and never repeats; the first names the run.
+  seconds of silence; `progress` is elapsed seconds and never repeats; from the run's allocation,
+  each one carries the run's reference in `_meta["table-manners/run"]`.
+- **Correlation**: send `_meta["table-manners/client_run_id"]` with a call to find its run after a
+  lost connection; an id is good once per server session (a reuse is `-32602`, reason
+  `client_run_id_reused`, naming the earlier run).
 - **Cancellation**: `notifications/cancelled` stops the provider call; the run's `run.json` says
   `cancelled` with spend to date, and the request gets no response.
 - **Resources**: `squint://runs` (newest first, running ones included), and per run
