@@ -354,6 +354,7 @@ async fn decide(
         job_ledger.settle(closing.envelope_usd, closing.spent_usd);
         if let Some(s) = shared {
             s.settle(closing.envelope_usd, closing.spent_usd);
+            s.note_unresolved(closing.unresolved_usd);
         }
     }
     // A run that could not finish its own record: `check` closes the directory with a result
@@ -1254,21 +1255,29 @@ async fn send_turn(
         request: request_ref,
     }))?;
     state.turns = turn;
-    // A failed attempt's usage is unknown: its hold is charged at the bound. The retry that
-    // follows draws on the envelope's retry reserve; once the balance cannot cover another
-    // attempt the retry is refused instead of overrunning the envelope.
+    // A failed attempt that was sent and settled by no answer is unresolved: its hold is charged
+    // at the bound (table-manners 2.3). One that never left, or an authentication rejection,
+    // costs nothing. The retry that follows draws on the envelope's retry reserve; once the
+    // balance cannot cover another attempt the retry is refused instead of overrunning it.
     let mut charged_usd = 0.0;
+    let mut retries_made = 0u32;
     let mut on_retry = |a: &retry::Attempt| -> Result<()> {
-        let hold = account.hold(bound_usd);
-        account.charge(hold);
-        charged_usd += bound_usd;
+        retries_made += 1;
+        let charge = if a.unresolved {
+            let hold = account.hold(bound_usd);
+            account.charge(hold);
+            bound_usd
+        } else {
+            0.0
+        };
+        charged_usd += charge;
         journal.append(&Event::Retry(events::Retry {
             turn,
             attempt: a.attempt,
             status: a.status,
             delay_ms: a.delay.as_millis() as u64,
             error: a.message.clone(),
-            charged_usd: bound_usd,
+            charged_usd: charge,
         }))?;
         if !account.covers(bound_usd) {
             return Err(Error::Budget(format!(
@@ -1281,12 +1290,14 @@ async fn send_turn(
     };
     let backoff = retry::Backoff::default();
     let mut jitter = rand::random::<f64>;
+    // Whether the turn is between attempts: a cancellation then stops no call in flight.
+    let sleeper = TrackedSleeper::default();
     let send = retry::send_with_retries(
         provider,
         request,
         config.budget.retries,
         &backoff,
-        &retry::TokioSleeper,
+        &sleeper,
         &mut jitter,
         &mut on_retry,
     );
@@ -1302,19 +1313,30 @@ async fn send_turn(
     let sent = match sent {
         Ok(sent) => sent,
         Err(e) => {
-            // The attempt that failed was sent too: unknown usage, charged at the bound. A
-            // cancellation is journaled as the terminal event with the state reached, so the
-            // charge is recorded there only in the ledger.
-            let hold = account.hold(bound_usd);
-            account.charge(hold);
-            if !matches!(e, Error::Cancelled(_)) {
-                let attempts = 1 + (charged_usd / bound_usd.max(f64::MIN_POSITIVE)).round() as u32;
+            // The last attempt: a call cancelled in flight, or sent and answered with no usage,
+            // is unresolved at the bound; one cancelled between attempts, one that never left
+            // and an authentication rejection cost nothing.
+            let unresolved = match &e {
+                Error::Cancelled(_) => !sleeper.sleeping(),
+                Error::Transport(t) => t.unresolved(),
+                _ => true,
+            };
+            let charge = if unresolved {
+                let hold = account.hold(bound_usd);
+                account.charge(hold);
+                bound_usd
+            } else {
+                0.0
+            };
+            // A cancellation is journaled as the terminal event; a charge it leaves is journaled
+            // here first so the report counts it.
+            if !matches!(e, Error::Cancelled(_)) || charge > 0.0 {
                 journal.append(&Event::AttemptFailed(events::AttemptFailed {
                     turn,
-                    attempts,
+                    attempts: 1 + retries_made,
                     class: e.class().into(),
                     error: e.to_string(),
-                    charged_usd: bound_usd,
+                    charged_usd: charge,
                 }))?;
             }
             return Err(e);
@@ -2095,4 +2117,31 @@ pub fn resolve_rules(
         checklist,
         hints,
     })
+}
+
+/// The real clock, noting whether a turn is between attempts.
+#[derive(Default)]
+struct TrackedSleeper {
+    sleeping: std::sync::atomic::AtomicBool,
+}
+
+impl TrackedSleeper {
+    fn sleeping(&self) -> bool {
+        self.sleeping.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl retry::Sleeper for TrackedSleeper {
+    fn sleep<'a>(
+        &'a self,
+        d: std::time::Duration,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
+        Box::pin(async move {
+            self.sleeping
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            tokio::time::sleep(d).await;
+            self.sleeping
+                .store(false, std::sync::atomic::Ordering::SeqCst);
+        })
+    }
 }

@@ -1461,7 +1461,9 @@ section says what squint does with them.
 - **`run.json`**: written last and atomically (a temporary name, then a rename) into every
   decision directory by `check` on every surface, cache hits and cancelled decisions included: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
-  timestamps and duration, input identity, measured spend, cache, the images taken in with their
+  timestamps and duration, input identity, measured spend (with `unresolved_usd`: a provider call
+  that never left costs nothing, an authentication rejection costs nothing, and one sent with no
+  answer reporting usage, or cancelled in flight, counts at its bound), cache, the images taken in with their
   slots and roles, every finding's location, notes for image warnings and repairs) and squint's
   body (verdict, exit code, whether two runs agreed, the report's path). The result's `action` is
   the use case's as `describe` names it (`source_fidelity`), from the command line as from MCP. A

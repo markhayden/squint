@@ -370,7 +370,11 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
             } else {
                 report.cost.spent_usd
             },
-            unresolved_usd: 0.0,
+            unresolved_usd: if cache == Cache::Hit {
+                0.0
+            } else {
+                report.cost.unresolved_usd
+            },
             basis: SpendBasis::Measured,
         },
         cache,
@@ -1003,6 +1007,7 @@ mod tests {
                 status: Some(503),
                 retry_after: None,
                 message: s(),
+                sent: true,
             }),
             Error::Submission(s()),
             Error::NoSubmission(s()),

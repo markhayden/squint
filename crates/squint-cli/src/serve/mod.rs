@@ -317,7 +317,7 @@ impl Server {
 
     /// The `squint://session` resource (table-manners 4.6): one observation of the ledger.
     fn session(&self) -> table_manners::Session {
-        let (spent, reserved) = self.inner.session.snapshot();
+        let (spent, reserved, unresolved) = self.inner.session.snapshot();
         let budget = self.inner.session.cap();
         table_manners::Session {
             contract: table_manners::CONTRACT_VERSION.into(),
@@ -329,7 +329,7 @@ impl Server {
             started: contract::rfc3339(self.inner.session_started_ms),
             budget_usd: Some(budget),
             spent_usd: spent,
-            unresolved_usd: 0.0,
+            unresolved_usd: unresolved,
             reserved_usd: reserved,
             remaining_usd: Some((budget - spent - reserved).max(0.0)),
         }

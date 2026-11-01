@@ -68,6 +68,7 @@ impl Response {
             status: Some(self.status),
             retry_after: self.retry_after(),
             message: format!("HTTP {}: {excerpt}", self.status),
+            sent: true,
         }))
     }
 }
@@ -117,6 +118,7 @@ impl Client {
                 status: Some(status),
                 retry_after: None,
                 message: format!("reading the response body: {}", strip_url(e)),
+                sent: true,
             })
         })?;
         Ok(Response {
@@ -139,6 +141,7 @@ impl Client {
                 status: Some(status),
                 retry_after: None,
                 message: format!("reading the response body: {}", strip_url(e)),
+                sent: true,
             })
         })?;
         if !(200..300).contains(&status) {
@@ -146,6 +149,7 @@ impl Client {
                 status: Some(status),
                 retry_after: None,
                 message: format!("HTTP {status}"),
+                sent: true,
             }));
         }
         Ok(bytes.to_vec())
@@ -200,6 +204,8 @@ fn map_send_error(e: reqwest::Error) -> Error {
         status,
         retry_after: None,
         message,
+        // A connection that failed carried no request; a timeout may have.
+        sent: !connect,
     })
 }
 

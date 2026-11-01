@@ -150,6 +150,13 @@ fn the_session_answers_at_once_while_a_check_holds_its_reservation() {
     loop {
         let now = session(&mut c);
         if now["reserved_usd"] == 0.0 {
+            // The failed attempt was sent and settled by no answer: all the spend is unresolved.
+            let spent = now["spent_usd"].as_f64().unwrap();
+            assert!(spent > 0.0, "{now}");
+            assert!(
+                (now["unresolved_usd"].as_f64().unwrap() - spent).abs() < 1e-9,
+                "{now}"
+            );
             break;
         }
         assert!(settled.elapsed() < Duration::from_secs(10), "{now}");

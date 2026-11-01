@@ -151,6 +151,10 @@ pub struct CostSummary {
     pub cap_usd: f64,
     /// Settled usage plus every failed attempt charged at its bound.
     pub spent_usd: f64,
+    /// The part of `spent_usd` no provider answer settled: attempts sent with no usage reported,
+    /// or cancelled in flight, counted at their bound (table-manners 2.3).
+    #[serde(default)]
+    pub unresolved_usd: f64,
     /// What the envelope gave back.
     pub released_usd: f64,
     /// Spend beyond the envelope (bounds are estimates).
@@ -267,6 +271,9 @@ pub struct TurnEntry {
     pub attempts: u32,
     /// Settled usage plus every failed attempt charged at its bound.
     pub cost_usd: f64,
+    /// The part of `cost_usd` charged at the bound because no answer settled it.
+    #[serde(default)]
+    pub unresolved_usd: f64,
     /// Whether the response entered provider history (false for an excluded or unanswered turn).
     pub entered_history: bool,
     /// The model-visible response body, redacted and bounded.
@@ -408,6 +415,7 @@ impl RunReport {
                     provider_request_id: None,
                     attempts: 1,
                     cost_usd: 0.0,
+                    unresolved_usd: 0.0,
                     entered_history: false,
                     response: None,
                 }),
@@ -415,12 +423,14 @@ impl RunReport {
                     if let Some(t) = r.turns.iter_mut().find(|t| t.turn == e.turn) {
                         t.attempts += 1;
                         t.cost_usd += e.charged_usd;
+                        t.unresolved_usd += e.charged_usd;
                     }
                 }
                 Event::AttemptFailed(e) => {
                     if let Some(t) = r.turns.iter_mut().find(|t| t.turn == e.turn) {
                         t.attempts = e.attempts;
                         t.cost_usd += e.charged_usd;
+                        t.unresolved_usd += e.charged_usd;
                     }
                 }
                 Event::TurnReceived(e) => {
@@ -657,6 +667,12 @@ impl Report {
             .flat_map(|r| r.turns.iter())
             .map(|t| t.cost_usd)
             .sum();
+        let unresolved_usd: f64 = runs
+            .iter()
+            .flat_map(|r| r.turns.iter())
+            .map(|t| t.unresolved_usd)
+            // From +0.0: an empty f64 sum is -0.0.
+            .fold(0.0, |a, b| a + b);
         let attempts: u32 = runs
             .iter()
             .flat_map(|r| r.turns.iter())
@@ -667,6 +683,7 @@ impl Report {
             envelope,
             cap_usd: header.cap_usd,
             spent_usd,
+            unresolved_usd,
             released_usd: (envelope_usd - spent_usd).max(0.0),
             overrun_usd: (spent_usd - envelope_usd).max(0.0),
             attempts,

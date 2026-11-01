@@ -63,7 +63,8 @@ ordinary decision (its directory, journal, report and `run.json`).
 
 Every decision directory ends with `run.json`, written atomically, from the command line and from
 MCP alike, cache hits and cancellations included: the contract's header (status, error code with
-`retryable`, timestamps, input identity, measured spend, cache, the images taken in with their
+`retryable`, timestamps, input identity, measured spend (`unresolved_usd` is the part no provider
+answer settled, counted at its worst case: show it as "at most"), cache, the images taken in with their
 roles, every finding as a contract location on the file as stored) and squint's body (verdict,
 exit code, whether two runs agreed, the report's path). A `fail` verdict is `completed`.
 

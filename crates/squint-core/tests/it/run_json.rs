@@ -337,3 +337,138 @@ fn timestamps_are_rfc3339_in_utc() {
     assert_eq!(rfc3339(1_793_386_884_140), "2026-10-30T19:01:24.140Z");
     assert_eq!(rfc3339(4_102_444_799_999), "2099-12-31T23:59:59.999Z");
 }
+
+/// The bound a turn was sent with, from the run's journal.
+fn bound_of(dir: &Path) -> f64 {
+    let journal = std::fs::read_to_string(dir.join("run-1/journal.jsonl")).unwrap();
+    journal
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find_map(|e| e["data"]["bound_usd"].as_f64())
+        .unwrap()
+}
+
+/// Runs `turns` (a script as JSON) with `budget.retries=2`, cancelled after `cancel_ms` when
+/// given; the outcome's directory and its `run.json`.
+fn scripted(tag: &str, turns: serde_json::Value, cancel_ms: Option<u64>) -> (PathBuf, RunResult) {
+    let out = tempdir(tag);
+    let provider = ScriptedProvider::from_json(&turns.to_string()).unwrap();
+    let tools = tools();
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let cancel = run::Cancel::new();
+    if let Some(ms) = cancel_ms {
+        let trigger = cancel.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(ms));
+            trigger.cancel();
+        });
+    }
+    let services = run::Services::new(&provider, &tools).with_cancel(&cancel);
+    let outcome = block_on(run::check(
+        &config(&["budget.retries=2"]),
+        &job,
+        &root(),
+        &services,
+        &out,
+        "test",
+    ))
+    .unwrap();
+    let result = read(&outcome.dir);
+    (outcome.dir, result)
+}
+
+fn submission() -> serde_json::Value {
+    let held: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("fixtures/scripts/held.json")).unwrap(),
+    )
+    .unwrap();
+    held[0].clone()
+}
+
+fn close(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-9
+}
+
+/// A call that never left (connection refused) costs nothing and releases its hold
+/// (table-manners 2.3, v0.2): the run spends what a clean run spends, none of it unresolved.
+#[test]
+fn a_call_that_never_left_costs_nothing() {
+    let (_, clean) = scripted("clean", serde_json::json!([submission()]), None);
+    let (_, refused) = scripted(
+        "not-sent",
+        serde_json::json!([{ "error": { "sent": false, "message": "connection refused" } }, submission()]),
+        None,
+    );
+    assert_eq!(refused.status, Status::Completed);
+    assert!(
+        close(refused.spend.usd, clean.spend.usd),
+        "{:?} vs {:?}",
+        refused.spend,
+        clean.spend
+    );
+    assert_eq!(refused.spend.unresolved_usd, 0.0);
+}
+
+/// An authentication rejection is an answer that refuses before any work: zero, not unresolved.
+#[test]
+fn an_auth_rejection_costs_nothing() {
+    let (_, r) = scripted(
+        "auth",
+        serde_json::json!([{ "error": { "status": 401 } }]),
+        None,
+    );
+    assert_eq!(r.status, Status::Error);
+    assert_eq!((r.spend.usd, r.spend.unresolved_usd), (0.0, 0.0));
+}
+
+/// A failure status with no usage is unresolved: counted at the turn's bound, all of it
+/// unresolved, and the run's `usd` covers it.
+#[test]
+fn a_failure_status_is_unresolved_at_its_bound() {
+    let (dir, r) = scripted(
+        "failure",
+        serde_json::json!([{ "error": { "status": 400 } }]),
+        None,
+    );
+    let bound = bound_of(&dir);
+    assert!(bound > 0.0);
+    assert!(
+        close(r.spend.unresolved_usd, bound),
+        "{:?} bound {bound}",
+        r.spend
+    );
+    assert!(close(r.spend.usd, bound), "{:?}", r.spend);
+}
+
+/// A call cancelled while in flight is unresolved at its bound.
+#[test]
+fn a_call_cancelled_mid_flight_is_unresolved() {
+    let (dir, r) = scripted(
+        "mid-call",
+        serde_json::json!([{ "stall_s": 30 }, submission()]),
+        Some(300),
+    );
+    assert_eq!(r.status, Status::Cancelled);
+    let bound = bound_of(&dir);
+    assert!(
+        close(r.spend.unresolved_usd, bound),
+        "{:?} bound {bound}",
+        r.spend
+    );
+    assert!(close(r.spend.usd, bound), "{:?}", r.spend);
+}
+
+/// A cancel while waiting to retry charges the failed attempt once, not a second time for a
+/// call that was never in flight.
+#[test]
+fn a_cancel_during_a_retry_wait_charges_only_the_failed_attempt() {
+    let (dir, r) = scripted(
+        "retry-wait",
+        serde_json::json!([{ "error": { "status": 503, "retry_after_s": 30 } }, submission()]),
+        Some(300),
+    );
+    assert_eq!(r.status, Status::Cancelled);
+    let bound = bound_of(&dir);
+    assert!(close(r.spend.usd, bound), "{:?} bound {bound}", r.spend);
+    assert!(close(r.spend.unresolved_usd, bound), "{:?}", r.spend);
+}

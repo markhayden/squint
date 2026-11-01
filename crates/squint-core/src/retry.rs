@@ -19,9 +19,19 @@ pub struct TransportError {
     /// The server's `retry-after`, when present.
     pub retry_after: Option<Duration>,
     pub message: String,
+    /// Whether the request left this process: false when the connection itself failed, so the
+    /// provider never saw it (table-manners 2.3: not sent, costs nothing).
+    pub sent: bool,
 }
 
 impl TransportError {
+    /// Whether no answer settles what this call cost, so it counts at its worst case
+    /// (table-manners 2.3): it was sent and the answer, if any, reported no usage. A call that
+    /// never left, and an authentication rejection (refused before any work), cost nothing.
+    pub fn unresolved(&self) -> bool {
+        self.sent && !matches!(self.status, Some(401 | 403))
+    }
+
     /// Whether the spec allows a retry of this failure.
     pub fn retryable(&self) -> bool {
         match self.status {
@@ -93,6 +103,8 @@ pub struct Attempt {
     pub status: Option<u16>,
     pub delay: Duration,
     pub message: String,
+    /// Whether the failed attempt counts at its worst case ([`TransportError::unresolved`]).
+    pub unresolved: bool,
 }
 
 /// A response and how many billable attempts it took.
@@ -129,6 +141,7 @@ pub async fn send_with_retries<'a>(
                     status: t.status,
                     delay,
                     message: t.message.clone(),
+                    unresolved: t.unresolved(),
                 })?;
                 sleeper.sleep(delay).await;
             }
@@ -188,6 +201,7 @@ mod tests {
             status,
             retry_after: retry_after.map(Duration::from_secs),
             message: "scripted".into(),
+            sent: true,
         }))
     }
 
@@ -272,6 +286,7 @@ mod tests {
             status,
             retry_after: None,
             message: String::new(),
+            sent: true,
         };
         for s in [408, 409, 429, 500, 502, 503, 599] {
             assert!(t(Some(s)).retryable(), "{s}");
@@ -310,6 +325,7 @@ mod tests {
             status: Some(429),
             retry_after: None,
             message: "slow down".into(),
+            sent: true,
         });
         assert_eq!(e.to_string(), "provider: HTTP 429: slow down");
         assert_eq!(e.class(), "provider");
