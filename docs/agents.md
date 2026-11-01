@@ -54,7 +54,9 @@ ordinary decision (its directory, journal, report and `run.json`).
   each one carries the run's reference in `_meta["table-manners/run"]`.
 - **Correlation**: send `_meta["table-manners/client_run_id"]` with a call to find its run after a
   lost connection; an id is good once per server session (a reuse is `-32602`, reason
-  `client_run_id_reused`, naming the earlier run).
+  `client_run_id_reused`, naming the earlier run). A request refused with a JSON-RPC error before
+  any run (arguments the server rejects, a failed `roots/list`) releases its id: fix the request
+  and send it again under the same id.
 - **Cancellation**: `notifications/cancelled` stops the provider call; the run's `run.json` says
   `cancelled` with spend to date, and the request gets no response. A call cancelled before its
   run is allocated (queued, or while its arguments are resolved) makes no run; its

@@ -1452,9 +1452,12 @@ with them.
   `_meta["table-manners/run"]` (id, resource, session id, client run id). A request may carry
   `_meta["table-manners/client_run_id"]` (`^[A-Za-z0-9._:-]{1,128}$`): claimed for the session
   when the request is accepted, written into the run's directory when it is made, and a reuse is
-  `-32602` with the earlier request's run (null while it has none). A claim is never released, so
-  the server keeps one small entry per id for the session's life, unbounded: fine over stdio with
-  one trusted host, to bound before any networked transport. `notifications/cancelled` stops the
+  `-32602` with the earlier request's run (null while it has none). A request that ends in a
+  JSON-RPC error with no run (arguments refused, a failed `roots/list`, a server error) releases
+  its id, so the corrected request may use it; one that got a run, or was cancelled before
+  allocation, keeps it for the session (4.4). The server keeps one small entry per kept id for
+  the session's life, unbounded: fine over stdio with one trusted host, to bound before any
+  networked transport. `notifications/cancelled` stops the
   provider call; `run.json` and the run resource then hold status `cancelled` with spend to date,
   and no result is returned; a call cancelled before its run is allocated makes no run. An identical retry within the cache policy is answered from the
   decision cache and says so.

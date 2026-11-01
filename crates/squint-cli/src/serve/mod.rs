@@ -336,8 +336,13 @@ impl Server {
     }
 
     /// Claims a request's `client_run_id` for this session (table-manners 4.4): a reused one is
-    /// refused with the earlier request's run (none while it has none).
-    fn claim(&self, client_run_id: &str) -> Result<(), ErrorData> {
+    /// refused with the earlier request's run (none while it has none). The claim lasts while the
+    /// guard does, and past it once the request has a run or was cancelled (see [`Claim`]).
+    fn claim(
+        &self,
+        client_run_id: &str,
+        cancelled: Box<dyn Fn() -> bool + Send + Sync>,
+    ) -> Result<Claim, ErrorData> {
         let mut claims = self
             .inner
             .claims
@@ -356,7 +361,11 @@ impl Server {
             ));
         }
         claims.insert(client_run_id.to_string(), None);
-        Ok(())
+        Ok(Claim {
+            inner: self.inner.clone(),
+            id: client_run_id.to_string(),
+            cancelled,
+        })
     }
 
     /// The `squint://session` resource (table-manners 4.6): one observation of the ledger.
@@ -636,6 +645,31 @@ impl Server {
             claims.insert(client.clone(), Some(run.clone()));
         }
         run
+    }
+}
+
+/// A request's hold on its `client_run_id` (table-manners 4.4, squint's M8 review S3). Dropped
+/// when the request ends: a request that got a run keeps the id (the claim names the run), and so
+/// does one cancelled before allocation (the client retries under a new id); any other request
+/// that ends with no run (a JSON-RPC error: arguments refused, a failed `roots/list`, a server
+/// error) releases it, so the corrected request may use it.
+struct Claim {
+    inner: Arc<Inner>,
+    id: String,
+    /// Whether the request was cancelled (its MCP cancellation token).
+    cancelled: Box<dyn Fn() -> bool + Send + Sync>,
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        if (self.cancelled)() {
+            return;
+        }
+        if let Ok(mut claims) = self.inner.claims.lock()
+            && matches!(claims.get(&self.id), Some(None))
+        {
+            claims.remove(&self.id);
+        }
     }
 }
 
@@ -969,9 +1003,14 @@ impl ServerHandler for Server {
                 ));
             }
         };
-        if let (Some(id), true) = (&client_run_id, makes_run) {
-            self.claim(id)?;
-        }
+        // Held until this request ends, on every path out of it, `?` included.
+        let _claim = match (&client_run_id, makes_run) {
+            (Some(id), true) => {
+                let ct = context.ct.clone();
+                Some(self.claim(id, Box::new(move || ct.is_cancelled()))?)
+            }
+            _ => None,
+        };
         let association = self.association(&name, client_run_id);
         // A client that offers roots is asked for them on every check: they may have changed.
         // Roots are part of revision 2025-11-25, the only one squint serves; SEP-2577 deprecates

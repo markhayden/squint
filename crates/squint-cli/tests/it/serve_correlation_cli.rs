@@ -1,6 +1,8 @@
 //! Task 8.3: correlation and the run reference (table-manners 4.3, 4.4): a client's
 //! `client_run_id` claimed when its request is accepted and refused when reused, and the run's
-//! reference on every progress notification from allocation and in every listing.
+//! reference on every progress notification from allocation and in every listing. Task 9.7: a
+//! request that ends in a JSON-RPC error with no run releases its id; one cancelled before
+//! allocation keeps it.
 #![cfg(feature = "testkit")]
 #![allow(clippy::unwrap_used)]
 
@@ -168,6 +170,62 @@ fn a_malformed_id_is_invalid_params() {
     }
 }
 
+/// The runs list once it holds `count` runs and none is still running.
+fn runs_once_ended(c: &mut Client, count: usize) -> serde_json::Value {
+    let started = Instant::now();
+    loop {
+        let runs: serde_json::Value =
+            serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+        let entries = runs["runs"].as_array().unwrap();
+        if entries.len() == count && entries.iter().all(|r| r["status"] != "running") {
+            return runs;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "runs never ended: {runs}"
+        );
+    }
+}
+
+/// A request refused with a JSON-RPC error before any run releases its id (table-manners 4.4,
+/// squint's M8 review S3): the client fixes the request and sends it again under the same id,
+/// which is accepted, and its run carries the id. The refusals left no run behind.
+#[test]
+fn an_id_refused_with_no_run_is_released_for_the_corrected_request() {
+    let mut c = client(&out("released"), "held.json");
+    let mut unknown = pair();
+    unknown["colour"] = json!("blue");
+    let mut no_cap = pair();
+    no_cap["max_spend_usd"] = json!("a dollar");
+    for (tool, call) in [
+        ("source_fidelity", unknown),
+        ("source_fidelity", no_cap),
+        // An estimate that names no use case.
+        ("estimate", pair()),
+    ] {
+        let (code, data) = refused(c.call_with_meta(tool, call, json!({ CLIENT: "fix-1" })));
+        assert_eq!(code, -32602, "{tool}");
+        assert!(data.get("reason").is_none(), "{tool}: not a reuse: {data}");
+    }
+    let runs: serde_json::Value =
+        serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+    assert_eq!(runs["runs"], json!([]), "a refusal makes no run");
+
+    let accepted = c
+        .call_with_meta("source_fidelity", pair(), json!({ CLIENT: "fix-1" }))
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_eq!(accepted["status"], "completed", "{accepted}");
+    assert_eq!(accepted["run"]["client_run_id"], "fix-1");
+    // Once it has a run, the id is that run's for the session.
+    let (code, data) =
+        refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: "fix-1" })));
+    assert_eq!(code, -32602);
+    valid("urn:table-manners:core:refusal", &data);
+    assert_eq!(data["run"]["id"], accepted["run"]["id"]);
+}
+
 /// An id is claimed when its request is accepted, so one cancelled while it waited for the
 /// permit stays claimed: the next request with it is refused, with no run to point at.
 #[test]
@@ -191,7 +249,12 @@ fn an_id_cancelled_before_its_run_stays_claimed_with_no_run() {
     // Its heartbeat: accepted, claimed and waiting for the permit, so the cancel lands there.
     first_progress(&mut c, "q");
     c.cancel(queued).unwrap();
-    std::thread::sleep(Duration::from_millis(300));
+    // The server reads the two cancellations in order. Once the running call's run has ended,
+    // the permit is free, and the queued call, cancelled first, has given up its wait with no
+    // run: the one run listed is the running call's.
+    c.cancel(running).unwrap();
+    let runs = runs_once_ended(&mut c, 1);
+    assert_eq!(runs["runs"][0]["client_run_id"], "a", "{runs}");
     let mut call = pair();
     call["use_case"] = json!("source-fidelity");
     let (code, data) = refused(c.call_with_meta("estimate", call, json!({ CLIENT: "q" })));
@@ -199,7 +262,6 @@ fn an_id_cancelled_before_its_run_stays_claimed_with_no_run() {
     valid("urn:table-manners:core:refusal", &data);
     assert_eq!(data["reason"], "client_run_id_reused");
     assert!(data["run"].is_null(), "{data}");
-    c.cancel(running).unwrap();
 }
 
 /// Two requests sent together with one id: the first accepted takes it, the other is refused.
