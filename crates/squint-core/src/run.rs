@@ -1349,7 +1349,12 @@ async fn send_turn(
     };
     let response = sent.response;
     let hold = account.hold(bound_usd);
-    let settled_usd = pricing.cost(&response.usage);
+    // An answer that reports no usage still cost something: the turn's bound, the configured
+    // worst case, estimated (table-manners 4.5).
+    let (settled_usd, estimated) = match &response.usage {
+        Some(usage) => (pricing.cost(usage), false),
+        None => (bound_usd, true),
+    };
     account.settle(hold, settled_usd);
     let response_ref = state
         .artifacts
@@ -1358,7 +1363,8 @@ async fn send_turn(
         turn,
         stop_reason: response.stop_reason.clone(),
         tool_calls: response.tool_calls.iter().map(|c| c.name.clone()).collect(),
-        usage: response.usage,
+        usage: response.usage.unwrap_or_default(),
+        estimated,
         provider_request_id: response.provider_request_id.clone(),
         attempts: sent.attempts,
         cost_usd: settled_usd + charged_usd,

@@ -539,3 +539,20 @@ fn a_refused_retry_adds_no_charge() {
         r.spend
     );
 }
+
+/// A successful answer that reports no usage is not free: it counts the turn's bound, the
+/// configured worst case, and the run's basis becomes `estimated` (table-manners 4.5). It is
+/// settled by the answer, so none of it is unresolved.
+#[test]
+fn an_answer_without_usage_counts_its_bound_as_estimated() {
+    let mut answer = submission();
+    answer["usage"] = serde_json::Value::Null;
+    let (dir, r) = scripted("no-usage", serde_json::json!([answer]), None);
+    assert_eq!(r.status, Status::Completed);
+    assert_eq!(r.spend.basis, table_manners::SpendBasis::Estimated);
+    assert!(close(r.spend.usd, bound_of(&dir)), "{:?}", r.spend);
+    assert_eq!(r.spend.unresolved_usd, 0.0);
+
+    let (_, measured) = scripted("usage", serde_json::json!([submission()]), None);
+    assert_eq!(measured.spend.basis, table_manners::SpendBasis::Measured);
+}

@@ -168,7 +168,7 @@ fn journal_artifacts_hold_no_secret_even_when_the_model_echoes_it() {
         tool_calls: vec![],
         content: vec![],
         stop_reason: StopReason::EndTurn,
-        usage: Default::default(),
+        usage: Some(Default::default()),
         provider_request_id: None,
     };
     let provider = ScriptedProvider::new(vec![echo, valid[0].clone()]);

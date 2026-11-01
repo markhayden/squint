@@ -265,6 +265,11 @@
           ],
           "description": "The planned envelope, `None` when it could not be planned."
         },
+        "estimated": {
+          "default": false,
+          "description": "Some answer reported no usage and counts its bound: the spend is estimated, not measured.",
+          "type": "boolean"
+        },
         "overrun_usd": {
           "description": "Spend beyond the envelope (bounds are estimates).",
           "format": "double",
@@ -1494,6 +1499,11 @@
         },
         "entered_history": {
           "description": "Whether the response entered provider history (false for an excluded or unanswered turn).",
+          "type": "boolean"
+        },
+        "estimated": {
+          "default": false,
+          "description": "The answer reported no usage, so its cost is the turn's bound, estimated.",
           "type": "boolean"
         },
         "max_output_tokens": {

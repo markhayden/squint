@@ -287,11 +287,12 @@ fn gemini_parses_finish_reasons_usage_and_thoughts() {
     assert_eq!(r.text, vec!["Done."], "thought text is not model text");
     assert_eq!(r.content.len(), 2, "every part is echoed");
     assert_eq!(r.stop_reason, StopReason::EndTurn);
+    let usage = r.usage.unwrap();
     assert_eq!(
         (
-            r.usage.input_tokens,
-            r.usage.cache_read_tokens,
-            r.usage.output_tokens
+            usage.input_tokens,
+            usage.cache_read_tokens,
+            usage.output_tokens
         ),
         (100, 20, 35)
     );
@@ -467,4 +468,13 @@ fn gemini_fills_null_fields_the_model_left_out_of_a_submission() {
     assert_eq!(item["allowed_by"], Value::Null);
     assert_eq!(item["location"], Value::Null);
     squint_core::submission::validate_schema(&r.tool_calls[0].arguments).unwrap();
+}
+
+/// An answer without `usageMetadata` reports none: not zero tokens (table-manners 4.5).
+#[test]
+fn gemini_without_usage_reports_none() {
+    let (p, _) = provider("gemini-4-argon", "", json!({}));
+    let body = json!({ "candidates": [{ "content": { "parts": [{ "text": "hi" }] }, "finishReason": "STOP" }] });
+    let r = p.parse_response(&body.to_string(), None).unwrap();
+    assert_eq!(r.usage, None);
 }

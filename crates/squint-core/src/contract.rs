@@ -380,7 +380,11 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
             } else {
                 usd(report.cost.unresolved_usd)
             },
-            basis: SpendBasis::Measured,
+            basis: if report.cost.estimated && cache != Cache::Hit {
+                SpendBasis::Estimated
+            } else {
+                SpendBasis::Measured
+            },
         },
         cache,
         images: Some(Images {

@@ -97,8 +97,11 @@ pub struct TurnResponse {
     pub content: Vec<ContentBlock>,
     #[serde(default)]
     pub stop_reason: StopReason,
-    #[serde(default)]
-    pub usage: Usage,
+    /// `None` when the answer reported no usage: its cost is then the turn's configured bound,
+    /// estimated, not zero (table-manners 4.5). Left out of a script it is zero usage; `null`
+    /// is an answer that reported none.
+    #[serde(default = "zero_usage")]
+    pub usage: Option<Usage>,
     #[serde(default)]
     pub provider_request_id: Option<String>,
 }
@@ -132,6 +135,10 @@ pub struct Usage {
     /// Input tokens written to the provider's prompt cache (priced at the cache-write rate).
     #[serde(default, skip_serializing_if = "is_zero")]
     pub cache_write_tokens: u64,
+}
+
+fn zero_usage() -> Option<Usage> {
+    Some(Usage::default())
 }
 
 fn is_zero(n: &u64) -> bool {

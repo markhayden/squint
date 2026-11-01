@@ -174,8 +174,8 @@ tag.
 - [x] After v0.2.0 is published (2026-11-01): `table-manners = "=0.2.0"` from crates.io instead of `../table-manners`
 - [x] M8 checkpoint review (2026-11-01, scratchpad m8-review.md): fixed I1 amounts to six decimals (fixtures redone and re-sent), I2 a refused retry charged a phantom bound, I4 the session settles spend and its unresolved part in one step, I5 docs
 - [ ] Follow-ups from the M8 review:
-  - [ ] I3: a successful answer with no usage (OpenAI and Gemini parsers default it to zeros) counts the configured price with `basis: estimated`, not zero `measured` (4.5)
+  - [x] I3 (2026-11-01): a successful answer with no usage (OpenAI and Gemini parsers default it to zeros) counts the configured price with `basis: estimated`, not zero `measured` (4.5)
   - [ ] cancellation re-checked just before the decision directory is made; `association.json` written atomically and with `action`; a failed association write leaves no second run
   - [ ] tests: concurrent requests with one id, reuse while queued (not cancelled) or running, progress before allocation has no `_meta`, a non-string `client_run_id`, the no-run refusal validated against the schema, runs of one start time split across a page, connection-refused mapped to not sent through the real HTTP client
   - [ ] the claims map grows for the life of a session (bound it, or say so in the SPEC)
-- [ ] Checkpoint M8 → tag `m8`
+- [x] Checkpoint M8 → tag `m8` (2026-11-01: merged into main at `3e6223a` on table-manners 0.2.0 from crates.io; pushed and tagged by the owner)

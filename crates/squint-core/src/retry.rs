@@ -191,7 +191,7 @@ mod tests {
             tool_calls: vec![],
             content: vec![],
             stop_reason: StopReason::EndTurn,
-            usage: Default::default(),
+            usage: Some(Default::default()),
             provider_request_id: None,
         })
     }

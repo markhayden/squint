@@ -292,11 +292,12 @@ fn openai_parses_output_items_statuses_and_usage() {
     assert!(
         matches!(&r.content[0], ContentBlock::Opaque { block, .. } if block["encrypted_content"] == "ENC1")
     );
+    let usage = r.usage.unwrap();
     assert_eq!(
         (
-            r.usage.input_tokens,
-            r.usage.cache_read_tokens,
-            r.usage.output_tokens
+            usage.input_tokens,
+            usage.cache_read_tokens,
+            usage.output_tokens
         ),
         (70, 30, 50)
     );
@@ -431,4 +432,13 @@ async fn openai_sends_a_bearer_token_runs_preflight_first_and_maps_transport_err
         .build_body(&request(&h, &[foreign_tool], &im))
         .unwrap_err();
     assert_eq!(err.class(), "resolve", "{err}");
+}
+
+/// An answer without a usage block reports none: not zero tokens (table-manners 4.5).
+#[test]
+fn openai_without_usage_reports_none() {
+    let (p, _) = provider("gpt-6.1-sol", "", json!({}));
+    let body = json!({ "id": "resp_1", "status": "completed", "output": [{ "type": "message", "role": "assistant", "content": [{ "type": "output_text", "text": "hi", "annotations": [] }] }] });
+    let r = p.parse_response(&body.to_string(), None).unwrap();
+    assert_eq!(r.usage, None);
 }

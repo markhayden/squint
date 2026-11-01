@@ -127,6 +127,9 @@ pub struct TurnReceived {
     pub stop_reason: StopReason,
     pub tool_calls: Vec<String>,
     pub usage: Usage,
+    /// The answer reported no usage, so its cost is the turn's bound, not a measured figure.
+    #[serde(default)]
+    pub estimated: bool,
     pub provider_request_id: Option<String>,
     pub attempts: u32,
     pub cost_usd: f64,

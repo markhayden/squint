@@ -17,8 +17,9 @@ pub struct MessageResponse {
     pub stop_reason: Option<String>,
     #[serde(default)]
     pub stop_details: Option<StopDetails>,
+    /// `None` when the answer carried no usage block.
     #[serde(default)]
-    pub usage: Usage,
+    pub usage: Option<Usage>,
     /// Present when the API dropped or let through replayed thinking blocks.
     #[serde(default)]
     pub input_transformations: Vec<Value>,
