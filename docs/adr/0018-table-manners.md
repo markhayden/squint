@@ -109,6 +109,28 @@ SIGINT and 143 for SIGTERM (squint exits 3 on cancellation today and changes). 1
 needs squint's `allowed` obligations to take a region. It is its own milestone after the
 conformance work, and the contract's cross-tool acceptance test is its definition of done.
 
+*Amended 2026-11-01 for table-manners v0.3 (PLAN.md M9; takes effect as each task lands).* The
+contract now decides that an estimate is a control, never a run, and that `estimate` takes the
+paid call's exact arguments; squint's zero-spend estimate runs go, and `estimate` no longer
+reports "the session budget left" in a body of its own (the estimate's `session` is the session
+resource). The error codes gain `credential`, `cap` and `stale_estimate`. Where the contract
+leaves the choice to the tool, squint chooses:
+
+- **Configuration lookup.** `--config <path>`, else `./squint.toml`, else
+  `$XDG_CONFIG_HOME/squint/squint.toml`; none found is not an error for `describe` or `serve`.
+  An unconfigured server writes its runs under `--out`, else `$XDG_STATE_HOME/squint/runs`.
+- **Readiness with no configuration** lists only the `config` requirement: the credential and
+  the model are the config's choice, and naming one profile's key would be a guess. A config that
+  loads is `present`; `valid` is kept for provider answers.
+- **Binding and expiry.** The binding is a sha256 over the action, the arguments with each image
+  replaced by its file digest (path and inline bind equal), the tool version, the identity of the
+  redacted configuration and the session id; an estimate expires after one hour, and a binding the
+  session never issued is stale.
+- **Cap and budget.** Refusals by the per-call ledger, including a retry the decision envelope can
+  no longer cover, are `cap`; refusals by the session ledger are `budget`.
+- **Renders.** `report view` exits 0 on stdin EOF and on SIGTERM; with no `--frame-ancestor` it
+  allows no framing at all (`frame-ancestors 'none'`).
+
 ## Alternatives
 
 - **squint stays the origin of the shared schemas.** It is how rascal's copies went stale, and it
