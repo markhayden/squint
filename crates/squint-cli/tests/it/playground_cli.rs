@@ -1,5 +1,5 @@
-//! Task 7.9: `squint playground` hands off to Wafflehouse by the launcher agreement (wafflehouse
-//! H1): exactly `wafflehouse --tool squint`, found at `WAFFLEHOUSE_BIN`, on `PATH` or in
+//! Task 7.9: `squint playground` hands off to Wafflery by the launcher agreement (wafflery
+//! H1): exactly `wafflery --tool squint`, found at `WAFFLERY_BIN`, on `PATH` or in
 //! `~/.local/bin`, its exit code kept; when it is missing, an install offer on a terminal and 69
 //! off one. Fake programs record their arguments; nothing here installs anything real.
 #![allow(clippy::unwrap_used)]
@@ -25,7 +25,7 @@ fn script(path: &Path, body: &str) {
     std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
 }
 
-/// A fake `wafflehouse` that writes its arguments, one per line, to `argv` beside it and exits
+/// A fake `wafflery` that writes its arguments, one per line, to `argv` beside it and exits
 /// with `code`.
 fn fake_host(path: &Path, code: i32) {
     script(
@@ -41,7 +41,7 @@ fn argv_of(host: &Path) -> Option<Vec<String>> {
 }
 
 /// `squint playground <extra>` with `HOME` in the scratch directory, `PATH` the given directories
-/// and the system's, no `WAFFLEHOUSE_BIN` unless set, and `stdin` fed to it.
+/// and the system's, no `WAFFLERY_BIN` unless set, and `stdin` fed to it.
 fn playground(
     dir: &Path,
     path: &[&Path],
@@ -56,7 +56,7 @@ fn playground(
         .args(extra)
         .env("HOME", dir.join("home"))
         .env("PATH", dirs.join(":"))
-        .env_remove("WAFFLEHOUSE_BIN")
+        .env_remove("WAFFLERY_BIN")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -80,11 +80,11 @@ fn stderr(o: &Output) -> String {
 fn the_program_on_path_gets_exactly_the_tool_and_its_exit_code_is_kept() {
     let dir = scratch("path");
     let bin = dir.join("bin dir");
-    fake_host(&bin.join("wafflehouse"), 7);
+    fake_host(&bin.join("wafflery"), 7);
     let o = playground(&dir, &[&bin], &[], &[], "");
     assert_eq!(o.status.code(), Some(7), "{}", stderr(&o));
     assert_eq!(
-        argv_of(&bin.join("wafflehouse")).unwrap(),
+        argv_of(&bin.join("wafflery")).unwrap(),
         ["--tool", "squint"]
     );
 }
@@ -93,7 +93,7 @@ fn the_program_on_path_gets_exactly_the_tool_and_its_exit_code_is_kept() {
 fn the_launchers_success_is_squints() {
     let dir = scratch("success");
     let bin = dir.join("bin");
-    fake_host(&bin.join("wafflehouse"), 0);
+    fake_host(&bin.join("wafflery"), 0);
     let o = playground(&dir, &[&bin], &[], &[], "");
     assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
     assert!(o.stdout.is_empty(), "squint's stdout stays clean");
@@ -102,14 +102,14 @@ fn the_launchers_success_is_squints() {
 #[test]
 fn an_explicit_override_wins_over_path() {
     let dir = scratch("override");
-    let chosen = dir.join("chosen").join("wafflehouse");
-    let on_path = dir.join("bin").join("wafflehouse");
+    let chosen = dir.join("chosen").join("wafflery");
+    let on_path = dir.join("bin").join("wafflery");
     fake_host(&chosen, 0);
     fake_host(&on_path, 0);
     let o = playground(
         &dir,
         &[on_path.parent().unwrap()],
-        &[("WAFFLEHOUSE_BIN", chosen.to_str().unwrap())],
+        &[("WAFFLERY_BIN", chosen.to_str().unwrap())],
         &[],
         "",
     );
@@ -121,15 +121,15 @@ fn an_explicit_override_wins_over_path() {
 #[test]
 fn an_invalid_override_fails_and_never_falls_through() {
     let dir = scratch("invalid override");
-    let on_path = dir.join("bin").join("wafflehouse");
+    let on_path = dir.join("bin").join("wafflery");
     fake_host(&on_path, 0);
-    let not_exec = dir.join("plain").join("wafflehouse");
+    let not_exec = dir.join("plain").join("wafflery");
     std::fs::create_dir_all(not_exec.parent().unwrap()).unwrap();
     std::fs::write(&not_exec, "#!/bin/sh\n").unwrap();
-    let missing = dir.join("missing").join("wafflehouse");
+    let missing = dir.join("missing").join("wafflery");
     let a_dir = dir.join("bin");
     for bad in [
-        "wafflehouse",
+        "wafflery",
         missing.to_str().unwrap(),
         a_dir.to_str().unwrap(),
         not_exec.to_str().unwrap(),
@@ -137,16 +137,12 @@ fn an_invalid_override_fails_and_never_falls_through() {
         let o = playground(
             &dir,
             &[on_path.parent().unwrap()],
-            &[("WAFFLEHOUSE_BIN", bad)],
+            &[("WAFFLERY_BIN", bad)],
             &[],
             "",
         );
         assert_eq!(o.status.code(), Some(69), "{bad}: {}", stderr(&o));
-        assert!(
-            stderr(&o).contains("WAFFLEHOUSE_BIN"),
-            "{bad}: {}",
-            stderr(&o)
-        );
+        assert!(stderr(&o).contains("WAFFLERY_BIN"), "{bad}: {}", stderr(&o));
         assert!(argv_of(&on_path).is_none(), "{bad} fell through to PATH");
     }
 }
@@ -154,13 +150,13 @@ fn an_invalid_override_fails_and_never_falls_through() {
 #[test]
 fn the_local_bin_is_the_last_place_looked() {
     let dir = scratch("local bin");
-    let local = dir.join("home/.local/bin/wafflehouse");
+    let local = dir.join("home/.local/bin/wafflery");
     fake_host(&local, 0);
     let o = playground(&dir, &[], &[], &[], "");
     assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
     assert_eq!(argv_of(&local).unwrap(), ["--tool", "squint"]);
 
-    let on_path = dir.join("bin").join("wafflehouse");
+    let on_path = dir.join("bin").join("wafflery");
     fake_host(&on_path, 0);
     std::fs::remove_file(local.parent().unwrap().join("argv")).unwrap();
     let o = playground(&dir, &[on_path.parent().unwrap()], &[], &[], "");
@@ -172,18 +168,18 @@ fn the_local_bin_is_the_last_place_looked() {
 #[test]
 fn a_symlinked_program_is_run_and_a_directory_on_path_is_skipped() {
     let dir = scratch("symlink");
-    let real = dir.join("cellar").join("wafflehouse");
+    let real = dir.join("cellar").join("wafflery");
     fake_host(&real, 0);
     let linked = dir.join("linked");
     std::fs::create_dir_all(&linked).unwrap();
-    std::os::unix::fs::symlink(&real, linked.join("wafflehouse")).unwrap();
+    std::os::unix::fs::symlink(&real, linked.join("wafflery")).unwrap();
     let shadow = dir.join("shadow");
-    std::fs::create_dir_all(shadow.join("wafflehouse")).unwrap();
+    std::fs::create_dir_all(shadow.join("wafflery")).unwrap();
     let o = playground(&dir, &[&shadow, &linked], &[], &[], "");
     assert_eq!(o.status.code(), Some(0), "{}", stderr(&o));
     // The fake writes beside the name it was run by: the link, not its target.
     assert_eq!(
-        argv_of(&linked.join("wafflehouse")).unwrap(),
+        argv_of(&linked.join("wafflery")).unwrap(),
         ["--tool", "squint"]
     );
 }
@@ -192,7 +188,7 @@ fn a_symlinked_program_is_run_and_a_directory_on_path_is_skipped() {
 fn a_launcher_killed_by_a_signal_exits_128_plus_the_signal() {
     let dir = scratch("signal");
     let bin = dir.join("bin");
-    script(&bin.join("wafflehouse"), "kill -TERM $$");
+    script(&bin.join("wafflery"), "kill -TERM $$");
     let o = playground(&dir, &[&bin], &[], &[], "");
     assert_eq!(o.status.code(), Some(143), "{}", stderr(&o));
 }
@@ -201,10 +197,10 @@ fn a_launcher_killed_by_a_signal_exits_128_plus_the_signal() {
 fn extra_arguments_are_a_usage_error() {
     let dir = scratch("extra");
     let bin = dir.join("bin");
-    fake_host(&bin.join("wafflehouse"), 0);
+    fake_host(&bin.join("wafflery"), 0);
     let o = playground(&dir, &[&bin], &[], &["--library", "x"], "");
     assert_eq!(o.status.code(), Some(64), "{}", stderr(&o));
-    assert!(argv_of(&bin.join("wafflehouse")).is_none());
+    assert!(argv_of(&bin.join("wafflery")).is_none());
 }
 
 #[test]
@@ -213,8 +209,8 @@ fn missing_off_a_terminal_exits_69_with_instructions_and_changes_nothing() {
     let o = playground(&dir, &[], &[], &[], "y\n");
     assert_eq!(o.status.code(), Some(69), "{}", stderr(&o));
     let err = stderr(&o);
-    assert!(err.contains("Wafflehouse"), "{err}");
-    assert!(err.contains("WAFFLEHOUSE_BIN"), "{err}");
+    assert!(err.contains("Wafflery"), "{err}");
+    assert!(err.contains("WAFFLERY_BIN"), "{err}");
     assert!(!err.contains("[y/N]"), "no offer off a terminal: {err}");
     assert!(!dir.join("home/.local").exists());
 }
@@ -235,7 +231,7 @@ mod offer {
 
     /// A fake installer that puts a fake host (exiting `code`) at the path it is given.
     fn fake_installer(dir: &Path, code: i32) -> PathBuf {
-        let payload = dir.join("payload").join("wafflehouse");
+        let payload = dir.join("payload").join("wafflery");
         fake_host(&payload, code);
         let path = dir.join("installer").join("install");
         script(
@@ -246,7 +242,7 @@ mod offer {
     }
 
     fn local(dir: &Path) -> PathBuf {
-        dir.join("home/.local/bin/wafflehouse")
+        dir.join("home/.local/bin/wafflery")
     }
 
     #[test]

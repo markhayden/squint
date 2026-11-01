@@ -1500,13 +1500,13 @@ section says what squint does with them.
 - **Exit codes** across commands: 0 success, 3 error, 64 usage or input, 130 on SIGINT and 143
   on SIGTERM;
   1 fail and 2 unsure remain `check`'s; 69, 70 and 74 are `playground`'s (below).
-- **`squint playground`** hands off to Wafflehouse, the shared local program, by the launcher
-  agreement (wafflehouse H1): it runs `wafflehouse --tool squint` and nothing else, waits, and
+- **`squint playground`** hands off to Wafflery, the shared local program, by the launcher
+  agreement (wafflery H1): it runs `wafflery --tool squint` and nothing else, waits, and
   exits with the launcher's code (128 + the signal when the launcher is killed by one). It takes
-  no arguments. The program is found at `WAFFLEHOUSE_BIN` (an absolute path; anything else is an
-  error, never a fall-through), else `wafflehouse` on `PATH`, else `~/.local/bin/wafflehouse`;
+  no arguments. The program is found at `WAFFLERY_BIN` (an absolute path; anything else is an
+  error, never a fall-through), else `wafflery` on `PATH`, else `~/.local/bin/wafflery`;
   each must be an executable regular file once symlinks are followed. When none is found:
-  on a terminal (stdin and stderr both) squint explains what Wafflehouse is and offers to install
+  on a terminal (stdin and stderr both) squint explains what Wafflery is and offers to install
   it into `~/.local/bin`; no (or end of input) changes nothing and exits 0. No installer is
   published yet, so release builds say so and exit 69 instead of offering; an install failure
   exits 74 and starts nothing. Off a terminal it prints the instructions and exits 69. squint

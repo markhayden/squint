@@ -93,16 +93,18 @@ exit code, whether two runs agreed, the report's path). A `fail` verdict is `com
 | 3 | error |
 | 64 | a usage error, or an `invalid` request (a job that does not resolve, an image that is not the one named), whatever the policy |
 | 130, 143 | cancelled by SIGINT, SIGTERM (`check` and `eval run`) |
-| 69, 70, 74 | `playground` only: Wafflehouse unavailable, its startup failed, its install failed |
+| 69, 70, 74 | `playground` only: Wafflery unavailable, its startup failed, its install failed |
 
-## Wafflehouse
+## Wafflery
 
-`squint playground` runs `wafflehouse --tool squint` and exits with its code (128 + the signal
-when it is killed by one); it takes no arguments. The program is `WAFFLEHOUSE_BIN` (absolute),
-else `wafflehouse` on `PATH`, else `~/.local/bin/wafflehouse`; a bad `WAFFLEHOUSE_BIN` is an
+Wafflery was called Wafflehouse until 2026-11-01.
+
+`squint playground` runs `wafflery --tool squint` and exits with its code (128 + the signal
+when it is killed by one); it takes no arguments. The program is `WAFFLERY_BIN` (absolute),
+else `wafflery` on `PATH`, else `~/.local/bin/wafflery`; a bad `WAFFLERY_BIN` is an
 error, never skipped. When none exists it exits 69 with instructions: no installer is published
-yet, so there is nothing to offer. The launcher agreement is wafflehouse H1; everything after the
-hand-off (the host, its library, the browser) is Wafflehouse's.
+yet, so there is nothing to offer. The launcher agreement is wafflery H1; everything after the
+hand-off (the host, its library, the browser) is Wafflery's.
 
 ## Not yet
 
