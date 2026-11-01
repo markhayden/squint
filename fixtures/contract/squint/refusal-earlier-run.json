@@ -1,0 +1,9 @@
+{
+  "reason": "client_run_id_reused",
+  "run": {
+    "client_run_id": "host-attempt-1",
+    "id": "served-cancelled",
+    "resource": "squint://run/served-cancelled/run.json",
+    "session_id": "00000000-0000-4000-8000-000000000001"
+  }
+}

@@ -1425,8 +1425,8 @@ section says what squint does with them.
   server conventions. Tools: one per use case, as `describe` lists them (`source_fidelity`, …: one
   decision each; images by path or inline bytes in any slot; paths only inside the client's MCP
   roots narrowed by config; inline bytes bounded), `estimate` (worst-case cost of a check and the
-  session budget left; on the command line `squint estimate`, priced from the catalog with no
-  credential), and `describe`. squint's own self-description (`rules`, `tools list`, `catalog`)
+  effective per-call cap; the session's budget is the `squint://session` resource; on the command
+  line `squint estimate`, priced from the catalog with no credential), and `describe`. squint's own self-description (`rules`, `tools list`, `catalog`)
   stays on the command line and is referenced from the description's `x-squint`. An `invalid` or
   `error` outcome is a result with `isError` and the header; JSON-RPC errors are only for failures
   before a run exists. Each image out carries its reference and the locator the call asked for
@@ -1445,19 +1445,31 @@ section says what squint does with them.
   sends a notification on every journal line of every run (through an observer the journal calls
   after each write) and a heartbeat after five seconds of silence, well inside the ten the
   description states; `progress` is elapsed seconds with no total, nudged so it never repeats,
-  and the message carries the words (`run-1: turn_sent`, `waiting, 12 s`); the first names the
-  run resource. `notifications/cancelled` stops the
+  and the message carries the words (`run-1: turn_sent`, `waiting, 12 s`). From the moment the
+  run is allocated every notification, heartbeats included, carries its reference in
+  `_meta["table-manners/run"]` (id, resource, session id, client run id). A request may carry
+  `_meta["table-manners/client_run_id"]` (`^[A-Za-z0-9._:-]{1,128}$`): claimed for the session
+  when the request is accepted, written into the run's directory when it is made, and a reuse is
+  `-32602` with the earlier request's run (null while it has none). `notifications/cancelled` stops the
   provider call; `run.json` and the run resource then hold status `cancelled` with spend to date,
   and no result is returned. An identical retry within the cache policy is answered from the
   decision cache and says so.
-- **Runs as resources**: `squint://runs` (recent runs newest first, `running` included),
+- **The session**: `squint://session` (table-manners 4.6), one atomic observation of the serving
+  process's ledger: a random UUID (v4) made at start, when it started, the budget
+  (`[serve] session_budget_usd`), spent with its unresolved part, reserved and remaining; every
+  amount in a result or the session is written to at most six decimals.
+- **Runs as resources**: `squint://runs` (the newest page of runs, newest first by start time and
+  id, `running` included; `squint://runs?cursor=<next_cursor>` the next, fifty to a page, the
+  cursor opaque base64url; a run started during a walk is seen by reading page one again),
   `squint://run/<id>/run.json`, `…/report.json` and `…/journal` for every decision the server ran,
   readable after a timeout or a dropped connection; every run has a journal, an empty one when it
   made no decision (an `estimate`, a call refused before its first run).
 - **`run.json`**: written last and atomically (a temporary name, then a rename) into every
   decision directory by `check` on every surface, cache hits and cancelled decisions included: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
-  timestamps and duration, input identity, measured spend, cache, the images taken in with their
+  timestamps and duration, input identity, measured spend (with `unresolved_usd`: a provider call
+  that never left costs nothing, an authentication rejection costs nothing, and one sent with no
+  answer reporting usage, or cancelled in flight, counts at its bound), cache, the images taken in with their
   slots and roles, every finding's location, notes for image warnings and repairs) and squint's
   body (verdict, exit code, whether two runs agreed, the report's path). The result's `action` is
   the use case's as `describe` names it (`source_fidelity`), from the command line as from MCP. A

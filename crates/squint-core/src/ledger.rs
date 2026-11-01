@@ -197,6 +197,12 @@ pub trait Ledger: Send + Sync {
     fn settle(&self, reserved_usd: f64, spent_usd: f64);
     fn reserved(&self) -> f64;
     fn spent(&self) -> f64;
+    /// [`Ledger::settle`] with the part of `spent_usd` no provider answer settled (table-manners
+    /// 2.3), in one step so an observer never sees one without the other. Ledgers that do not
+    /// report unresolved spend settle as usual.
+    fn settle_with_unresolved(&self, reserved_usd: f64, spent_usd: f64, _unresolved_usd: f64) {
+        self.settle(reserved_usd, spent_usd);
+    }
 }
 
 /// The per-job ledger: one cap, a mutex around the balances.
@@ -210,6 +216,7 @@ pub struct CapLedger {
 struct Balances {
     reserved: f64,
     spent: f64,
+    unresolved: f64,
 }
 
 /// Rounding slack on currency comparisons.
@@ -225,6 +232,13 @@ impl CapLedger {
 
     fn balances(&self) -> Balances {
         self.balances.lock().map(|b| *b).unwrap_or_default()
+    }
+
+    /// Spent, reserved and unresolved read together, so an observer never sees a reservation
+    /// settled into spend on one side and not the other.
+    pub fn snapshot(&self) -> (f64, f64, f64) {
+        let b = self.balances();
+        (b.spent, b.reserved, b.unresolved)
     }
 }
 
@@ -263,6 +277,14 @@ impl Ledger for CapLedger {
     fn spent(&self) -> f64 {
         self.balances().spent
     }
+
+    fn settle_with_unresolved(&self, reserved_usd: f64, spent_usd: f64, unresolved_usd: f64) {
+        if let Ok(mut b) = self.balances.lock() {
+            b.reserved = (b.reserved - reserved_usd).max(0.0);
+            b.spent += spent_usd;
+            b.unresolved += unresolved_usd.max(0.0);
+        }
+    }
 }
 
 /// A hold on part of the envelope for one billable attempt.
@@ -276,6 +298,8 @@ pub struct Account {
     unallocated: f64,
     holds: Vec<Option<f64>>,
     settled: f64,
+    /// The part of `settled` charged at a bound because no answer settled it.
+    unresolved: f64,
     overrun: f64,
 }
 
@@ -287,6 +311,9 @@ pub struct Closing {
     pub released_usd: f64,
     /// Spend beyond what the envelope planned (bounds are estimates).
     pub overrun_usd: f64,
+    /// The part of `spent_usd` charged at a bound because no answer settled it.
+    #[serde(default)]
+    pub unresolved_usd: f64,
 }
 
 impl Account {
@@ -296,6 +323,7 @@ impl Account {
             unallocated: envelope_usd,
             holds: Vec::new(),
             settled: 0.0,
+            unresolved: 0.0,
             overrun: 0.0,
         }
     }
@@ -360,6 +388,7 @@ impl Account {
     pub fn charge(&mut self, hold: Hold) {
         if let Some(held) = self.holds.get_mut(hold.0).and_then(Option::take) {
             self.settled += held;
+            self.unresolved += held;
         }
     }
 
@@ -373,6 +402,7 @@ impl Account {
             spent_usd: self.settled,
             released_usd: self.unallocated,
             overrun_usd: self.overrun,
+            unresolved_usd: self.unresolved,
         }
     }
 }

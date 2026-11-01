@@ -7,7 +7,7 @@
     "verdict": null
   },
   "cache": "off",
-  "contract": "0.1.0",
+  "contract": "0.2.0",
   "duration_ms": 0,
   "error": null,
   "finished": "2026-01-01T00:00:00.000Z",
@@ -47,12 +47,15 @@
   },
   "notes": [],
   "run": {
+    "client_run_id": null,
     "dir": "/runs/cancelled",
     "id": "cancelled",
-    "resource": "squint://run/cancelled/run.json"
+    "resource": "squint://run/cancelled/run.json",
+    "session_id": null
   },
   "spend": {
     "basis": "measured",
+    "unresolved_usd": 0.0,
     "usd": -0.0
   },
   "started": "2026-01-01T00:00:00.000Z",

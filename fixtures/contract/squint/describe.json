@@ -1064,7 +1064,7 @@
       "title": "Estimate"
     }
   ],
-  "contract": "0.1.0",
+  "contract": "0.2.0",
   "limits": {
     "inline_bytes": 67108864
   },
@@ -1074,6 +1074,7 @@
   "progress_interval_s": 10,
   "resources": [
     "squint://runs",
+    "squint://session",
     "squint://run/{id}/run.json",
     "squint://run/{id}/report.json",
     "squint://run/{id}/journal"

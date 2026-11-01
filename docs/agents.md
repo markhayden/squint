@@ -26,7 +26,7 @@ squint estimate --config squint.toml --job job.toml [--max-spend-usd 0.10]
 
 The worst case one check would reserve, priced from the catalog with no credential, and whether
 the cap covers it (`fits`). Every recorded provider replay spends within its estimate. Over MCP,
-`estimate` also reports the session budget left.
+the session's budget, spent and remaining are the `squint://session` resource.
 
 ## Serve
 
@@ -46,12 +46,17 @@ ordinary decision (its directory, journal, report and `run.json`).
   budget (`[serve] session_budget_usd`, default $20) every decision reserves against before its
   first request. Calls are serial unless `[serve] concurrency` allows more.
 - **Progress**: with a progress token, a notification per journal line and a heartbeat after five
-  seconds of silence; `progress` is elapsed seconds and never repeats; the first names the run.
+  seconds of silence; `progress` is elapsed seconds and never repeats; from the run's allocation,
+  each one carries the run's reference in `_meta["table-manners/run"]`.
+- **Correlation**: send `_meta["table-manners/client_run_id"]` with a call to find its run after a
+  lost connection; an id is good once per server session (a reuse is `-32602`, reason
+  `client_run_id_reused`, naming the earlier run).
 - **Cancellation**: `notifications/cancelled` stops the provider call; the run's `run.json` says
   `cancelled` with spend to date, and the request gets no response.
-- **Resources**: `squint://runs` (newest first, running ones included), and per run
-  `squint://run/<id>/run.json`, `…/report.json` and `…/journal`, readable after a timeout or a
-  dropped connection.
+- **Resources**: `squint://runs` (newest first, running ones included, fifty to a page; the next
+  page is `squint://runs?cursor=<next_cursor>`), `squint://session` (the session id, budget,
+  spent, unresolved, reserved and remaining), and per run `squint://run/<id>/run.json`,
+  `…/report.json` and `…/journal`, readable after a timeout or a dropped connection.
 - **Results**: the `run.json` below as `structuredContent`; `isError` for `invalid` and `error`.
   Arguments the input schema rejects and unknown tools are JSON-RPC errors, since no run exists.
 
@@ -59,7 +64,8 @@ ordinary decision (its directory, journal, report and `run.json`).
 
 Every decision directory ends with `run.json`, written atomically, from the command line and from
 MCP alike, cache hits and cancellations included: the contract's header (status, error code with
-`retryable`, timestamps, input identity, measured spend, cache, the images taken in with their
+`retryable`, timestamps, input identity, measured spend (`unresolved_usd` is the part no provider
+answer settled, counted at its worst case: show it as "at most"), cache, the images taken in with their
 roles, every finding as a contract location on the file as stored) and squint's body (verdict,
 exit code, whether two runs agreed, the report's path). A `fail` verdict is `completed`.
 

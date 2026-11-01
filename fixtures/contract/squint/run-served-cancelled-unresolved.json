@@ -1,0 +1,67 @@
+{
+  "action": "source_fidelity",
+  "body": {
+    "agree": null,
+    "exit_code": 3,
+    "report": "/runs/served-cancelled/report.json",
+    "verdict": null
+  },
+  "cache": "off",
+  "contract": "0.2.0",
+  "duration_ms": 0,
+  "error": null,
+  "finished": "2026-01-01T00:00:00.000Z",
+  "images": {
+    "in": [
+      {
+        "image": {
+          "file_sha256": "7fb7b6859319d2977ef89ed044dcda94c94401358f4ac71b60ef2613de300556",
+          "height": 48,
+          "pixel_sha256": "9e75f7d58acb79c39101feb3715c44dda1e29e165a5106903093e1b5c2be9b0a",
+          "projection": "flat",
+          "topology": "bounded",
+          "width": 64
+        },
+        "role": "candidate",
+        "slot": "candidate"
+      },
+      {
+        "image": {
+          "file_sha256": "8c12b7425ca2c5cbc9cfa733fbab6f2bd267a379baaec01e0fecb2d2ab6b154f",
+          "height": 48,
+          "pixel_sha256": "10528ff682d842b99ab3028c02deeeccc6e0f8e4c63abb5a45814a7a7fd8cd77",
+          "projection": "flat",
+          "topology": "bounded",
+          "width": 64
+        },
+        "role": "source",
+        "slot": "source"
+      }
+    ],
+    "out": []
+  },
+  "input_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "locations": {
+    "found": [],
+    "used": []
+  },
+  "notes": [],
+  "run": {
+    "client_run_id": "host-attempt-1",
+    "dir": "/runs/served-cancelled",
+    "id": "served-cancelled",
+    "resource": "squint://run/served-cancelled/run.json",
+    "session_id": "00000000-0000-4000-8000-000000000001"
+  },
+  "spend": {
+    "basis": "measured",
+    "unresolved_usd": 0.006983,
+    "usd": 0.006983
+  },
+  "started": "2026-01-01T00:00:00.000Z",
+  "status": "cancelled",
+  "tool": {
+    "name": "squint",
+    "version": "0.0.0"
+  }
+}

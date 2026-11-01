@@ -95,6 +95,8 @@ M7  7.1 ← table-manners v0.1.0 on crates.io            7.2 ← 7.1         7.3
     7.4 ← 7.2, 7.3    7.5 ← 7.1        7.6 ← 7.5         7.7a ← 7.5, 7.6
     7.7b ← 7.7a, 7.4  7.8 ← 7.7b       7.9 ← 7.1, wafflehouse H1
     7.10 ← 7.4, 7.5, 7.8                7.11 ← 7.7a
+M8  8.1 ← table-manners v0.2-contract    8.2 ← 8.1    8.3 ← 8.2    8.4 ← 8.1
+    8.5 ← 8.3                            8.6 ← 8.2–8.5, then v0.2.0 published
 ```
 
 Every M1 task names a CLI scenario that demonstrates its behaviour through the binary using only
@@ -1533,6 +1535,95 @@ change after M7.
 - [ ] Every conformance item of table-manners v0.1.0, core (7) and images (12), checked one by one.
 - [ ] `docs/` and README describe `serve`, `describe`, `estimate`, `run.json` and the exit codes.
 - [ ] Review and test skills (or checklist); owner review; merge; tag `m7`.
+
+## Milestone M8: table-manners v0.2 (run association and budget sessions)
+
+squint conforms to `table-manners` v0.2.0: wafflehouse's C4 as agreed by rascal and squint
+(table-manners `PROPOSALS.md`, CONTRACT.md 2.3 and 4.1–4.6). The branch `m8-v0.2` starts from
+`main`. Until the owner tags and publishes v0.2.0, squint builds against the crate at
+`../table-manners` (its `v0.2-contract` branch, rascal the only writer) and hands its fixtures to
+rascal as a directory; the tag waits on both tools' fixtures. After publication the dependency
+becomes `=0.2.0` from crates.io.
+
+### Task 8.1: The contract at v0.2
+
+**Description.** `table-manners` at version `=0.2.0` with a path to `../table-manners` until it is
+published; `schemas/contract/` and `SOURCES.toml` refreshed to the v0.2 schemas (`run-ref`,
+`session`, `refusal` new); code moved to the v0.2 types with every new field set to its honest
+v0.1-equivalent value (`session_id` and `client_run_id` null, `unresolved_usd` 0, one page of runs).
+
+**Acceptance.** The schema copy test passes against the v0.2 crate; every existing contract test
+validates against the v0.2 schemas.
+
+**Dependencies.** table-manners `v0.2-contract` checked out at `../table-manners`. **Size.** S.
+
+### Task 8.2: The session
+
+**Description.** A random UUID (v4) generated at `serve` start; a `squint://session` resource (4.6)
+from the session ledger: budget, spent, unresolved, reserved, remaining, never stale; every run a
+server makes carries `session_id`, every CLI run null. `estimate` drops `session_budget_left_usd`.
+
+**Acceptance.** The resource validates and is listed; two servers have different ids; a read
+while a check holds the permit answers at once; spent and reserved move across a check.
+
+**Dependencies.** 8.1. **Size.** M.
+
+### Task 8.3: Correlation and the run reference
+
+**Description.** `_meta["table-manners/client_run_id"]` read and validated, claimed atomically
+when the request is accepted (before the permit wait), held for the session even if cancelled
+before allocation; a reused id is `-32602` with the refusal data and the earlier run's reference
+(null while it has none). The association (session id, client run id, action) is written into
+the decision directory when it is allocated, before paid work, so a `running` runs entry carries
+it. Every progress notification from allocation carries `_meta["table-manners/run"]`; the run's
+URI leaves the message text.
+
+**Acceptance.** Accepted, reused (queued and finished) and malformed ids; first and later
+progress carry the run reference, heartbeats included; a `running` entry carries the pair; the
+result's `run` carries it.
+
+**Dependencies.** 8.2. **Size.** M.
+
+### Task 8.4: Unresolved spend
+
+**Description.** Each provider call is not sent (refused before it left: no credential, no
+connection), known (an answer: charge or usage priced per unit; an auth rejection counts zero) or
+unresolved (sent with no settling answer: cancelled or killed mid-call, timed out, a failure
+without usage), counted at its worst case. `spend.unresolved_usd` in `run.json`, the session's
+`unresolved_usd`, `spend.basis` describing the settled part.
+
+**Acceptance.** Scripted cases for each class: a not-sent call costs nothing and releases its
+hold; a call cancelled mid-flight counts its bound as unresolved; a run's `usd` never falls below
+its `unresolved_usd`.
+
+**Dependencies.** 8.1. **Size.** M.
+
+### Task 8.5: Runs by page
+
+**Description.** `squint://runs{?cursor}`: newest first by (started, id), a page of the newest N
+read from disk (names sort by time, so older run files are never opened), an opaque base64url
+cursor without padding, `next_cursor` null on the last page.
+
+**Acceptance.** Three pages walk every run once; a run added during the walk is missed and then
+seen by re-reading page one; a malformed cursor is a resource error.
+
+**Dependencies.** 8.3. **Size.** S.
+
+### Task 8.6: Fixtures, docs and the hand-off
+
+**Description.** `fixtures/contract/squint/` regenerated for v0.2 and extended (a runs page, the
+session, a reuse refusal, unresolved spend); written as a directory for rascal to copy into
+table-manners `fixtures/squint/`; SPEC "External interface", `docs/agents.md`, the architecture
+row and table-manners MAPPING (by rascal) updated. After v0.2.0 is published: the dependency
+moves to crates.io `=0.2.0`.
+
+**Acceptance.** table-manners' fixtures test passes on squint's files; `just check` passes.
+
+**Dependencies.** 8.2–8.5. **Size.** S.
+
+### Checkpoint M8
+- [ ] Every v0.2 change in CONTRACT.md "Changes from v0.1" checked one by one on squint's side.
+- [ ] Review and test skills; owner review; merge; tag `m8` once table-manners v0.2.0 is published.
 
 ## Risks and mitigations
 

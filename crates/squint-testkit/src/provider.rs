@@ -1,6 +1,8 @@
 //! A scripted fake provider: answers each turn with the next canned response from a JSON file,
 //! so the run loop can be driven through every state offline. An entry may instead be a
-//! transport error (`{"error": {"status": 429, "retry_after_s": 2}}`) to drive the retries.
+//! transport error (`{"error": {"status": 429, "retry_after_s": 2}}`, with `"sent": false` for a
+//! connection that never carried the request) to drive the retries, or a stall
+//! (`{"stall_s": 30}`: the next entry comes only after that long, a call in flight).
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -21,12 +23,15 @@ use crate::{Error, Result};
 pub enum ScriptTurn {
     Response(TurnResponse),
     Error(TransportError),
+    /// The call hangs this long before the next entry answers it.
+    Stall(Duration),
 }
 
 #[derive(Deserialize)]
 #[serde(untagged)]
 enum Entry {
     Error { error: ScriptError },
+    Stall { stall_s: u64 },
     Response(TurnResponse),
 }
 
@@ -38,6 +43,8 @@ struct ScriptError {
     retry_after_s: Option<u64>,
     #[serde(default)]
     message: Option<String>,
+    #[serde(default)]
+    sent: Option<bool>,
 }
 
 /// The stub catalog entry the scripted provider prices with: cheap enough that the default
@@ -92,7 +99,9 @@ impl ScriptedProvider {
                     status: error.status,
                     retry_after: error.retry_after_s.map(Duration::from_secs),
                     message: error.message.unwrap_or_else(|| "scripted failure".into()),
+                    sent: error.sent.unwrap_or(true),
                 }),
+                Entry::Stall { stall_s } => ScriptTurn::Stall(Duration::from_secs(stall_s)),
             })
             .collect();
         Ok(ScriptedProvider::from_turns(turns))
@@ -136,10 +145,17 @@ impl Provider for ScriptedProvider {
                     max_output_tokens: req.max_output_tokens,
                 });
             }
-            let next = self.turns.lock().ok().and_then(|mut t| t.pop_front());
+            let mut next = self.turns.lock().ok().and_then(|mut t| t.pop_front());
+            if let Some(ScriptTurn::Stall(d)) = next {
+                tokio::time::sleep(d).await;
+                next = self.turns.lock().ok().and_then(|mut t| t.pop_front());
+            }
             match next {
                 Some(ScriptTurn::Response(r)) => Ok(r),
                 Some(ScriptTurn::Error(t)) => Err(squint_core::Error::Transport(t)),
+                Some(ScriptTurn::Stall(_)) => Err(squint_core::Error::Provider(
+                    "scripted provider: two stalls in a row".into(),
+                )),
                 None => Err(squint_core::Error::Provider(
                     "scripted provider: script exhausted".into(),
                 )),

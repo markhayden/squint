@@ -123,6 +123,11 @@ fn a_pass_is_completed_with_the_header_and_squints_body() {
     let id = o.dir.file_name().unwrap().to_str().unwrap();
     assert_eq!(r.run.id, id);
     assert_eq!(r.run.resource, format!("squint://run/{id}/run.json"));
+    // A run made outside a server belongs to no session and no client request (table-manners 4.3).
+    assert_eq!(
+        (r.run.session_id.as_deref(), r.run.client_run_id.as_deref()),
+        (None, None)
+    );
     assert_eq!(r.run.dir.as_deref(), Some(o.dir.to_str().unwrap()));
     assert!(r.input_identity.starts_with("sha256:"));
     assert_eq!(r.spend.basis, table_manners::SpendBasis::Measured);
@@ -206,20 +211,14 @@ fn a_cancelled_decision_is_cancelled_with_its_spend_to_date() {
 /// 2.3): the first turn is paid for, the cancel lands during a 30 s retry wait, promptly.
 #[test]
 fn a_decision_cancelled_after_spending_keeps_its_spend() {
-    let cancel = run::Cancel::new();
-    let trigger = cancel.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(500));
-        trigger.cancel();
-    });
+    let script: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("fixtures/scripts/spend-then-slow-retry.json"))
+            .unwrap(),
+    )
+    .unwrap();
     let started = std::time::Instant::now();
-    let (_, r) = run(
-        "cancelled-spent",
-        "spend-then-slow-retry.json",
-        "pair.toml",
-        &[],
-        Some(&cancel),
-    );
+    // Cancelled as the failed second turn starts its 30 s retry wait.
+    let (_, r) = scripted("cancelled-spent", script, Some("retry"));
     assert!(started.elapsed() < std::time::Duration::from_secs(10));
     assert_eq!(r.status, Status::Cancelled, "{:?}", r.error);
     assert!(r.spend.usd > 0.0, "{:?}", r.spend);
@@ -331,4 +330,212 @@ fn timestamps_are_rfc3339_in_utc() {
     assert_eq!(rfc3339(951_782_400_000), "2000-02-29T00:00:00.000Z");
     assert_eq!(rfc3339(1_793_386_884_140), "2026-10-30T19:01:24.140Z");
     assert_eq!(rfc3339(4_102_444_799_999), "2099-12-31T23:59:59.999Z");
+}
+
+/// The bound a turn was sent with, from the run's journal.
+fn bound_of(dir: &Path) -> f64 {
+    let journal = std::fs::read_to_string(dir.join("run-1/journal.jsonl")).unwrap();
+    journal
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .find_map(|e| e["data"]["bound_usd"].as_f64())
+        .unwrap()
+}
+
+/// Runs `turns` (a script as JSON) with `budget.retries=2`, cancelled as soon as the journal
+/// records the event `cancel_on` when given; the outcome's directory and its `run.json`.
+fn scripted(
+    tag: &str,
+    turns: serde_json::Value,
+    cancel_on: Option<&'static str>,
+) -> (PathBuf, RunResult) {
+    let out = tempdir(tag);
+    let provider = ScriptedProvider::from_json(&turns.to_string()).unwrap();
+    let tools = tools();
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let cancel = run::Cancel::new();
+    let mut services = run::Services::new(&provider, &tools).with_cancel(&cancel);
+    if let Some(event) = cancel_on {
+        let trigger = cancel.clone();
+        services = services.with_observer(std::sync::Arc::new(move |_: &Path, seen: &str| {
+            if seen == event {
+                trigger.cancel();
+            }
+        }));
+    }
+    let outcome = block_on(run::check(
+        &config(&["budget.retries=2"]),
+        &job,
+        &root(),
+        &services,
+        &out,
+        "test",
+    ))
+    .unwrap();
+    let result = read(&outcome.dir);
+    (outcome.dir, result)
+}
+
+fn submission() -> serde_json::Value {
+    let held: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("fixtures/scripts/held.json")).unwrap(),
+    )
+    .unwrap();
+    held[0].clone()
+}
+
+/// Equal as the contract compares amounts: to 1e-6 USD (table-manners 4.6), written amounts being
+/// rounded to six decimals.
+fn close(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-6
+}
+
+/// A call that never left (connection refused) costs nothing and releases its hold
+/// (table-manners 2.3, v0.2): the run spends what a clean run spends, none of it unresolved.
+#[test]
+fn a_call_that_never_left_costs_nothing() {
+    let (_, clean) = scripted("clean", serde_json::json!([submission()]), None);
+    let (_, refused) = scripted(
+        "not-sent",
+        serde_json::json!([{ "error": { "sent": false, "message": "connection refused" } }, submission()]),
+        None,
+    );
+    assert_eq!(refused.status, Status::Completed);
+    assert!(
+        close(refused.spend.usd, clean.spend.usd),
+        "{:?} vs {:?}",
+        refused.spend,
+        clean.spend
+    );
+    assert_eq!(refused.spend.unresolved_usd, 0.0);
+}
+
+/// An authentication rejection is an answer that refuses before any work: zero, not unresolved.
+#[test]
+fn an_auth_rejection_costs_nothing() {
+    let (_, r) = scripted(
+        "auth",
+        serde_json::json!([{ "error": { "status": 401 } }]),
+        None,
+    );
+    assert_eq!(r.status, Status::Error);
+    assert_eq!((r.spend.usd, r.spend.unresolved_usd), (0.0, 0.0));
+}
+
+/// A failure status with no usage is unresolved: counted at the turn's bound, all of it
+/// unresolved, and the run's `usd` covers it.
+#[test]
+fn a_failure_status_is_unresolved_at_its_bound() {
+    let (dir, r) = scripted(
+        "failure",
+        serde_json::json!([{ "error": { "status": 400 } }]),
+        None,
+    );
+    let bound = bound_of(&dir);
+    assert!(bound > 0.0);
+    assert!(
+        close(r.spend.unresolved_usd, bound),
+        "{:?} bound {bound}",
+        r.spend
+    );
+    assert!(close(r.spend.usd, bound), "{:?}", r.spend);
+}
+
+/// A call cancelled while in flight is unresolved at its bound.
+#[test]
+fn a_call_cancelled_mid_flight_is_unresolved() {
+    let (dir, r) = scripted(
+        "mid-call",
+        serde_json::json!([{ "stall_s": 30 }, submission()]),
+        Some("turn_sent"),
+    );
+    assert_eq!(r.status, Status::Cancelled);
+    let bound = bound_of(&dir);
+    assert!(
+        close(r.spend.unresolved_usd, bound),
+        "{:?} bound {bound}",
+        r.spend
+    );
+    assert!(close(r.spend.usd, bound), "{:?}", r.spend);
+}
+
+/// A cancel while waiting to retry charges the failed attempt once, not a second time for a
+/// call that was never in flight.
+#[test]
+fn a_cancel_during_a_retry_wait_charges_only_the_failed_attempt() {
+    let (dir, r) = scripted(
+        "retry-wait",
+        serde_json::json!([{ "error": { "status": 503, "retry_after_s": 30 } }, submission()]),
+        Some("retry"),
+    );
+    assert_eq!(r.status, Status::Cancelled);
+    let bound = bound_of(&dir);
+    assert!(close(r.spend.usd, bound), "{:?} bound {bound}", r.spend);
+    assert!(close(r.spend.unresolved_usd, bound), "{:?}", r.spend);
+}
+
+/// An amount the contract carries has at most six decimals (table-manners 4.6).
+fn six_decimals(v: f64) -> bool {
+    let scaled = v * 1e6;
+    (scaled - scaled.round()).abs() < 1e-6
+        && format!("{v}")
+            .split('.')
+            .nth(1)
+            .is_none_or(|d| d.len() <= 6)
+}
+
+#[test]
+fn spend_is_written_to_six_decimals() {
+    let (_, r) = scripted(
+        "decimals",
+        serde_json::json!([{ "error": { "status": 400 } }]),
+        None,
+    );
+    assert!(r.spend.usd > 0.0);
+    assert!(six_decimals(r.spend.usd), "{}", r.spend.usd);
+    assert!(
+        six_decimals(r.spend.unresolved_usd),
+        "{}",
+        r.spend.unresolved_usd
+    );
+    let (_, held) = scripted("decimals-held", serde_json::json!([submission()]), None);
+    assert!(six_decimals(held.spend.usd), "{}", held.spend.usd);
+}
+
+/// A retry the envelope cannot cover is refused, never sent: the failed attempt before it is
+/// charged once, and the refusal adds no second, phantom charge (M8 review I2).
+#[test]
+fn a_refused_retry_adds_no_charge() {
+    let invalid: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("fixtures/scripts/invalid-then-submit.json")).unwrap(),
+    )
+    .unwrap();
+    // A first turn (an invalid submission, so a second turn follows) far over its bound eats
+    // the envelope, so the next turn's retry is refused.
+    let mut first = invalid[0].clone();
+    first["usage"] = serde_json::json!({ "input_tokens": 50_000_000, "output_tokens": 0 });
+    let (dir, r) = scripted(
+        "refused-retry",
+        serde_json::json!([first, { "error": { "status": 503 } }, submission()]),
+        None,
+    );
+    assert_eq!(r.status, Status::Error, "{:?}", r.error);
+    let journal = std::fs::read_to_string(dir.join("run-1/journal.jsonl")).unwrap();
+    let charges: Vec<f64> = journal
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|e| e["event"] == "retry" || e["event"] == "attempt_failed")
+        .filter_map(|e| e["data"]["charged_usd"].as_f64())
+        .filter(|c| *c > 0.0)
+        .collect();
+    assert_eq!(
+        charges.len(),
+        1,
+        "one charge, for the failed attempt: {charges:?}"
+    );
+    assert!(
+        close(r.spend.unresolved_usd, charges[0]),
+        "{:?} vs {charges:?}",
+        r.spend
+    );
 }

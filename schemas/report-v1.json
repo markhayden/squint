@@ -279,6 +279,12 @@
           "description": "Settled usage plus every failed attempt charged at its bound.",
           "format": "double",
           "type": "number"
+        },
+        "unresolved_usd": {
+          "default": 0.0,
+          "description": "The part of `spent_usd` no provider answer settled: attempts sent with no usage reported,\nor cancelled in flight, counted at their bound (table-manners 2.3).",
+          "format": "double",
+          "type": "number"
         }
       },
       "required": [
@@ -1538,6 +1544,12 @@
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
+        },
+        "unresolved_usd": {
+          "default": 0.0,
+          "description": "The part of `cost_usd` charged at the bound because no answer settled it.",
+          "format": "double",
+          "type": "number"
         },
         "usage": {
           "$ref": "#/$defs/Usage"

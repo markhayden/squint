@@ -2,13 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:table-manners:core:runs",
   "title": "Runs list (CONTRACT.md 4.3)",
-  "description": "The `<tool>://runs` resource: recent runs, newest first, so a run is discoverable without its id.",
+  "description": "The `<tool>://runs{?cursor}` resource: one page of runs, newest first, so a run is discoverable without its id.",
   "type": "object",
   "additionalProperties": false,
   "required": [
     "contract",
     "tool",
-    "runs"
+    "runs",
+    "next_cursor"
   ],
   "properties": {
     "contract": {
@@ -20,20 +21,13 @@
     "runs": {
       "type": "array",
       "items": {
-        "type": "object",
-        "additionalProperties": false,
+        "$ref": "urn:table-manners:core:run-ref#/$defs/run_ref",
         "required": [
-          "id",
           "action",
           "status",
-          "started",
-          "resource"
+          "started"
         ],
         "properties": {
-          "id": {
-            "type": "string",
-            "minLength": 1
-          },
           "action": {
             "$ref": "urn:table-manners:core:result#/$defs/action_name"
           },
@@ -49,13 +43,18 @@
           "started": {
             "type": "string",
             "format": "date-time"
-          },
-          "resource": {
-            "type": "string",
-            "pattern": "^[a-z][a-z0-9+.-]*://run/"
           }
-        }
+        },
+        "unevaluatedProperties": false
       }
+    },
+    "next_cursor": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[A-Za-z0-9._~-]{1,256}$",
+      "description": "Opaque, URI-unreserved characters only, so it goes into <tool>://runs?cursor=<next_cursor> unencoded. Null on the last page."
     }
   }
 }

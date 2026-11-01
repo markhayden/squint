@@ -168,6 +168,20 @@ impl Client {
         Ok(call_result(&r))
     }
 
+    /// Calls a tool with `meta` as the request's `_meta` (a progress token, a correlation id).
+    pub fn call_with_meta(
+        &mut self,
+        name: &str,
+        arguments: serde_json::Value,
+        meta: serde_json::Value,
+    ) -> Result<CallResult, Failure> {
+        let r = self.request(
+            "tools/call",
+            serde_json::json!({ "name": name, "arguments": arguments, "_meta": meta }),
+        )?;
+        Ok(call_result(&r))
+    }
+
     /// Calls a tool with a progress token; notifications that arrive are kept in `notifications`.
     pub fn call_with_progress(
         &mut self,
@@ -204,13 +218,27 @@ impl Client {
         arguments: serde_json::Value,
         token: &str,
     ) -> Result<u64, Failure> {
+        self.start_call_with_meta(
+            name,
+            arguments,
+            serde_json::json!({ "progressToken": token }),
+        )
+    }
+
+    /// [`Client::start_call`] with `meta` as the whole `_meta`.
+    pub fn start_call_with_meta(
+        &mut self,
+        name: &str,
+        arguments: serde_json::Value,
+        meta: serde_json::Value,
+    ) -> Result<u64, Failure> {
         let id = self.next_id;
         self.next_id += 1;
         self.send(&serde_json::json!({
             "jsonrpc": "2.0",
             "id": id,
             "method": "tools/call",
-            "params": { "name": name, "arguments": arguments, "_meta": { "progressToken": token } }
+            "params": { "name": name, "arguments": arguments, "_meta": meta }
         }))?;
         Ok(id)
     }

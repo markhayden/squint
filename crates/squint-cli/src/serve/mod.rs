@@ -54,6 +54,58 @@ pub struct ServeArgs {
     pub provider_script: Option<PathBuf>,
 }
 
+/// Runs per page of `squint://runs`.
+const RUNS_PAGE: usize = 50;
+
+/// A page's cursor: the last run's (started, id), base64url without padding, so it goes into a
+/// URI query as is (table-manners 4.3).
+fn encode_cursor(ms: u64, id: &str) -> String {
+    squint_core::image::base64_encode(format!("{ms}:{id}").as_bytes())
+        .trim_end_matches('=')
+        .replace('+', "-")
+        .replace('/', "_")
+}
+
+/// The position a cursor names, or none for one squint did not make.
+fn decode_cursor(cursor: &str) -> Option<(u64, String)> {
+    let mut standard = cursor.replace('-', "+").replace('_', "/");
+    while !standard.len().is_multiple_of(4) {
+        standard.push('=');
+    }
+    let text = String::from_utf8(squint_core::image::base64_decode(&standard).ok()?).ok()?;
+    let (ms, id) = text.split_once(':')?;
+    Some((ms.parse().ok()?, id.to_string()))
+}
+
+/// The request `_meta` key a client's correlation id travels under (table-manners 4.4).
+const CLIENT_RUN_META: &str = "table-manners/client_run_id";
+/// The notification `_meta` key a run's reference travels under (table-manners 4.3).
+const RUN_META: &str = "table-manners/run";
+
+/// A correlation id the contract accepts: `^[A-Za-z0-9._:-]{1,128}$`.
+fn valid_client_run_id(id: &str) -> bool {
+    (1..=128).contains(&id.len())
+        && id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'))
+}
+
+/// A random UUID (version 4, RFC 9562), lower case.
+fn uuid_v4() -> String {
+    let mut b: [u8; 16] = rand::random();
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    )
+}
+
 /// What a call's job resolves against. Its image paths are absolute (`job_from_call` refuses any
 /// other), so this resolves only the config's relative `[rules] extra` files: against the
 /// working directory, as `squint check` does.
@@ -95,6 +147,9 @@ pub fn run(args: &ServeArgs) -> i32 {
         .unwrap_or_else(|| config.output.dir.clone());
     let server = Server {
         inner: Arc::new(Inner {
+            session_id: uuid_v4(),
+            session_started_ms: contract::now_ms(),
+            claims: Default::default(),
             session: CapLedger::new(config.serve.session_budget_usd),
             permits: Arc::new(Semaphore::new(config.serve.concurrency as usize)),
             #[cfg(feature = "testkit")]
@@ -137,6 +192,13 @@ struct Inner {
     catalog: squint_providers::catalog::Catalog,
     description: Description,
     out_dir: PathBuf,
+    /// This process's session (table-manners 4.6): a random UUID made at start, fixed for the
+    /// process (squint never reloads its config), and when it started.
+    session_id: String,
+    session_started_ms: u64,
+    /// Every `client_run_id` this session has accepted (table-manners 4.4), with its run once one
+    /// is allocated: claimed on acceptance, so a reuse is refused even before the first runs.
+    claims: std::sync::Mutex<std::collections::HashMap<String, Option<table_manners::RunRef>>>,
     /// The session budget: every decision this process serves reserves against it.
     session: CapLedger,
     /// Calls run under a permit: one at a time unless `[serve] concurrency` allows more.
@@ -183,6 +245,7 @@ impl Server {
         &self,
         args: Map<String, Value>,
         roots: Option<Vec<PathBuf>>,
+        association: &contract::Association,
     ) -> Result<CallToolResult, ErrorData> {
         let use_case = args
             .get("use_case")
@@ -192,11 +255,11 @@ impl Server {
         let mut job = match contract::job_from_call(&use_case, &args) {
             Ok(job) => job,
             Err(squint_core::Error::Job(m)) => return Err(ErrorData::invalid_params(m, None)),
-            Err(e) => return self.finished("estimate", &args, Some(&e), Map::new()),
+            Err(e) => return self.finished("estimate", &args, association, Some(&e), Map::new()),
         };
         // The estimate reads its images' dimensions, so it answers to the roots a check does.
         if let Err(e) = inside_roots(&mut job, roots.as_deref(), &self.inner.config.serve.roots) {
-            return self.finished("estimate", &args, Some(&e), Map::new());
+            return self.finished("estimate", &args, association, Some(&e), Map::new());
         }
         let mut config = self.inner.config.clone();
         if let Some(max) = args.get("max_spend_usd") {
@@ -213,7 +276,7 @@ impl Server {
                 "model {:?} is not in the catalog",
                 config.provider.model
             ));
-            return self.finished("estimate", &args, Some(&e), Map::new());
+            return self.finished("estimate", &args, association, Some(&e), Map::new());
         };
         match squint_core::run::envelope(
             &config,
@@ -227,27 +290,72 @@ impl Server {
                 let body = json!({
                     "use_case": use_case,
                     "model": config.provider.model,
-                    "envelope_usd": envelope.usd,
-                    "cap_usd": cap,
+                    "envelope_usd": contract::usd(envelope.usd),
+                    "cap_usd": contract::usd(cap),
                     "fits": envelope.usd <= cap,
                     "decision_runs": envelope.decision_runs,
-                    "session_budget_left_usd": self.session_left(),
                 });
                 self.finished(
                     "estimate",
                     &args,
+                    association,
                     None,
                     body.as_object().cloned().unwrap_or_default(),
                 )
             }
-            Err(e) => self.finished("estimate", &args, Some(&e), Map::new()),
+            Err(e) => self.finished("estimate", &args, association, Some(&e), Map::new()),
         }
     }
 
-    /// What the session budget has left: the cap less what is spent and reserved.
-    fn session_left(&self) -> f64 {
-        let s = &self.inner.session;
-        (s.cap() - s.spent() - s.reserved()).max(0.0)
+    /// The association a run of this server carries: its session, and the request's
+    /// `client_run_id` when it sent one.
+    fn association(&self, client_run_id: Option<String>) -> contract::Association {
+        contract::Association {
+            session_id: Some(self.inner.session_id.clone()),
+            client_run_id,
+        }
+    }
+
+    /// Claims a request's `client_run_id` for this session (table-manners 4.4): a reused one is
+    /// refused with the earlier request's run (none while it has none).
+    fn claim(&self, client_run_id: &str) -> Result<(), ErrorData> {
+        let mut claims = self
+            .inner
+            .claims
+            .lock()
+            .map_err(|_| ErrorData::internal_error("claims poisoned", None))?;
+        if let Some(run) = claims.get(client_run_id) {
+            let refusal = table_manners::Refusal {
+                reason: table_manners::RefusalReason::ClientRunIdReused,
+                run: run.clone(),
+            };
+            return Err(ErrorData::invalid_params(
+                format!("client_run_id {client_run_id:?} was already used in this session"),
+                serde_json::to_value(refusal).ok(),
+            ));
+        }
+        claims.insert(client_run_id.to_string(), None);
+        Ok(())
+    }
+
+    /// The `squint://session` resource (table-manners 4.6): one observation of the ledger.
+    fn session(&self) -> table_manners::Session {
+        let (spent, reserved, unresolved) = self.inner.session.snapshot();
+        let budget = self.inner.session.cap();
+        table_manners::Session {
+            contract: table_manners::CONTRACT_VERSION.into(),
+            tool: table_manners::Tool {
+                name: "squint".into(),
+                version: VERSION.into(),
+            },
+            id: self.inner.session_id.clone(),
+            started: contract::rfc3339(self.inner.session_started_ms),
+            budget_usd: Some(contract::usd(budget)),
+            spent_usd: contract::usd(spent),
+            unresolved_usd: contract::usd(unresolved),
+            reserved_usd: contract::usd(reserved),
+            remaining_usd: Some(contract::usd((budget - spent - reserved).max(0.0))),
+        }
     }
 
     /// One decision of a use case: the call's arguments as a job, every image path inside the
@@ -264,10 +372,12 @@ impl Server {
         let mut job = match contract::job_from_call(&use_case, &args) {
             Ok(job) => job,
             Err(squint_core::Error::Job(m)) => return Err(ErrorData::invalid_params(m, None)),
-            Err(e) => return self.finished(action, &args, Some(&e), Map::new()),
+            Err(e) => {
+                return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
+            }
         };
         if let Err(e) = inside_roots(&mut job, roots.as_deref(), &self.inner.config.serve.roots) {
-            return self.finished(action, &args, Some(&e), Map::new());
+            return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
         }
         let mut config = self.inner.config.clone();
         if let Some(max) = args.get("max_spend_usd") {
@@ -289,19 +399,28 @@ impl Server {
             Ok(p) => p,
             Err(m) => {
                 let e = squint_core::Error::Auth(m);
-                return self.finished(action, &args, Some(&e), Map::new());
+                return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
             }
         };
         // The decision's directory once it exists: an error after that is answered with the
         // decision's own run, never a second one.
         let allocated = Arc::new(std::sync::Mutex::new(None::<PathBuf>));
         let told = allocated.clone();
+        let server = self.clone();
+        let association = hooks.association.clone();
+        let progress = hooks.progress.clone();
         let mut services = squint_core::run::Services::new(provider.as_ref(), &self.inner.tools)
+            .with_association(hooks.association.clone())
             .with_shared_ledger(Some(&self.inner.session))
             .with_cancel(&hooks.cancel)
             .with_allocated(Arc::new(move |dir: &Path| {
                 if let Ok(mut slot) = told.lock() {
                     *slot = Some(dir.to_path_buf());
+                }
+                // From here every progress notification names the run (table-manners 4.3).
+                let run = server.allocated(dir, &association);
+                if let Some(progress) = &progress {
+                    let _ = progress.send(Progress::Run(run));
                 }
             }));
         if let Some(observer) = hooks.observer {
@@ -323,14 +442,21 @@ impl Server {
         match (outcome, decided) {
             (Ok(o), _) => decision_result(&o.dir),
             (Err(_), Some(dir)) if dir.join(contract::RUN_FILE).exists() => decision_result(&dir),
-            (Err(e), _) => self.finished(action, &args, Some(&e), Map::new()),
+            (Err(e), _) => self.finished(action, &args, &hooks.association, Some(&e), Map::new()),
         }
     }
 
     /// A resource's text: the runs list, or one run's `run.json`, report or journal.
     fn resource(&self, uri: &str) -> Option<String> {
+        if uri == "squint://session" {
+            return serde_json::to_string_pretty(&self.session()).ok();
+        }
         if uri == "squint://runs" {
-            return serde_json::to_string_pretty(&self.runs()).ok();
+            return serde_json::to_string_pretty(&self.runs(None)).ok();
+        }
+        if let Some(cursor) = uri.strip_prefix("squint://runs?cursor=") {
+            let after = decode_cursor(cursor)?;
+            return serde_json::to_string_pretty(&self.runs(Some(&after))).ok();
         }
         let (id, what) = uri.strip_prefix("squint://run/")?.split_once('/')?;
         let valid = !id.is_empty()
@@ -363,58 +489,73 @@ impl Server {
         }
     }
 
-    /// Every run directory under the output directory, newest first: a finished one by its
-    /// `run.json`, one still going as `running` (table-manners 4.3).
-    fn runs(&self) -> table_manners::RunsList {
-        let mut runs: Vec<(u64, table_manners::RunSummary)> =
-            std::fs::read_dir(&self.inner.out_dir)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter_map(|entry| {
-                    let id = entry.file_name().to_string_lossy().into_owned();
-                    // `<action>-<unix ms>-<pid>[-n]`: the milliseconds order the list.
-                    let ms: u64 = id.split('-').find_map(|part| part.parse().ok())?;
-                    let dir = entry.path();
-                    let summary = match std::fs::read_to_string(dir.join(contract::RUN_FILE))
-                        .ok()
-                        .and_then(|t| serde_json::from_str::<table_manners::RunResult>(&t).ok())
-                    {
-                        Some(r) => table_manners::RunSummary {
-                            id: id.clone(),
-                            action: r.action,
-                            status: match r.status {
-                                table_manners::Status::Completed => {
-                                    table_manners::RunState::Completed
-                                }
-                                table_manners::Status::Cancelled => {
-                                    table_manners::RunState::Cancelled
-                                }
-                                table_manners::Status::Error => table_manners::RunState::Error,
-                                table_manners::Status::Invalid => table_manners::RunState::Invalid,
-                            },
-                            started: r.started,
-                            resource: r.run.resource,
+    /// One page of the runs under the output directory (table-manners 4.3): newest first by
+    /// (started, id), at most [`RUNS_PAGE`], after `after` when a cursor names one. Directory
+    /// names carry the start time, so only the page's runs are opened: a finished one by its
+    /// `run.json`, one still going as `running`.
+    fn runs(&self, after: Option<&(u64, String)>) -> table_manners::RunsList {
+        let mut all: Vec<(u64, String, PathBuf)> = std::fs::read_dir(&self.inner.out_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let id = entry.file_name().to_string_lossy().into_owned();
+                // `<action>-<unix ms>-<pid>[-n]`: the milliseconds order the list.
+                let ms: u64 = id.split('-').find_map(|part| part.parse().ok())?;
+                Some((ms, id, entry.path()))
+            })
+            .filter(|(ms, id, _)| after.is_none_or(|(a_ms, a_id)| (*ms, id) < (*a_ms, a_id)))
+            .collect();
+        all.sort_by(|a, b| (b.0, &b.1).cmp(&(a.0, &a.1)));
+        let more = all.len() > RUNS_PAGE;
+        all.truncate(RUNS_PAGE);
+        let next_cursor = more
+            .then(|| all.last().map(|(ms, id, _)| encode_cursor(*ms, id)))
+            .flatten();
+        let runs = all
+            .into_iter()
+            .map(|(ms, id, dir)| {
+                match std::fs::read_to_string(dir.join(contract::RUN_FILE))
+                    .ok()
+                    .and_then(|t| serde_json::from_str::<table_manners::RunResult>(&t).ok())
+                {
+                    Some(r) => table_manners::RunSummary {
+                        id: id.clone(),
+                        action: r.action,
+                        status: match r.status {
+                            table_manners::Status::Completed => table_manners::RunState::Completed,
+                            table_manners::Status::Cancelled => table_manners::RunState::Cancelled,
+                            table_manners::Status::Error => table_manners::RunState::Error,
+                            table_manners::Status::Invalid => table_manners::RunState::Invalid,
                         },
-                        None => table_manners::RunSummary {
+                        started: r.started,
+                        resource: r.run.resource,
+                        session_id: r.run.session_id,
+                        client_run_id: r.run.client_run_id,
+                    },
+                    None => {
+                        let association = contract::Association::read(&dir);
+                        table_manners::RunSummary {
                             action: running_action(&dir, &id),
                             status: table_manners::RunState::Running,
                             started: contract::rfc3339(ms),
                             resource: format!("squint://run/{id}/{}", contract::RUN_FILE),
                             id: id.clone(),
-                        },
-                    };
-                    Some((ms, summary))
-                })
-                .collect();
-        runs.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.id.cmp(&a.1.id)));
+                            session_id: association.session_id,
+                            client_run_id: association.client_run_id,
+                        }
+                    }
+                }
+            })
+            .collect();
         table_manners::RunsList {
             contract: table_manners::CONTRACT_VERSION.into(),
             tool: table_manners::Tool {
                 name: "squint".into(),
                 version: VERSION.into(),
             },
-            runs: runs.into_iter().map(|(_, r)| r).collect(),
+            runs,
+            next_cursor,
         }
     }
 
@@ -424,16 +565,19 @@ impl Server {
         &self,
         action: &str,
         args: &Map<String, Value>,
+        association: &contract::Association,
         error: Option<&squint_core::Error>,
         body: Map<String, Value>,
     ) -> Result<CallToolResult, ErrorData> {
         let started = contract::now_ms();
         let dir = new_run_dir(&self.inner.out_dir, action)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        self.allocated(&dir, association);
         let result = contract::action_result(
             &dir,
             VERSION,
             action,
+            association,
             started,
             &Value::Object(args.clone()),
             error,
@@ -445,42 +589,68 @@ impl Server {
     }
 }
 
-/// What a check is given by the call around it: the flag a client's cancellation sets, and the
-/// observer that turns journal lines into progress.
+impl Server {
+    /// A run's directory exists: its reference, recorded against the request's claim.
+    fn allocated(&self, dir: &Path, association: &contract::Association) -> table_manners::RunRef {
+        let id = dir
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        let run = table_manners::RunRef {
+            resource: format!("squint://run/{id}/{}", contract::RUN_FILE),
+            id,
+            session_id: association.session_id.clone(),
+            client_run_id: association.client_run_id.clone(),
+        };
+        if let (Some(client), Ok(mut claims)) =
+            (&association.client_run_id, self.inner.claims.lock())
+        {
+            claims.insert(client.clone(), Some(run.clone()));
+        }
+        run
+    }
+}
+
+/// What a check is given by the call around it: the flag a client's cancellation sets, the
+/// observer that turns journal lines into progress, where the run's reference goes once it is
+/// allocated, and the run's association.
 struct Hooks {
     cancel: Arc<squint_core::run::Cancel>,
     observer: Option<squint_core::run::Observer>,
+    progress: Option<tokio::sync::mpsc::UnboundedSender<Progress>>,
+    association: contract::Association,
 }
 
-/// Sends progress for one call until the run's observer goes away: a notification per journal
-/// line, the first naming the run's resource, and a heartbeat after every [`HEARTBEAT`] of
-/// silence. `progress` is elapsed seconds, nudged up so it never repeats (table-manners 4.1).
+/// What the progress task hears: the run, once allocated, and each journal line.
+enum Progress {
+    Run(table_manners::RunRef),
+    Line(PathBuf, String),
+}
+
+/// Sends progress for one call until its senders go away: a notification per journal line and
+/// a heartbeat after every [`HEARTBEAT`] of silence, each carrying the run's reference in
+/// `_meta["table-manners/run"]` once the run is allocated (table-manners 4.3). `progress` is
+/// elapsed seconds, nudged up so it never repeats (4.1).
 async fn send_progress(
     peer: rmcp::Peer<RoleServer>,
     token: rmcp::model::ProgressToken,
-    mut lines: tokio::sync::mpsc::UnboundedReceiver<(PathBuf, String)>,
+    mut events: tokio::sync::mpsc::UnboundedReceiver<Progress>,
 ) {
     let started = std::time::Instant::now();
     let mut last = 0.0_f64;
-    let mut named = false;
+    let mut run: Option<table_manners::RunRef> = None;
     loop {
-        let message = match tokio::time::timeout(HEARTBEAT, lines.recv()).await {
-            Ok(Some((run_dir, event))) => {
-                let run = run_dir
+        let message = match tokio::time::timeout(HEARTBEAT, events.recv()).await {
+            Ok(Some(Progress::Run(allocated))) => {
+                run = Some(allocated);
+                continue;
+            }
+            Ok(Some(Progress::Line(run_dir, event))) => {
+                let attempt = run_dir
                     .file_name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_default();
-                let decision = run_dir
-                    .parent()
-                    .and_then(Path::file_name)
-                    .map(|n| n.to_string_lossy().into_owned())
-                    .unwrap_or_default();
-                if named {
-                    format!("{run}: {event}")
-                } else {
-                    named = true;
-                    format!("squint://run/{decision}/run.json {run}: {event}")
-                }
+                format!("{attempt}: {event}")
             }
             Ok(None) => return,
             Err(_) => format!("waiting, {} s", started.elapsed().as_secs()),
@@ -492,6 +662,11 @@ async fn send_progress(
         last = progress;
         let mut param = ProgressNotificationParam::new(token.clone(), progress);
         param.message = Some(message);
+        if let Some(run) = run.as_ref().and_then(|r| serde_json::to_value(r).ok()) {
+            let mut meta = rmcp::model::NotificationMetaObject::new();
+            meta.0.0.insert(RUN_META.into(), run);
+            param.meta = Some(meta);
+        }
         if peer.notify_progress(param).await.is_err() {
             return;
         }
@@ -749,11 +924,30 @@ impl ServerHandler for Server {
                 .actions
                 .iter()
                 .any(|a| a.name == name);
+        let makes_run = is_check || name == "estimate";
+        // The request's correlation id (table-manners 4.4): checked, then claimed for this
+        // session before anything waits, so two submissions of one id execute at most once.
+        let client_run_id = match context.meta.get(CLIENT_RUN_META) {
+            None => None,
+            Some(Value::String(id)) if valid_client_run_id(id) => Some(id.clone()),
+            Some(other) => {
+                return Err(ErrorData::invalid_params(
+                    format!(
+                        "_meta {CLIENT_RUN_META:?} is {other}; it must match ^[A-Za-z0-9._:-]{{1,128}}$"
+                    ),
+                    None,
+                ));
+            }
+        };
+        if let (Some(id), true) = (&client_run_id, makes_run) {
+            self.claim(id)?;
+        }
+        let association = self.association(client_run_id);
         // A client that offers roots is asked for them on every check: they may have changed.
         // Roots are part of revision 2025-11-25, the only one squint serves; SEP-2577 deprecates
         // them in a later revision, which the contract must answer before squint moves (v0.2).
         #[allow(deprecated)]
-        let roots = if (is_check || name == "estimate")
+        let roots = if makes_run
             && context
                 .peer
                 .peer_info()
@@ -776,18 +970,19 @@ impl ServerHandler for Server {
         };
         let cancel = Arc::new(squint_core::run::Cancel::new());
         // Progress starts before any wait, so a call queued for the permit beats too.
-        let (observer, progress) = match context.meta.get_progress_token().filter(|_| is_check) {
+        let (sender, progress) = match context.meta.get_progress_token().filter(|_| is_check) {
             Some(token) => {
                 let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-                let observer: squint_core::run::Observer =
-                    Arc::new(move |run_dir: &Path, event: &str| {
-                        let _ = tx.send((run_dir.to_path_buf(), event.to_string()));
-                    });
                 let task = tokio::spawn(send_progress(context.peer.clone(), token, rx));
-                (Some(observer), Some(task))
+                (Some(tx), Some(task))
             }
             None => (None, None),
         };
+        let observer = sender.clone().map(|tx| -> squint_core::run::Observer {
+            Arc::new(move |run_dir: &Path, event: &str| {
+                let _ = tx.send(Progress::Line(run_dir.to_path_buf(), event.to_string()));
+            })
+        });
         // Only a check takes the execution permit: `describe` and `estimate` spend nothing and
         // stay responsive while a check runs (table-manners C4 review 9). The wait itself is
         // cancellable, and a call cancelled before it holds the permit gets no run (review 10).
@@ -800,7 +995,7 @@ impl ServerHandler for Server {
                 Some(Ok(permit)) if !context.ct.is_cancelled() => Some(permit),
                 Some(Err(e)) => return Err(ErrorData::internal_error(e.to_string(), None)),
                 _ => {
-                    drop(observer);
+                    drop((observer, sender));
                     if let Some(progress) = progress {
                         let _ = progress.await;
                     }
@@ -817,12 +1012,14 @@ impl ServerHandler for Server {
         let hooks = Hooks {
             cancel: cancel.clone(),
             observer,
+            progress: sender,
+            association: association.clone(),
         };
         let task = tokio::task::spawn_blocking(move || {
             let _permit = permit;
             match name.as_str() {
                 "describe" => server.describe(),
-                "estimate" => server.estimate(args, roots),
+                "estimate" => server.estimate(args, roots, &association),
                 action if is_check => server.check(action, args, roots, hooks),
                 other => Err(ErrorData::invalid_params(
                     format!("no tool {other:?}; call describe for the actions"),
@@ -856,7 +1053,13 @@ impl ServerHandler for Server {
         let mut runs = Resource::new("squint://runs", "runs");
         runs.description = Some("Recent runs, newest first (table-manners 4.3).".into());
         runs.mime_type = Some("application/json".into());
-        Ok(ListResourcesResult::with_all_items(vec![runs]))
+        let mut session = Resource::new("squint://session", "session");
+        session.description = Some(
+            "This server's session: its id and budget, spent and reserved (table-manners 4.6)."
+                .into(),
+        );
+        session.mime_type = Some("application/json".into());
+        Ok(ListResourcesResult::with_all_items(vec![runs, session]))
     }
 
     async fn list_resource_templates(
@@ -865,6 +1068,7 @@ impl ServerHandler for Server {
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, ErrorData> {
         let templates = [
+            ("squint://runs{?cursor}", "runs page", "application/json"),
             ("squint://run/{id}/run.json", "run", "application/json"),
             (
                 "squint://run/{id}/report.json",

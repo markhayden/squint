@@ -1752,6 +1752,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "jsonschema",
+ "rand",
  "rmcp",
  "serde_json",
  "squint-core",
@@ -1826,6 +1827,7 @@ dependencies = [
  "serde_json",
  "squint-core",
  "thiserror",
+ "tokio",
  "toml",
 ]
 
@@ -1928,9 +1930,9 @@ dependencies = [
 
 [[package]]
 name = "table-manners"
-version = "0.1.0"
+version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c2c579d01d96290908d1ddd633e1ba0b9d491fdc39c50fb4a2882c42dfbd8cca"
+checksum = "99c047cab2ee74f37be1c1efe507add74de491cf352db3c41cb9b56c48f9a589"
 dependencies = [
  "serde",
  "serde_json",

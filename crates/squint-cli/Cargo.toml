@@ -30,6 +30,7 @@ tokio = { workspace = true }
 rmcp = { workspace = true }
 table-manners = { workspace = true }
 serde_json = { workspace = true }
+rand = { workspace = true }
 
 [lints]
 workspace = true
