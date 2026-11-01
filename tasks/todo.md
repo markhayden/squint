@@ -150,7 +150,7 @@ tag.
   - a provider's 401 or 403 is not retryable; squint maps every provider failure to `provider`, retryable (wafflehouse S1.4)
 - [x] Checkpoint M7 → tag `m7` (2026-10-31): merged as `eef1f10`, released by the owner
 - [x] Follow-up: the M7 checkpoint's review and test-coverage pass (agent-skills review and test), skipped before the merge; run 2026-10-31; the release stands, findings are the M7 review fixes below
-- [ ] M7 review fixes (branch `m7-review`):
+- [x] M7 review fixes (branch `m7-review`, merged 2026-10-31):
   - [x] `estimate` over MCP checks paths against roots like a check (review C1, security); a missing path is refused in the words of one outside; the checked real path replaces the given one (S3)
   - [x] an image path is a regular file read only up to the decode bound; inline data over the bound refused undecoded (I1)
   - [x] every decision writes its own `run.json` on every exit; a cache-store failure is a note; serve returns the decision's run, never a second one (I2); `Services::allocated` names the directory when it exists
