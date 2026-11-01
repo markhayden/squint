@@ -150,9 +150,10 @@ struct CheckArgs {
 /// What `check` and `estimate` share: the config and the job.
 #[derive(clap::Args)]
 struct JobArgs {
-    /// Path to the config file.
+    /// Path to the config file; without it, squint looks for ./squint.toml, then
+    /// $XDG_CONFIG_HOME/squint/squint.toml.
     #[arg(long)]
-    config: PathBuf,
+    config: Option<PathBuf>,
     /// Override one config value: `--set budget.tool_turns=2` (repeatable).
     #[arg(long = "set", value_name = "PATH=VALUE")]
     overrides: Vec<String>,
@@ -518,10 +519,12 @@ fn estimate(args: &JobArgs) -> i32 {
     }
 }
 
-/// The config with `--set` overrides and a `--max-spend-usd` that lowers the cap.
+/// The config the lookup finds, with `--set` overrides and a `--max-spend-usd` that lowers the
+/// cap; none found is a usage error naming where squint looked.
 fn load_config(args: &JobArgs) -> Result<Config, String> {
-    let mut config =
-        Config::load_with_overrides(&args.config, &args.overrides).map_err(|e| e.to_string())?;
+    let mut config = Config::open(args.config.as_deref(), &args.overrides)
+        .require()
+        .map_err(|e| e.to_string())?;
     if let Some(max) = args.max_spend_usd {
         config.lower_spend_cap(max).map_err(|e| e.to_string())?;
     }

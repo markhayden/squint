@@ -36,13 +36,15 @@ const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(clap::Args)]
 pub struct ServeArgs {
-    /// Path to the config file; the server checks against it for its whole life.
+    /// Path to the config file; the server checks against it for its whole life. Without it,
+    /// squint looks for ./squint.toml, then $XDG_CONFIG_HOME/squint/squint.toml; with none, the
+    /// server still starts, and refuses every call that needs one `not_ready`.
     #[arg(long)]
-    pub config: PathBuf,
+    pub config: Option<PathBuf>,
     /// Override one config value: `--set serve.session_budget_usd=5` (repeatable).
     #[arg(long = "set", value_name = "PATH=VALUE")]
     pub overrides: Vec<String>,
-    /// Where run directories go; overrides `[output] dir`.
+    /// Where run directories go; overrides `[output] dir`. An unconfigured server writes nothing.
     #[arg(long)]
     pub out: Option<PathBuf>,
     /// Scripted envelopes for the fake `fake_regions` tool, for tests and debugging only.
@@ -117,15 +119,31 @@ pub fn run(args: &ServeArgs) -> i32 {
         eprintln!("squint: {e}");
         EXIT_USAGE
     };
-    let config = match Config::load_with_overrides(&args.config, &args.overrides) {
-        Ok(c) => c,
+    // Read once, here (table-manners 4.6); a configuration that is missing or does not load is
+    // a requirement every action reports, not a reason to refuse to start (3.1, 5).
+    #[cfg(feature = "testkit")]
+    let scripted = args.provider_script.is_some();
+    #[cfg(not(feature = "testkit"))]
+    let scripted = false;
+    let (file, description) = match crate::describe::described(
+        Config::open(args.config.as_deref(), &args.overrides),
+        scripted,
+    ) {
+        Ok(described) => described,
         Err(e) => return usage(e.to_string()),
     };
+    let not_ready = contract::config_requirement(&file);
+    let config = file.config().cloned();
     #[cfg(feature = "testkit")]
     let script = args.tool_script.as_deref();
     #[cfg(not(feature = "testkit"))]
     let script = None;
-    let tools = match crate::tools_for_config(&config, script, &Default::default()) {
+    // An unconfigured server runs nothing, so it starts no tool pack.
+    let tools = match &config {
+        Some(config) => crate::tools_for_config(config, script, &Default::default()),
+        None => ToolRegistry::new(Vec::new(), &[], &[]).map_err(|e| e.to_string()),
+    };
+    let tools = match tools {
         Ok(t) => t,
         Err(e) => return usage(e),
     };
@@ -133,28 +151,21 @@ pub fn run(args: &ServeArgs) -> i32 {
         Ok(c) => c,
         Err(e) => return usage(e.to_string()),
     };
-    #[cfg(feature = "testkit")]
-    let scripted = args.provider_script.is_some();
-    #[cfg(not(feature = "testkit"))]
-    let scripted = false;
-    let executor = crate::executor(&config, scripted);
-    let description = match contract::description(&config, VERSION, &executor) {
-        Ok(d) => d,
-        Err(e) => return usage(e.to_string()),
-    };
     let out_dir = args
         .out
         .clone()
-        .unwrap_or_else(|| config.output.dir.clone());
+        .or_else(|| config.as_ref().map(|c| c.output.dir.clone()));
+    let serve = config.as_ref().map(|c| c.serve.clone()).unwrap_or_default();
     let server = Server {
         inner: Arc::new(Inner {
             session_id: uuid_v4(),
             session_started_ms: contract::now_ms(),
             claims: Default::default(),
-            session: CapLedger::new(config.serve.session_budget_usd),
-            permits: Arc::new(Semaphore::new(config.serve.concurrency as usize)),
+            session: CapLedger::new(serve.session_budget_usd),
+            permits: Arc::new(Semaphore::new(serve.concurrency as usize)),
             #[cfg(feature = "testkit")]
             provider_script: args.provider_script.clone(),
+            not_ready,
             config,
             tools,
             catalog,
@@ -188,11 +199,17 @@ struct Server {
 }
 
 struct Inner {
-    config: Config,
+    /// None when the server started without a configuration that loads: it then refuses every
+    /// call that makes a run (table-manners 3.1) and writes nothing.
+    config: Option<Config>,
+    /// The `config` requirement such a refusal names; none when the configuration loaded.
+    not_ready: Option<table_manners::Requirement>,
     tools: ToolRegistry,
     catalog: squint_providers::catalog::Catalog,
     description: Description,
-    out_dir: PathBuf,
+    /// Where runs go: `--out`, else `[output] dir`; none for an unconfigured server without
+    /// `--out`, whose runs list is empty.
+    out_dir: Option<PathBuf>,
     /// This process's session (table-manners 4.6): a random UUID made at start, fixed for the
     /// process (squint never reloads its config), and when it started.
     session_id: String,
@@ -275,11 +292,12 @@ impl Server {
             Err(squint_core::Error::Job(m)) => return Err(ErrorData::invalid_params(m, None)),
             Err(e) => return self.finished("estimate", &args, association, Some(&e), Map::new()),
         };
+        let (config, _) = self.configured()?;
         // The estimate reads its images' dimensions, so it answers to the roots a check does.
-        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &self.inner.config.serve.roots) {
+        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &config.serve.roots) {
             return self.finished("estimate", &args, association, Some(&e), Map::new());
         }
-        let mut config = self.inner.config.clone();
+        let mut config = config.clone();
         if let Some(max) = args.get("max_spend_usd") {
             let lowered = max
                 .as_f64()
@@ -322,6 +340,15 @@ impl Server {
                 )
             }
             Err(e) => self.finished("estimate", &args, association, Some(&e), Map::new()),
+        }
+    }
+
+    /// The configuration and output directory a call that makes a run needs, or its `not_ready`
+    /// refusal (table-manners 3.1): a JSON-RPC error with no run, so nothing is written.
+    fn configured(&self) -> Result<(&Config, &Path), ErrorData> {
+        match (&self.inner.config, &self.inner.out_dir) {
+            (Some(config), Some(out_dir)) => Ok((config, out_dir)),
+            _ => Err(not_ready(self.inner.not_ready.iter().cloned().collect())),
         }
     }
 
@@ -406,10 +433,11 @@ impl Server {
                 return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
             }
         };
-        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &self.inner.config.serve.roots) {
+        let (config, out_dir) = self.configured()?;
+        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &config.serve.roots) {
             return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
         }
-        let mut config = self.inner.config.clone();
+        let mut config = config.clone();
         if let Some(max) = args.get("max_spend_usd") {
             let lowered = max
                 .as_f64()
@@ -465,7 +493,7 @@ impl Server {
             &job,
             Path::new(JOB_BASE),
             &services,
-            &self.inner.out_dir,
+            out_dir,
             VERSION,
         ));
         let decided = allocated.lock().ok().and_then(|slot| slot.clone());
@@ -500,7 +528,7 @@ impl Server {
         if !valid {
             return None;
         }
-        let dir = self.inner.out_dir.join(id);
+        let dir = self.inner.out_dir.as_ref()?.join(id);
         match what {
             "run.json" => std::fs::read_to_string(dir.join(contract::RUN_FILE)).ok(),
             "report.json" => std::fs::read_to_string(dir.join("report.json")).ok(),
@@ -528,8 +556,11 @@ impl Server {
     /// names carry the start time, so only the page's runs are opened: a finished one by its
     /// `run.json`, one still going as `running`.
     fn runs(&self, after: Option<&(u64, String)>) -> table_manners::RunsList {
-        let mut all: Vec<(u64, String, PathBuf)> = std::fs::read_dir(&self.inner.out_dir)
-            .into_iter()
+        let mut all: Vec<(u64, String, PathBuf)> = self
+            .inner
+            .out_dir
+            .iter()
+            .flat_map(std::fs::read_dir)
             .flatten()
             .flatten()
             .filter_map(|entry| {
@@ -606,8 +637,9 @@ impl Server {
         error: Option<&squint_core::Error>,
         body: Map<String, Value>,
     ) -> Result<CallToolResult, ErrorData> {
+        let (_, out_dir) = self.configured()?;
         let started = contract::now_ms();
-        let dir = new_run_dir(&self.inner.out_dir, action, started)
+        let dir = new_run_dir(out_dir, action, started)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         self.allocated(&dir, association);
         let result = contract::action_result(
@@ -645,6 +677,41 @@ impl Server {
             claims.insert(client.clone(), Some(run.clone()));
         }
         run
+    }
+}
+
+/// The refusal of a call that needs requirements that are `missing` or `invalid` (table-manners
+/// 3.1): `-32602` with `{"reason": "not_ready", "run": null, "requirements": [...]}`, before any
+/// run, so it writes nothing, spends nothing and releases its `client_run_id` (4.4).
+fn not_ready(requirements: Vec<table_manners::Requirement>) -> ErrorData {
+    let names: Vec<String> = requirements
+        .iter()
+        .map(|r| format!("{} {}", r.name, word_of(&r.state)))
+        .collect();
+    let refusal = table_manners::Refusal {
+        reason: table_manners::RefusalReason::NotReady,
+        run: None,
+        requirements: Some(requirements),
+        error: None,
+    };
+    ErrorData::invalid_params(
+        format!(
+            "not ready: {}; call describe for what to set up",
+            names.join(", ")
+        ),
+        serde_json::to_value(refusal).ok(),
+    )
+}
+
+/// A requirement state's word.
+fn word_of(state: &table_manners::RequirementState) -> &'static str {
+    use table_manners::RequirementState as S;
+    match state {
+        S::Missing => "missing",
+        S::Present => "present",
+        S::Valid => "valid",
+        S::Invalid => "invalid",
+        S::Unknown => "unknown",
     }
 }
 
@@ -1012,6 +1079,11 @@ impl ServerHandler for Server {
             _ => None,
         };
         let association = self.association(&name, client_run_id);
+        // A call that makes a run needs the configuration; without one it is refused here,
+        // before roots, the permit or any directory (table-manners 3.1).
+        if makes_run {
+            self.configured()?;
+        }
         // A client that offers roots is asked for them on every check: they may have changed.
         // Roots are part of revision 2025-11-25, the only one squint serves; SEP-2577 deprecates
         // them in a later revision, which the contract must answer before squint moves (v0.2).

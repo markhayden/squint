@@ -354,6 +354,107 @@ pub fn is_credential_name(name: &str) -> bool {
         || name.ends_with("_SECRET")
 }
 
+/// The file name squint looks for: in the working directory, then in the user's config directory.
+pub const CONFIG_FILE: &str = "squint.toml";
+
+/// Where the configuration is, or would be (see [`Config::locate`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Located {
+    pub path: PathBuf,
+    pub exists: bool,
+}
+
+/// The configuration a process starts with (table-manners 4.6: read once, at start), and where
+/// it came from or would come from.
+#[derive(Debug, Clone)]
+pub struct ConfigFile {
+    pub path: PathBuf,
+    pub state: ConfigState,
+}
+
+/// Whether a configuration loaded (table-manners 3.1).
+#[derive(Debug, Clone)]
+pub enum ConfigState {
+    Loaded(Box<Config>),
+    /// No file at the path.
+    Missing,
+    /// There and does not load: the reason (secrets redacted) and, when that is the cause, the
+    /// `${VAR}` it expands that is unset.
+    Invalid {
+        reason: String,
+        unset: Option<String>,
+    },
+}
+
+impl ConfigFile {
+    /// The loaded configuration, if it loaded.
+    pub fn config(&self) -> Option<&Config> {
+        match &self.state {
+            ConfigState::Loaded(config) => Some(config),
+            _ => None,
+        }
+    }
+
+    /// The configuration, or the usage error a command that cannot run without one prints: what
+    /// is wrong, and where squint looked.
+    pub fn require(self) -> Result<Config> {
+        match self.state {
+            ConfigState::Loaded(config) => Ok(*config),
+            ConfigState::Missing => Err(Error::Config(no_config_message(&self.path))),
+            ConfigState::Invalid { reason, .. } => Err(Error::Config(reason)),
+        }
+    }
+}
+
+/// Where squint looks for a configuration, in words: the error when none is found, and the
+/// setup sentence of a `missing` config requirement.
+pub fn no_config_message(path: &Path) -> String {
+    format!(
+        "no configuration at {}: pass --config <path>, or create ./{CONFIG_FILE} or \
+         $XDG_CONFIG_HOME/squint/{CONFIG_FILE} (~/.config/squint/{CONFIG_FILE})",
+        path.display()
+    )
+}
+
+/// `$XDG_CONFIG_HOME/squint/squint.toml`, `~/.config/squint/squint.toml` when that is unset or
+/// not absolute (the XDG base directory rule), none without either.
+fn user_config_file(env: &dyn Fn(&str) -> Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let base = env("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+        .or_else(|| {
+            env("HOME")
+                .map(PathBuf::from)
+                .filter(|p| p.is_absolute())
+                .map(|home| home.join(".config"))
+        })?;
+    Some(base.join("squint").join(CONFIG_FILE))
+}
+
+/// Why a configuration does not load.
+struct Unloadable {
+    reason: String,
+    unset: Option<String>,
+}
+
+/// A config error's message without the class prefix `Error` displays.
+fn config_message(e: Error) -> String {
+    match e {
+        Error::Config(m) => m,
+        other => other.to_string(),
+    }
+}
+
+/// `text` with every non-empty secret replaced by `[redacted]`.
+fn redact_text(text: &str, secrets: &[String]) -> String {
+    secrets
+        .iter()
+        .filter(|s| !s.is_empty())
+        .fold(text.to_string(), |out, s| {
+            out.replace(s.as_str(), "[redacted]")
+        })
+}
+
 impl Config {
     /// Lowers the per-call spend cap to `max_usd` when that is lower; a call never raises it.
     pub fn lower_spend_cap(&mut self, max_usd: f64) -> Result<()> {
@@ -373,10 +474,92 @@ impl Config {
 
     /// Loads a config file, applies `path=value` overrides, expands `${VAR}`, validates.
     pub fn load_with_overrides(path: &Path, overrides: &[String]) -> Result<Config> {
-        let text = std::fs::read_to_string(path)
-            .map_err(|e| Error::Config(format!("cannot read {}: {e}", path.display())))?;
-        Config::parse(&text, overrides, &|name| std::env::var(name).ok())
-            .map_err(|e| Error::Config(format!("{}: {e}", path.display())))
+        Config::load_detailed(path, overrides, &|name| std::env::var(name).ok())
+            .map_err(|e| Error::Config(e.reason))
+    }
+
+    /// Like [`Config::load_with_overrides`], saying which `${VAR}` was unset when that is why it
+    /// does not load.
+    fn load_detailed(
+        path: &Path,
+        overrides: &[String],
+        env: &dyn Fn(&str) -> Option<String>,
+    ) -> std::result::Result<Config, Unloadable> {
+        let text = std::fs::read_to_string(path).map_err(|e| Unloadable {
+            reason: format!("cannot read {}: {e}", path.display()),
+            unset: None,
+        })?;
+        Config::parse_detailed(&text, overrides, env).map_err(|e| Unloadable {
+            reason: format!("{}: {}", path.display(), e.reason),
+            unset: e.unset,
+        })
+    }
+
+    /// Where squint's configuration is (ADR 0018 amendment): the path given, else
+    /// `./squint.toml`, else `$XDG_CONFIG_HOME/squint/squint.toml` (`~/.config/squint/squint.toml`).
+    /// The first that exists wins; when none does, the one a person would create.
+    pub fn locate(given: Option<&Path>) -> Located {
+        Config::locate_with(given, &|name| std::env::var_os(name))
+    }
+
+    /// [`Config::locate`] with the environment injected (for tests).
+    pub fn locate_with(
+        given: Option<&Path>,
+        env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    ) -> Located {
+        if let Some(path) = given {
+            return Located {
+                path: path.to_path_buf(),
+                exists: path.exists(),
+            };
+        }
+        let here = std::path::absolute(CONFIG_FILE).unwrap_or_else(|_| PathBuf::from(CONFIG_FILE));
+        if here.exists() {
+            return Located {
+                path: here,
+                exists: true,
+            };
+        }
+        match user_config_file(env) {
+            Some(user) => Located {
+                exists: user.exists(),
+                path: user,
+            },
+            None => Located {
+                path: here,
+                exists: false,
+            },
+        }
+    }
+
+    /// The configuration [`Config::locate`] finds, loaded with `overrides`: present, missing, or
+    /// invalid with the reason. Never an error: describing and serving start without one (3.1).
+    pub fn open(given: Option<&Path>, overrides: &[String]) -> ConfigFile {
+        Config::open_with(given, overrides, &|name| std::env::var(name).ok())
+    }
+
+    /// [`Config::open`] with the `${VAR}` lookup injected (for tests).
+    pub fn open_with(
+        given: Option<&Path>,
+        overrides: &[String],
+        env: &dyn Fn(&str) -> Option<String>,
+    ) -> ConfigFile {
+        let located = Config::locate(given);
+        let state = if !located.exists {
+            ConfigState::Missing
+        } else {
+            match Config::load_detailed(&located.path, overrides, env) {
+                Ok(config) => ConfigState::Loaded(Box::new(config)),
+                Err(e) => ConfigState::Invalid {
+                    reason: e.reason,
+                    unset: e.unset,
+                },
+            }
+        };
+        ConfigFile {
+            path: located.path,
+            state,
+        }
     }
 
     /// Parses config text with overrides and an environment lookup (injected for tests).
@@ -385,20 +568,41 @@ impl Config {
         overrides: &[String],
         env: &dyn Fn(&str) -> Option<String>,
     ) -> Result<Config> {
+        Config::parse_detailed(text, overrides, env).map_err(|e| Error::Config(e.reason))
+    }
+
+    fn parse_detailed(
+        text: &str,
+        overrides: &[String],
+        env: &dyn Fn(&str) -> Option<String>,
+    ) -> std::result::Result<Config, Unloadable> {
+        let plain = |e: Error| Unloadable {
+            reason: config_message(e),
+            unset: None,
+        };
         let mut table: toml::Table = text
             .parse()
-            .map_err(|e: toml::de::Error| Error::Config(e.to_string()))?;
+            .map_err(|e: toml::de::Error| plain(Error::Config(e.to_string())))?;
         for ov in overrides {
-            apply_override(&mut table, ov)?;
+            apply_override(&mut table, ov).map_err(plain)?;
         }
         let mut secrets = Vec::new();
         let mut value = toml::Value::Table(table);
-        expand_env(&mut value, env, &mut secrets, "")?;
+        let mut unset = None;
+        expand_env(&mut value, env, &mut secrets, &mut unset, "").map_err(|e| Unloadable {
+            reason: config_message(e),
+            unset: unset.clone(),
+        })?;
+        // From here an error may quote an expanded value: it is redacted like every output.
+        let hide = |e: Error| Unloadable {
+            reason: redact_text(&config_message(e), &secrets),
+            unset: None,
+        };
         let mut config: Config = value
             .try_into()
-            .map_err(|e: toml::de::Error| Error::Config(e.to_string()))?;
+            .map_err(|e: toml::de::Error| hide(Error::Config(e.to_string())))?;
+        config.validate().map_err(hide)?;
         config.secrets = secrets;
-        config.validate()?;
         Ok(config)
     }
 
@@ -514,6 +718,7 @@ fn expand_env(
     value: &mut toml::Value,
     env: &dyn Fn(&str) -> Option<String>,
     secrets: &mut Vec<String>,
+    unset: &mut Option<String>,
     path: &str,
 ) -> Result<()> {
     match value {
@@ -527,9 +732,12 @@ fn expand_env(
                     .find('}')
                     .ok_or_else(|| Error::Config(format!("{path}: unterminated ${{ in {s:?}")))?;
                 let name = &after[..end];
-                let v = env(name).ok_or_else(|| {
-                    Error::Config(format!("{path}: environment variable {name} is not set"))
-                })?;
+                let Some(v) = env(name) else {
+                    *unset = Some(name.to_string());
+                    return Err(Error::Config(format!(
+                        "{path}: environment variable {name} is not set"
+                    )));
+                };
                 secrets.push(v.clone());
                 out.push_str(&v);
                 rest = &after[end + 1..];
@@ -544,12 +752,12 @@ fn expand_env(
                 } else {
                     format!("{path}.{k}")
                 };
-                expand_env(v, env, secrets, &p)?;
+                expand_env(v, env, secrets, unset, &p)?;
             }
         }
         toml::Value::Array(a) => {
             for (i, v) in a.iter_mut().enumerate() {
-                expand_env(v, env, secrets, &format!("{path}[{i}]"))?;
+                expand_env(v, env, secrets, unset, &format!("{path}[{i}]"))?;
             }
         }
         _ => {}
@@ -677,6 +885,111 @@ mod tests {
         assert!(json.contains("[redacted]"));
         assert!(
             matches!(Config::parse(&text, &[], &no_env), Err(Error::Config(m)) if m.contains("DJV_TEST_ACCOUNT"))
+        );
+    }
+
+    fn scratch(tag: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("squint-config-locate-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// The lookup (ADR 0018 amendment): a given path wins even when it is missing; else the
+    /// user's config directory (`$XDG_CONFIG_HOME`, then `~/.config`); none found is not an
+    /// error and names the file a person would create.
+    #[test]
+    fn the_lookup_takes_the_given_path_then_the_user_file() {
+        let dir = scratch("order");
+        let xdg = dir.join("xdg");
+        let home = dir.join("home");
+        let env = |xdg: Option<&Path>, home: Option<&Path>| {
+            let (xdg, home) = (xdg.map(PathBuf::from), home.map(PathBuf::from));
+            move |name: &str| match name {
+                "XDG_CONFIG_HOME" => xdg.clone().map(Into::into),
+                "HOME" => home.clone().map(Into::into),
+                _ => None,
+            }
+        };
+        let given = dir.join("given.toml");
+        let found = Config::locate_with(Some(&given), &env(Some(&xdg), Some(&home)));
+        assert_eq!((found.path, found.exists), (given.clone(), false));
+
+        let user = xdg.join("squint/squint.toml");
+        let none = Config::locate_with(None, &env(Some(&xdg), Some(&home)));
+        assert_eq!((none.path.clone(), none.exists), (user.clone(), false));
+        std::fs::create_dir_all(user.parent().unwrap()).unwrap();
+        std::fs::write(&user, "").unwrap();
+        let some = Config::locate_with(None, &env(Some(&xdg), Some(&home)));
+        assert_eq!((some.path, some.exists), (user, true));
+
+        // A relative XDG_CONFIG_HOME is ignored, as the XDG rule says; HOME then decides.
+        let fallback = Config::locate_with(None, &env(Some(Path::new("rel")), Some(&home)));
+        assert_eq!(fallback.path, home.join(".config/squint/squint.toml"));
+        // With neither, the working directory's file is the one to create.
+        let bare = Config::locate_with(None, &env(None, None));
+        assert!(bare.path.ends_with("squint.toml") && bare.path.is_absolute());
+        assert!(!bare.exists);
+        std::fs::write(&given, "").unwrap();
+        assert!(Config::locate_with(Some(&given), &env(None, None)).exists);
+    }
+
+    /// Opening never fails: a file that does not parse, or names an unset `${VAR}`, is invalid
+    /// with the reason (and the variable), and an expanded value never reaches the reason.
+    #[test]
+    fn opening_reports_missing_invalid_and_loaded() {
+        let dir = scratch("open");
+        let path = dir.join("squint.toml");
+        assert!(matches!(
+            Config::open_with(Some(&path), &[], &no_env).state,
+            ConfigState::Missing
+        ));
+        std::fs::write(&path, "[provider\n").unwrap();
+        assert!(matches!(
+            Config::open_with(Some(&path), &[], &no_env).state,
+            ConfigState::Invalid { unset: None, .. }
+        ));
+        let text = crate::fixture("config/minimal.toml").replace(
+            "account = \"fake:test\"",
+            "account = \"fake:${DJV_OPEN_ACCOUNT}\"",
+        );
+        std::fs::write(&path, &text).unwrap();
+        match Config::open_with(Some(&path), &[], &no_env).state {
+            ConfigState::Invalid { unset, reason } => {
+                assert_eq!(unset.as_deref(), Some("DJV_OPEN_ACCOUNT"), "{reason}");
+            }
+            other => panic!("{other:?}"),
+        }
+        let env = |name: &str| (name == "DJV_OPEN_ACCOUNT").then(|| "org-open-secret".to_string());
+        let opened = Config::open_with(Some(&path), &[], &env);
+        assert_eq!(
+            opened.config().unwrap().privacy.account,
+            "fake:org-open-secret"
+        );
+        // A value expanded into a field of the wrong type is quoted by the parser: redacted.
+        let wrong = text.replace(
+            "[provider]\n",
+            "[provider]\nmax_output_tokens = \"${DJV_OPEN_ACCOUNT}\"\n",
+        );
+        std::fs::write(&path, &wrong).unwrap();
+        match Config::open_with(Some(&path), &[], &env).state {
+            ConfigState::Invalid { reason, .. } => assert!(!reason.contains("org-open-secret")),
+            other => panic!("{other:?}"),
+        }
+        // A directory where the file should be cannot be read: invalid, not missing.
+        let unreadable = dir.join("a-directory.toml");
+        std::fs::create_dir_all(&unreadable).unwrap();
+        assert!(matches!(
+            Config::open_with(Some(&unreadable), &[], &no_env).state,
+            ConfigState::Invalid { .. }
+        ));
+        assert!(
+            Config::open_with(Some(&dir.join("none.toml")), &[], &no_env)
+                .require()
+                .unwrap_err()
+                .to_string()
+                .contains("--config")
         );
     }
 

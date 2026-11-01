@@ -198,3 +198,37 @@ fn a_reference_in_shorthand_gets_a_ref_id_and_label() {
             .any(|i| i["id"] == "ref:pip" && i["role"] == "reference" && i["label"] == "pip")
     );
 }
+
+/// `check` and `estimate` cannot run without a configuration (task 9.2): with none on the lookup
+/// they exit 64 naming where squint looked, and write nothing.
+#[test]
+fn check_without_a_config_names_the_lookup() {
+    let dir = tempdir("none");
+    for sub in ["work", "xdg", "home"] {
+        std::fs::create_dir_all(dir.join(sub)).unwrap();
+    }
+    let candidate = repo_root().join("fixtures/images/candidate-64x48.png");
+    let source = repo_root().join("fixtures/images/source-64x48.png");
+    for command in ["check", "estimate"] {
+        let o = Command::new(env!("CARGO_BIN_EXE_squint"))
+            .current_dir(dir.join("work"))
+            .arg(command)
+            .args(["--use-case", "source-fidelity", "--candidate"])
+            .arg(&candidate)
+            .arg("--source")
+            .arg(&source)
+            .env("XDG_CONFIG_HOME", dir.join("xdg"))
+            .env("HOME", dir.join("home"))
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(64), "{command}: {stderr}");
+        let expected = dir.join("xdg/squint/squint.toml");
+        assert!(
+            stderr.contains(expected.to_str().unwrap()) && stderr.contains("--config"),
+            "{command}: {stderr}"
+        );
+        assert!(stderr.contains("./squint.toml"), "{command}: {stderr}");
+        assert_eq!(std::fs::read_dir(dir.join("work")).unwrap().count(), 0);
+    }
+}

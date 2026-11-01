@@ -521,6 +521,9 @@ pub enum Executor {
     Paid { credential: Option<CredentialEnv> },
     /// A provider that can never charge and reads no credential (the scripted fake).
     Free,
+    /// No configuration loaded, so no provider is chosen yet: a check may spend once one is,
+    /// and the one requirement is the configuration (ADR 0018 amendment).
+    Unconfigured { config: Requirement },
 }
 
 /// A credential variable by name, and whether it is set: a local lookup, never its value.
@@ -551,6 +554,7 @@ fn readiness(executor: &Executor) -> Readiness {
                 credential.name
             )),
         }],
+        Executor::Unconfigured { config } => vec![config.clone()],
         Executor::Paid { credential: None } | Executor::Free => Vec::new(),
     };
     let blocked = requirements.iter().any(|r| {
@@ -569,14 +573,53 @@ fn readiness(executor: &Executor) -> Readiness {
     }
 }
 
+/// The `config` requirement of a configuration that did not load (table-manners 3.1): `missing`
+/// at the path the lookup would use, or `invalid` with what to fix (the unset variable by name,
+/// never a value).
+pub fn config_requirement(file: &crate::config::ConfigFile) -> Option<Requirement> {
+    use crate::config::ConfigState;
+    let (state, setup) = match &file.state {
+        ConfigState::Loaded(_) => return None,
+        ConfigState::Missing => (
+            RequirementState::Missing,
+            format!(
+                "Create {} or pass --config <path> (squint also looks for ./{} and \
+                 $XDG_CONFIG_HOME/squint/{}).",
+                file.path.display(),
+                crate::config::CONFIG_FILE,
+                crate::config::CONFIG_FILE
+            ),
+        ),
+        ConfigState::Invalid {
+            unset: Some(name), ..
+        } => (
+            RequirementState::Invalid,
+            format!(
+                "Set {name} in the environment squint is started with: the configuration expands it."
+            ),
+        ),
+        ConfigState::Invalid { reason, .. } => (
+            RequirementState::Invalid,
+            format!("Fix the configuration: {reason}"),
+        ),
+    };
+    Some(Requirement {
+        kind: RequirementKind::Config,
+        name: file.path.display().to_string(),
+        state,
+        setup: Some(setup),
+    })
+}
+
 /// squint's description document (table-manners 3 and 11.2): one action per use case a check can
-/// run (the one `[rules]` names, else every shipped base), taking the images its rules require
-/// (`estimate` is reserved and never an action); every disposition and confidence
-/// word a finding can carry; the inline limit from the decode bound. `executor` says what a check
-/// will run on, so the declared cost and readiness are the truth of this configuration (squint
-/// issue #2).
+/// run (the one `[rules]` names, else every shipped base, which is also what squint describes
+/// with no configuration), taking the images its rules require (`estimate` is reserved and never
+/// an action); every disposition and confidence word a finding can carry; the inline limit from
+/// the decode bound (the default one with no configuration). `executor` says what a check will
+/// run on, so the declared cost and readiness are the truth of this configuration (squint issue
+/// #2).
 pub fn description(
-    config: &Config,
+    config: Option<&Config>,
     version: &str,
     executor: &Executor,
 ) -> crate::Result<Description> {
@@ -603,7 +646,7 @@ pub fn description(
                     locations: vec![LocationOutput::Found],
                 }),
                 cost: match executor {
-                    Executor::Paid { .. } => Cost {
+                    Executor::Paid { .. } | Executor::Unconfigured { .. } => Cost {
                         may_spend: true,
                         basis: Some(SpendBasis::Measured),
                     },
@@ -677,7 +720,10 @@ pub fn description(
             score_kind: Vec::new(),
         }),
         limits: Some(Limits {
-            inline_bytes: config.images.max_decode_bytes,
+            inline_bytes: config.map_or_else(
+                || crate::config::ImagesConfig::default().max_decode_bytes,
+                |c| c.images.max_decode_bytes,
+            ),
         }),
         progress_interval_s: PROGRESS_INTERVAL_S,
         resources: [
@@ -695,9 +741,9 @@ pub fn description(
 
 /// The use cases a check can run, each with the roles its rules require: the one `[rules]`
 /// names, merged with its profile and extra files (resolved as `check` resolves them, against the
-/// working directory), else every shipped base.
-fn use_cases(config: &Config) -> crate::Result<Vec<(String, Vec<Role>)>> {
-    let Some(rules) = &config.rules else {
+/// working directory), else (and with no configuration) every shipped base.
+fn use_cases(config: Option<&Config>) -> crate::Result<Vec<(String, Vec<Role>)>> {
+    let Some(rules) = config.and_then(|c| c.rules.as_ref()) else {
         return Ok(SHIPPED_BASES
             .iter()
             .filter_map(|base| {

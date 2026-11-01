@@ -107,7 +107,7 @@ fn description() -> Value {
     config.rules = None;
     serde_json::to_value(
         squint_core::contract::description(
-            &config,
+            Some(&config),
             "0.0.0",
             &squint_core::contract::Executor::Paid {
                 credential: Some(squint_core::contract::CredentialEnv {

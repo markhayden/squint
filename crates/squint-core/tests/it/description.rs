@@ -29,7 +29,7 @@ fn described() -> (Description, serde_json::Value) {
 fn described_with(executor: &contract::Executor) -> (Description, serde_json::Value) {
     let text = std::fs::read_to_string(root().join("fixtures/config/minimal.toml")).unwrap();
     let config = Config::parse(&text, &[], &|_| None).unwrap();
-    let d = contract::description(&config, "0.9.0", executor).unwrap();
+    let d = contract::description(Some(&config), "0.9.0", executor).unwrap();
     let doc = serde_json::to_value(&d).unwrap();
     valid(&doc);
     (d, doc)
@@ -272,7 +272,7 @@ fn a_config_with_rules_describes_only_its_use_case() {
     };
     let mine = root().join("fixtures/rules/mine.toml");
     let d = contract::description(
-        &with_rules(mine.to_str().unwrap()),
+        Some(&with_rules(mine.to_str().unwrap())),
         "0.9.0",
         &contract::Executor::Free,
     )
@@ -283,7 +283,7 @@ fn a_config_with_rules_describes_only_its_use_case() {
     let missing = root().join("fixtures/rules/no-such-rules.toml");
     assert!(
         contract::description(
-            &with_rules(missing.to_str().unwrap()),
+            Some(&with_rules(missing.to_str().unwrap())),
             "0.9.0",
             &contract::Executor::Free
         )
@@ -309,4 +309,74 @@ fn every_params_schema_compiles_on_its_own() {
         assert!(schema.is_valid(&good), "{}", action.name);
         assert!(!schema.is_valid(&bad), "{}", action.name);
     }
+}
+
+/// With no configuration (table-manners 3.1, task 9.2) squint describes every shipped use case
+/// with the default image limits, each needing setup for the one requirement it can name, the
+/// configuration: the credential and model are the configuration's choice.
+#[test]
+fn an_unconfigured_description_needs_only_the_configuration() {
+    let path = std::env::temp_dir().join(format!(
+        "squint-description-none-{}/squint.toml",
+        std::process::id()
+    ));
+    let file = Config::open_with(Some(&path), &[], &|_| None);
+    let config = contract::config_requirement(&file).unwrap();
+    assert_eq!(
+        (config.kind, config.state, config.name.as_str()),
+        (
+            RequirementKind::Config,
+            RequirementState::Missing,
+            path.to_str().unwrap()
+        )
+    );
+    assert!(config.setup.as_deref().unwrap().contains("--config"));
+    let d = contract::description(
+        None,
+        "0.9.0",
+        &contract::Executor::Unconfigured {
+            config: config.clone(),
+        },
+    )
+    .unwrap();
+    valid(&serde_json::to_value(&d).unwrap());
+    let names: Vec<String> = d.actions.iter().map(|a| a.name.replace('_', "-")).collect();
+    assert_eq!(names, squint_core::obligations::SHIPPED_BASES);
+    for action in &d.actions {
+        assert_eq!(action.readiness.state, ReadinessState::NeedsSetup);
+        assert_eq!(action.readiness.requirements, std::slice::from_ref(&config));
+        assert!(
+            action.cost.may_spend,
+            "a configuration may choose a paid provider"
+        );
+    }
+    assert_eq!(
+        d.limits.unwrap().inline_bytes,
+        squint_core::config::ImagesConfig::default().max_decode_bytes
+    );
+}
+
+/// A configuration that does not load is `invalid`; when an unset `${VAR}` is why, the setup
+/// sentence names the variable and never a value.
+#[test]
+fn an_invalid_configuration_says_what_to_fix() {
+    let dir = std::env::temp_dir().join(format!("squint-description-bad-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("squint.toml");
+    std::fs::write(&path, "[provider\n").unwrap();
+    let r = contract::config_requirement(&Config::open_with(Some(&path), &[], &|_| None)).unwrap();
+    assert_eq!(r.state, RequirementState::Invalid);
+    let text = std::fs::read_to_string(root().join("examples/source-fidelity.toml")).unwrap();
+    std::fs::write(&path, text).unwrap();
+    let r = contract::config_requirement(&Config::open_with(Some(&path), &[], &|_| None)).unwrap();
+    assert_eq!(r.state, RequirementState::Invalid);
+    assert!(
+        r.setup
+            .as_deref()
+            .unwrap()
+            .contains("SQUINT_ANTHROPIC_ACCOUNT"),
+        "{r:?}"
+    );
+    let loaded = Config::open_with(Some(&path), &[], &|_| Some("org-x".into()));
+    assert!(contract::config_requirement(&loaded).is_none());
 }

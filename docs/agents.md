@@ -9,8 +9,13 @@ does rascal. This page is squint's side; the contract's `CONTRACT.md` is the ref
 ## Describe
 
 ```
-squint describe --json --config squint.toml
+squint describe --json [--config squint.toml]
 ```
+
+Without `--config`, squint looks for `./squint.toml`, then `$XDG_CONFIG_HOME/squint/squint.toml`
+(`~/.config/squint/squint.toml`). None found, or one that does not load, is not an error:
+`describe` exits 0 and every action is `needs_setup` with one `config` requirement, `missing` at
+the path to create or `invalid` with what to fix (an unset `${VAR}` by name).
 
 The description document: one action per shipped use case (`source_fidelity`,
 `reference_consistency`, `reality_checks`, `brief_compliance`, `product_fidelity`); `estimate` is
@@ -25,7 +30,7 @@ is the `describe` tool over MCP.
 ## Estimate
 
 ```
-squint estimate --config squint.toml --job job.toml [--max-spend-usd 0.10]
+squint estimate [--config squint.toml] --job job.toml [--max-spend-usd 0.10]
 ```
 
 The worst case one check would reserve, priced from the catalog with no credential, and whether
@@ -35,11 +40,15 @@ the session's budget, spent and remaining are the `squint://session` resource.
 ## Serve
 
 ```
-squint serve --config squint.toml [--out runs/] [--set serve.session_budget_usd=5]
+squint serve [--config squint.toml] [--out runs/] [--set serve.session_budget_usd=5]
 ```
 
 MCP over stdio at protocol revision `2025-11-25` only, on `rmcp` `=3.8.0`; nothing but the
-protocol on stdout. Tools: `describe`, `estimate`, and one per use case. A use-case call is one
+protocol on stdout. The configuration is found as for `describe` and read once, at start; to
+take up a change, restart the server (a new session). A server with no configuration that loads
+still starts and answers `describe` and its resources, writes nothing, and refuses a check or an
+`estimate` with `-32602`, `{"reason": "not_ready", "run": null, "requirements": [...]}` naming
+the configuration. Tools: `describe`, `estimate`, and one per use case. A use-case call is one
 ordinary decision (its directory, journal, report and `run.json`).
 
 - **Images** by absolute `path` or `inline` bytes, each with an optional `expect` reference whose

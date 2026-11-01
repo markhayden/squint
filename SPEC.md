@@ -1236,6 +1236,16 @@ catalog, check controls and image settings against capabilities, refuse credenti
 `env`, expand `${VAR}` from the environment only. The resolved config, redacted, goes into the
 report.
 
+Where it is (`check`, `estimate`, `describe` and `serve`; ADR 0018 amendment): `--config <path>`,
+else `./squint.toml`, else `$XDG_CONFIG_HOME/squint/squint.toml` (`~/.config/squint/squint.toml`
+when that is unset); the first that exists wins, and a given path wins even when it does not.
+None found is not an error for `describe` or `serve` (table-manners 3.1): the description names
+the configuration as a `missing` requirement at the path the lookup would use (the user file),
+or `invalid` when it does not load (a parse error, an unreadable file, an unset `${VAR}` named
+in the setup sentence, rules that do not resolve), and the server starts and refuses every call
+that makes a run `not_ready`. `check` and `estimate` exit 64 naming where squint looked. A
+parse error never quotes an expanded value.
+
 ## Evaluation
 
 ### Set manifest
@@ -1428,7 +1438,12 @@ with them.
   decision each; images by path or inline bytes in any slot; paths only inside the client's MCP
   roots narrowed by config; inline bytes bounded), `estimate` (worst-case cost of a check and the
   effective per-call cap; the session's budget is the `squint://session` resource; on the command
-  line `squint estimate`, priced from the catalog with no credential), and `describe`. squint's own self-description (`rules`, `tools list`, `catalog`)
+  line `squint estimate`, priced from the catalog with no credential), and `describe`. It reads
+  its configuration once, at start, and never reloads it (table-manners 4.6). Without one that
+  loads it still starts, needs no output directory and writes nothing: `describe` and the
+  resources answer, and a check or `estimate` is refused before any run as JSON-RPC `-32602` with
+  `{"reason": "not_ready", "run": null, "requirements": [the config]}`, which releases its
+  `client_run_id`. squint's own self-description (`rules`, `tools list`, `catalog`)
   stays on the command line and is referenced from the description's `x-squint`. An `invalid` or
   `error` outcome is a result with `isError` and the header; JSON-RPC errors are only for failures
   before a run exists. Each image out carries its reference and the locator the call asked for
@@ -1487,10 +1502,12 @@ with them.
   `image_limit` are `invalid` with code `input`; a provider or model-output failure is a
   retryable `error` with code `provider`; `tool` is `tool_process`; `budget`, `io` and anything
   else (`internal`) are not retryable; `cancelled` is its own status.
-- **`squint describe --json --config <file>`**: the contract's description document with
-  `profiles: ["images"]`: one action per use case the config can check (`source_fidelity`, …:
-  the one `[rules]` names, its slots from the merged rules with relative files resolved against
-  the working directory as `check` resolves them; else every shipped use case), named for
+- **`squint describe --json [--config <file>]`**: the contract's description document with
+  `profiles: ["images"]`, with or without a configuration (Config: where it is; it always exits
+  0 on one that is missing or invalid): one action per use case the config can check
+  (`source_fidelity`, …: the one `[rules]` names, its slots from the merged rules with relative
+  files resolved against the working directory as `check` resolves them; else, and with no
+  configuration, every shipped use case), named for
   its rule set's `use_case` with a one-sentence purpose (kept beside the description, since sealed
   sets bind the rule files byte for byte), taking `candidate`, the `source` when the
   rule set requires one, and `references` (a list; contract v0.1 has no list slot, so squint says
@@ -1500,8 +1517,10 @@ with them.
   `ready_timeout_s`, `report export` of kind `document`), the cost notice and each action's
   `readiness`: the credential variable the configured profile needs, by name, `present` or
   `missing` by a local lookup, never its value (a check on the scripted fake, under the `fake`
-  profile or `--provider-script`, declares `may_spend: false`, needs nothing and is `ready`), the
-  expected duration, the inline limit (the decode bound) and the resources. Every
+  profile or `--provider-script`, declares `may_spend: false`, needs nothing and is `ready`; with
+  no configuration that loads, the one requirement is the configuration, and a check may spend),
+  the expected duration, the inline limit (the decode bound, the default one with no
+  configuration) and the resources. Every
   `params_schema` and MCP `inputSchema` is a schema of its own: the definitions it refers to sit
   at its root. Argument errors on every command exit 64.
 - **Exit codes** across commands: 0 success, 3 error, 64 usage or input, 130 on SIGINT and 143
@@ -1559,10 +1578,10 @@ squint report view ./squint-out/<run-id>
 squint report rebuild ./squint-out/<run-id>
 squint report prune --older-than 30d
 squint tools list --config squint.toml      # manifests as the model will see them
-squint describe --json --config squint.toml # the contract's description document (ADR 0018)
+squint describe --json [--config squint.toml] # the contract's description document (ADR 0018); works with no config
 squint estimate --config squint.toml --job job.toml [--max-spend-usd 0.10]   # worst case of one check; nothing sent
 squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check, never raises it
-squint serve --config squint.toml [--out runs/]   # MCP over stdio, protocol 2025-11-25 (table-manners 5)
+squint serve [--config squint.toml] [--out runs/]   # MCP over stdio, protocol 2025-11-25 (table-manners 5); starts with no config
 squint sets check evalsets/
 squint sets fetch --set reference-consistency/pets-v1
 squint sets seal --set <set> --attest "…"    # writes seal.toml; a blind set's labels move out (--labels-out)
