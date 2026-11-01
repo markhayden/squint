@@ -123,6 +123,11 @@ fn a_pass_is_completed_with_the_header_and_squints_body() {
     let id = o.dir.file_name().unwrap().to_str().unwrap();
     assert_eq!(r.run.id, id);
     assert_eq!(r.run.resource, format!("squint://run/{id}/run.json"));
+    // A run made outside a server belongs to no session and no client request (table-manners 4.3).
+    assert_eq!(
+        (r.run.session_id.as_deref(), r.run.client_run_id.as_deref()),
+        (None, None)
+    );
     assert_eq!(r.run.dir.as_deref(), Some(o.dir.to_str().unwrap()));
     assert!(r.input_identity.starts_with("sha256:"));
     assert_eq!(r.spend.basis, table_manners::SpendBasis::Measured);

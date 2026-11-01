@@ -1074,6 +1074,7 @@
   "progress_interval_s": 10,
   "resources": [
     "squint://runs",
+    "squint://session",
     "squint://run/{id}/run.json",
     "squint://run/{id}/report.json",
     "squint://run/{id}/journal"

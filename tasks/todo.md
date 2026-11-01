@@ -166,7 +166,7 @@ tag.
 
 - [x] Owner: M8 approved 2026-10-31 ("keep going")
 - [x] 8.1 The contract at v0.2 (2026-10-31): path dependency on `../table-manners` until v0.2.0 is published; schemas and fixtures at 0.2.0, new fields at their v0.1 values
-- [ ] 8.2 The session: UUID v4, `squint://session`, `session_id` on every served run
+- [x] 8.2 The session (2026-11-01): UUID v4 at `serve` start, `squint://session` from an atomic ledger snapshot, the association written into each run's directory at allocation so `run.json` and running entries carry `session_id`; CLI runs null; `estimate` drops `session_budget_left_usd`
 - [ ] 8.3 Correlation and the run reference: `client_run_id` claimed on acceptance, the refusal, `_meta` on progress
 - [ ] 8.4 Unresolved spend
 - [ ] 8.5 Runs by page

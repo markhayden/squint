@@ -1752,6 +1752,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "jsonschema",
+ "rand",
  "rmcp",
  "serde_json",
  "squint-core",

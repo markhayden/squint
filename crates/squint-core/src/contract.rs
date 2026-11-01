@@ -201,6 +201,34 @@ impl Grid {
 /// The file every decision directory ends with: the contract's result (table-manners 2).
 pub const RUN_FILE: &str = "run.json";
 
+/// The file a served run's association is written to when its directory is made, before any
+/// paid work (table-manners 4.3): a run still going is listed with it.
+pub const ASSOCIATION_FILE: &str = "association.json";
+
+/// Which serving session and client request a run belongs to (table-manners 4.3, 4.4). Both are
+/// null for a run made outside a server (the CLI).
+#[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Association {
+    pub session_id: Option<String>,
+    pub client_run_id: Option<String>,
+}
+
+impl Association {
+    /// Written into a run's directory as soon as it exists.
+    pub fn write(&self, dir: &Path) -> crate::Result<()> {
+        std::fs::write(dir.join(ASSOCIATION_FILE), serde_json::to_vec(self)?)?;
+        Ok(())
+    }
+
+    /// A run's association, or none (both null) for a run made outside a server.
+    pub fn read(dir: &Path) -> Association {
+        std::fs::read(dir.join(ASSOCIATION_FILE))
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+}
+
 /// How a squint error class reads in the contract (table-manners 2.1, 2.2): the status, and for
 /// `invalid` and `error` the code and whether an identical retry may succeed. A request that
 /// could not be resolved (the job, the config, a credential) or an image that is not the one
@@ -229,6 +257,7 @@ pub const EXIT_INVALID: i32 = 64;
 /// decision began; the result is finished now.
 pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
     let finished_ms = now_ms();
+    let association = Association::read(dir);
     let id = dir
         .file_name()
         .map(|n| n.to_string_lossy().into_owned())
@@ -325,8 +354,8 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
             resource: format!("squint://run/{id}/{RUN_FILE}"),
             id,
             dir: Some(dir.to_string_lossy().into_owned()),
-            session_id: None,
-            client_run_id: None,
+            session_id: association.session_id,
+            client_run_id: association.client_run_id,
         },
         status,
         error,
@@ -614,6 +643,7 @@ pub fn description(
         progress_interval_s: PROGRESS_INTERVAL_S,
         resources: [
             "squint://runs",
+            "squint://session",
             "squint://run/{id}/run.json",
             "squint://run/{id}/report.json",
             "squint://run/{id}/journal",
@@ -855,10 +885,12 @@ pub fn job_from_call(
 /// The result of an action that is not a decision (`estimate`): the header with no spend and no
 /// images or locations, and the action's own body; `error` sets the status from its class. The
 /// input identity is a digest of the call's arguments.
+#[allow(clippy::too_many_arguments)]
 pub fn action_result(
     dir: &Path,
     version: &str,
     action: &str,
+    association: &Association,
     started_ms: u64,
     input: &serde_json::Value,
     error: Option<&crate::Error>,
@@ -894,8 +926,8 @@ pub fn action_result(
             resource: format!("squint://run/{id}/{RUN_FILE}"),
             id,
             dir: Some(dir.to_string_lossy().into_owned()),
-            session_id: None,
-            client_run_id: None,
+            session_id: association.session_id.clone(),
+            client_run_id: association.client_run_id.clone(),
         },
         status,
         error,

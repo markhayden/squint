@@ -54,6 +54,22 @@ pub struct ServeArgs {
     pub provider_script: Option<PathBuf>,
 }
 
+/// A random UUID (version 4, RFC 9562), lower case.
+fn uuid_v4() -> String {
+    let mut b: [u8; 16] = rand::random();
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    let h: String = b.iter().map(|x| format!("{x:02x}")).collect();
+    format!(
+        "{}-{}-{}-{}-{}",
+        &h[0..8],
+        &h[8..12],
+        &h[12..16],
+        &h[16..20],
+        &h[20..32]
+    )
+}
+
 /// What a call's job resolves against. Its image paths are absolute (`job_from_call` refuses any
 /// other), so this resolves only the config's relative `[rules] extra` files: against the
 /// working directory, as `squint check` does.
@@ -95,6 +111,8 @@ pub fn run(args: &ServeArgs) -> i32 {
         .unwrap_or_else(|| config.output.dir.clone());
     let server = Server {
         inner: Arc::new(Inner {
+            session_id: uuid_v4(),
+            session_started_ms: contract::now_ms(),
             session: CapLedger::new(config.serve.session_budget_usd),
             permits: Arc::new(Semaphore::new(config.serve.concurrency as usize)),
             #[cfg(feature = "testkit")]
@@ -137,6 +155,10 @@ struct Inner {
     catalog: squint_providers::catalog::Catalog,
     description: Description,
     out_dir: PathBuf,
+    /// This process's session (table-manners 4.6): a random UUID made at start, fixed for the
+    /// process (squint never reloads its config), and when it started.
+    session_id: String,
+    session_started_ms: u64,
     /// The session budget: every decision this process serves reserves against it.
     session: CapLedger,
     /// Calls run under a permit: one at a time unless `[serve] concurrency` allows more.
@@ -231,7 +253,6 @@ impl Server {
                     "cap_usd": cap,
                     "fits": envelope.usd <= cap,
                     "decision_runs": envelope.decision_runs,
-                    "session_budget_left_usd": self.session_left(),
                 });
                 self.finished(
                     "estimate",
@@ -244,10 +265,32 @@ impl Server {
         }
     }
 
-    /// What the session budget has left: the cap less what is spent and reserved.
-    fn session_left(&self) -> f64 {
-        let s = &self.inner.session;
-        (s.cap() - s.spent() - s.reserved()).max(0.0)
+    /// The association every run this server makes carries.
+    fn association(&self) -> contract::Association {
+        contract::Association {
+            session_id: Some(self.inner.session_id.clone()),
+            client_run_id: None,
+        }
+    }
+
+    /// The `squint://session` resource (table-manners 4.6): one observation of the ledger.
+    fn session(&self) -> table_manners::Session {
+        let (spent, reserved) = self.inner.session.snapshot();
+        let budget = self.inner.session.cap();
+        table_manners::Session {
+            contract: table_manners::CONTRACT_VERSION.into(),
+            tool: table_manners::Tool {
+                name: "squint".into(),
+                version: VERSION.into(),
+            },
+            id: self.inner.session_id.clone(),
+            started: contract::rfc3339(self.inner.session_started_ms),
+            budget_usd: Some(budget),
+            spent_usd: spent,
+            unresolved_usd: 0.0,
+            reserved_usd: reserved,
+            remaining_usd: Some((budget - spent - reserved).max(0.0)),
+        }
     }
 
     /// One decision of a use case: the call's arguments as a job, every image path inside the
@@ -297,6 +340,7 @@ impl Server {
         let allocated = Arc::new(std::sync::Mutex::new(None::<PathBuf>));
         let told = allocated.clone();
         let mut services = squint_core::run::Services::new(provider.as_ref(), &self.inner.tools)
+            .with_association(self.association())
             .with_shared_ledger(Some(&self.inner.session))
             .with_cancel(&hooks.cancel)
             .with_allocated(Arc::new(move |dir: &Path| {
@@ -329,6 +373,9 @@ impl Server {
 
     /// A resource's text: the runs list, or one run's `run.json`, report or journal.
     fn resource(&self, uri: &str) -> Option<String> {
+        if uri == "squint://session" {
+            return serde_json::to_string_pretty(&self.session()).ok();
+        }
         if uri == "squint://runs" {
             return serde_json::to_string_pretty(&self.runs()).ok();
         }
@@ -395,15 +442,18 @@ impl Server {
                             session_id: r.run.session_id,
                             client_run_id: r.run.client_run_id,
                         },
-                        None => table_manners::RunSummary {
-                            action: running_action(&dir, &id),
-                            status: table_manners::RunState::Running,
-                            started: contract::rfc3339(ms),
-                            resource: format!("squint://run/{id}/{}", contract::RUN_FILE),
-                            id: id.clone(),
-                            session_id: None,
-                            client_run_id: None,
-                        },
+                        None => {
+                            let association = contract::Association::read(&dir);
+                            table_manners::RunSummary {
+                                action: running_action(&dir, &id),
+                                status: table_manners::RunState::Running,
+                                started: contract::rfc3339(ms),
+                                resource: format!("squint://run/{id}/{}", contract::RUN_FILE),
+                                id: id.clone(),
+                                session_id: association.session_id,
+                                client_run_id: association.client_run_id,
+                            }
+                        }
                     };
                     Some((ms, summary))
                 })
@@ -436,6 +486,7 @@ impl Server {
             &dir,
             VERSION,
             action,
+            &self.association(),
             started,
             &Value::Object(args.clone()),
             error,
@@ -858,7 +909,13 @@ impl ServerHandler for Server {
         let mut runs = Resource::new("squint://runs", "runs");
         runs.description = Some("Recent runs, newest first (table-manners 4.3).".into());
         runs.mime_type = Some("application/json".into());
-        Ok(ListResourcesResult::with_all_items(vec![runs]))
+        let mut session = Resource::new("squint://session", "session");
+        session.description = Some(
+            "This server's session: its id and budget, spent and reserved (table-manners 4.6)."
+                .into(),
+        );
+        session.mime_type = Some("application/json".into());
+        Ok(ListResourcesResult::with_all_items(vec![runs, session]))
     }
 
     async fn list_resource_templates(

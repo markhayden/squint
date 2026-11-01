@@ -226,6 +226,13 @@ impl CapLedger {
     fn balances(&self) -> Balances {
         self.balances.lock().map(|b| *b).unwrap_or_default()
     }
+
+    /// Spent and reserved read together, so an observer never sees a reservation settled into
+    /// spend on one side and not the other.
+    pub fn snapshot(&self) -> (f64, f64) {
+        let b = self.balances();
+        (b.spent, b.reserved)
+    }
 }
 
 impl Ledger for CapLedger {

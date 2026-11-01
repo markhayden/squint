@@ -70,6 +70,9 @@ pub struct Services<'a> {
     /// Told of the decision directory as soon as it exists, before anything is spent: the run a
     /// server answers with, whatever happens after.
     pub allocated: Option<Allocated>,
+    /// The serving session and client request the decision belongs to, written into its
+    /// directory when it is made (table-manners 4.3); none outside a server.
+    pub association: Option<crate::contract::Association>,
 }
 
 /// See [`Services::allocated`].
@@ -86,7 +89,13 @@ impl<'a> Services<'a> {
             fail_journal_at: None,
             observer: None,
             allocated: None,
+            association: None,
         }
+    }
+
+    pub fn with_association(mut self, association: crate::contract::Association) -> Services<'a> {
+        self.association = Some(association);
+        self
     }
 
     pub fn with_allocated(mut self, allocated: Allocated) -> Services<'a> {
@@ -166,6 +175,9 @@ pub async fn check(
     }
     let started_ms = crate::contract::now_ms();
     let dir = new_decision_dir(out_dir)?;
+    if let Some(association) = &services.association {
+        association.write(&dir)?;
+    }
     if let Some(allocated) = &services.allocated {
         allocated(&dir);
     }
@@ -203,6 +215,7 @@ pub async fn check(
                         &dir,
                         harness_version,
                         &job.use_case.replace('-', "_"),
+                        services.association.as_ref().unwrap_or(&Default::default()),
                         started_ms,
                         &serde_json::to_value(job.summary()).unwrap_or_default(),
                         Some(&e),
