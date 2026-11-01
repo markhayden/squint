@@ -17,7 +17,14 @@ fn root() -> PathBuf {
 fn described() -> (Description, serde_json::Value) {
     let text = std::fs::read_to_string(root().join("fixtures/config/minimal.toml")).unwrap();
     let config = Config::parse(&text, &[], &|_| None).unwrap();
-    let d = contract::description(&config, "0.9.0", &["GEMINI_API_KEY".to_string()]).unwrap();
+    let d = contract::description(
+        &config,
+        "0.9.0",
+        &contract::Executor::Paid {
+            needs_env: vec!["GEMINI_API_KEY".to_string()],
+        },
+    )
+    .unwrap();
     let doc = serde_json::to_value(&d).unwrap();
     valid(&doc);
     (d, doc)
@@ -167,7 +174,12 @@ fn a_config_with_rules_describes_only_its_use_case() {
         Config::parse(&text, &[], &|_| None).unwrap()
     };
     let mine = root().join("fixtures/rules/mine.toml");
-    let d = contract::description(&with_rules(mine.to_str().unwrap()), "0.9.0", &[]).unwrap();
+    let d = contract::description(
+        &with_rules(mine.to_str().unwrap()),
+        "0.9.0",
+        &contract::Executor::Free,
+    )
+    .unwrap();
     valid(&serde_json::to_value(&d).unwrap());
     let names: Vec<&str> = d.actions.iter().map(|a| a.name.as_str()).collect();
     assert_eq!(names, ["source_fidelity", "estimate"]);
@@ -177,5 +189,39 @@ fn a_config_with_rules_describes_only_its_use_case() {
         serde_json::json!(["source-fidelity"])
     );
     let missing = root().join("fixtures/rules/no-such-rules.toml");
-    assert!(contract::description(&with_rules(missing.to_str().unwrap()), "0.9.0", &[]).is_err());
+    assert!(
+        contract::description(
+            &with_rules(missing.to_str().unwrap()),
+            "0.9.0",
+            &contract::Executor::Free
+        )
+        .is_err()
+    );
+}
+
+/// Every action's `params_schema` is a schema of its own (squint issue #2): it compiles as a
+/// standalone document, and the obligation inside `requirements` resolves its definitions from
+/// that document's root, so a requirement of an unknown kind is refused.
+#[test]
+fn every_params_schema_compiles_on_its_own() {
+    let (d, _) = described();
+    let good = serde_json::json!({ "requirements": [
+        { "id": "RQ1", "kind": "must_hold", "text": "The logo stays." }
+    ]});
+    let bad = serde_json::json!({ "requirements": [
+        { "id": "RQ1", "kind": "sometimes", "text": "The logo stays." }
+    ]});
+    for action in &d.actions {
+        let schema = jsonschema::draft202012::new(&action.params_schema)
+            .unwrap_or_else(|e| panic!("{}: {e}", action.name));
+        // `estimate` also names its use case.
+        let with_case = |mut call: serde_json::Value| {
+            if let Some(case) = action.params_schema["properties"]["use_case"]["enum"].get(0) {
+                call["use_case"] = case.clone();
+            }
+            call
+        };
+        assert!(schema.is_valid(&with_case(good.clone())), "{}", action.name);
+        assert!(!schema.is_valid(&with_case(bad.clone())), "{}", action.name);
+    }
 }

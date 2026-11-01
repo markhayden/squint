@@ -1751,6 +1751,7 @@ name = "squint-cli"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "jsonschema",
  "rmcp",
  "serde_json",
  "squint-core",
