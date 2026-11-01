@@ -1510,8 +1510,8 @@ with them.
   configuration, every shipped use case), named for
   its rule set's `use_case` with a one-sentence purpose (kept beside the description, since sealed
   sets bind the rule files byte for byte), taking `candidate`, the `source` when the
-  rule set requires one, and `references` (a list; contract v0.1 has no list slot, so squint says
-  so under `x-squint`), with the brief, requirements and a lower spend cap as parameters
+  rule set requires one, and `references`, a `many` slot (a non-empty list of images in, which
+  `images.in` lists once per image in the order given), with the brief, requirements and a lower spend cap as parameters
   (`estimate` is a reserved tool, never an action); every disposition and confidence word a
   finding can carry (`vocabulary`), the renders (`report view` of kind `server` with a ten-second
   `ready_timeout_s`, `report export` of kind `document`), the cost notice (a check on the

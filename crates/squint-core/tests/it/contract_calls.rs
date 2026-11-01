@@ -1,6 +1,6 @@
 //! Task 7.7a: a contract call's arguments become a squint job (table-manners 10.1): images by
-//! absolute path or inline bytes, each with an optional `expect`; references as a list; the
-//! brief and requirements; anything else refused.
+//! absolute path or inline bytes, each with an optional `expect`; references as a non-empty list
+//! (since task 9.8, the `many` slot), in order; the brief and requirements; anything else refused.
 #![allow(clippy::unwrap_used)]
 
 use std::path::PathBuf;
@@ -100,6 +100,8 @@ fn unknown_or_malformed_arguments_are_usage_errors() {
         json!({ "candidate": "candidate.png" }),
         json!({ "brief": "no candidate" }),
         json!({ "candidate": { "path": path("candidate-64x48.png") }, "references": { "path": "x" } }),
+        // A `many` slot takes a non-empty list (table-manners 10.1).
+        json!({ "candidate": { "path": path("candidate-64x48.png") }, "references": [] }),
     ] {
         let err = job_from_call("reality-checks", &args(bad.clone())).unwrap_err();
         assert!(matches!(err, Error::Job(_)), "{bad}: {err}");

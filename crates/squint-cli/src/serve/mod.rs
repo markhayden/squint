@@ -980,8 +980,8 @@ fn new_run_dir(out_dir: &Path, action: &str, started_ms: u64) -> std::io::Result
     }
 }
 
-/// A tool's MCP input schema: its parameters, its image slots as images in (`references` a list
-/// of them), and the locator and image-block choices.
+/// A tool's MCP input schema: its parameters, its image slots as images in (a `many` slot a
+/// non-empty list of them, table-manners 10.1), and the locator and image-block choices.
 fn input_schema(params_schema: &Value, slots: &[ImageSlot]) -> Map<String, Value> {
     let image_in = json!({
         "type": "object",
@@ -1005,8 +1005,8 @@ fn input_schema(params_schema: &Value, slots: &[ImageSlot]) -> Map<String, Value
         .cloned()
         .unwrap_or_default();
     for slot in slots {
-        let schema = if slot.slot == "references" {
-            json!({ "type": "array", "items": image_in })
+        let schema = if slot.many {
+            json!({ "type": "array", "items": image_in, "minItems": 1 })
         } else {
             image_in.clone()
         };

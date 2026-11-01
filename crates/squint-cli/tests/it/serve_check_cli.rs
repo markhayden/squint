@@ -1,6 +1,7 @@
 //! Task 7.7b: a use case's action over `squint serve` is one decision (table-manners 5, 10):
 //! images by path inside the client's roots or inline, the result the decision's `run.json`,
-//! `invalid` for a path outside the roots, and the session budget refusing before any request.
+//! `invalid` for a path outside the roots, and the session budget refusing before any request;
+//! since task 9.8, `references` a `many` slot: a non-empty list, taken in once per image in order.
 #![cfg(feature = "testkit")]
 #![allow(clippy::unwrap_used)]
 
@@ -8,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::json;
-use squint_testkit::mcp_client::Client;
+use squint_testkit::mcp_client::{Client, Failure};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -379,4 +380,122 @@ fn a_scripted_server_declares_free_checks() {
             action["name"]
         );
     }
+}
+
+/// `references` is a `many` slot (table-manners 10.1, 11.2): every tool that takes it declares a
+/// non-empty array of images in, and the slots that take one image declare an object.
+#[test]
+fn the_references_input_is_a_non_empty_array_of_images() {
+    let mut c = client(&out("many-schema"), &[]);
+    let tools = c.list_tools().unwrap();
+    let checks: Vec<_> = tools
+        .iter()
+        .filter(|t| t.input_schema["properties"].get("candidate").is_some())
+        .collect();
+    assert!(checks.len() >= 6, "{tools:?}");
+    for tool in checks {
+        let properties = &tool.input_schema["properties"];
+        assert_eq!(properties["references"]["type"], "array", "{}", tool.name);
+        assert_eq!(properties["references"]["minItems"], 1, "{}", tool.name);
+        assert_eq!(
+            properties["references"]["items"], properties["candidate"],
+            "{}",
+            tool.name
+        );
+        assert_eq!(properties["candidate"]["type"], "object", "{}", tool.name);
+    }
+}
+
+/// A check with three references takes each in through the `references` slot, once per image, in
+/// the order given (table-manners 11.1). `images.in` is filled when the images are taken in, so
+/// the scripted verdict (written for source fidelity, which ends this run in a provider error) does
+/// not matter here.
+#[test]
+fn three_references_are_taken_in_once_each_in_order() {
+    let mut c = client(&out("many-in"), &[]);
+    let references = [
+        "source-64x48.png",
+        "two-to-one-128x64.png",
+        "candidate-64x48.png",
+    ];
+    let r = c
+        .call(
+            "reference_consistency",
+            json!({
+                "candidate": image("candidate-64x48.png"),
+                "references": references.map(image),
+            }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_ne!(r["status"], "invalid", "{r}");
+    let taken: Vec<(&str, &str, &str)> = r["images"]["in"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| {
+            (
+                i["slot"].as_str().unwrap(),
+                i["role"].as_str().unwrap(),
+                i["image"]["file_sha256"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    let digest = |name: &str| {
+        squint_core::image::sha256_hex(
+            &std::fs::read(repo_root().join("fixtures/images").join(name)).unwrap(),
+        )
+    };
+    let want_refs: Vec<String> = references.iter().map(|n| digest(n)).collect();
+    assert_eq!(taken.len(), 4, "{taken:?}");
+    assert_eq!(taken[0].0, "candidate");
+    for (n, (slot, role, sha)) in taken[1..].iter().enumerate() {
+        assert_eq!((*slot, *role), ("references", "reference"), "{n}");
+        assert!(
+            sha.ends_with(&want_refs[n]),
+            "{n}: {sha} is not {}",
+            references[n]
+        );
+    }
+}
+
+/// An empty `references` list is a JSON-RPC error before any run (table-manners 10.1: a `many`
+/// slot takes a non-empty array), and it releases its `client_run_id` for the corrected request.
+#[test]
+fn an_empty_references_list_is_refused_before_any_run_and_releases_its_id() {
+    const CLIENT: &str = "table-manners/client_run_id";
+    let out = out("many-empty");
+    let mut c = client(&out, &[]);
+    let call = |references: serde_json::Value| {
+        json!({
+            "candidate": image("candidate-64x48.png"),
+            "references": references,
+        })
+    };
+    match c.call_with_meta(
+        "reference_consistency",
+        call(json!([])),
+        json!({ CLIENT: "empty-1" }),
+    ) {
+        Err(Failure::Rpc { code, message, .. }) => {
+            assert_eq!(code, -32602);
+            assert!(message.contains("references"), "{message}");
+        }
+        other => panic!("expected a JSON-RPC error, got {other:?}"),
+    }
+    let runs: serde_json::Value =
+        serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+    assert_eq!(runs["runs"], json!([]), "a refusal makes no run");
+    let accepted = c
+        .call_with_meta(
+            "reference_consistency",
+            call(json!([image("source-64x48.png")])),
+            json!({ CLIENT: "empty-1" }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_ne!(accepted["status"], "invalid", "{accepted}");
+    assert_eq!(accepted["run"]["client_run_id"], "empty-1");
 }

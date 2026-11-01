@@ -20,7 +20,7 @@ the path to create or `invalid` with what to fix (an unset `${VAR}` by name).
 The description document: one action per shipped use case (`source_fidelity`,
 `reference_consistency`, `reality_checks`, `brief_compliance`, `product_fidelity`); `estimate` is
 a reserved tool, not an action. Each use case takes `candidate`, a `source` where its rule set
-requires one, and `references` (a list), with `brief`, `requirements` (typed by squint's
+requires one, and `references` (a `many` slot: a non-empty list, each taken in once, in order), with `brief`, `requirements` (typed by squint's
 obligation schema) and `max_spend_usd`. Each action's `readiness` comes from a local look,
 never a network call: the configuration (`present`, `missing` or `invalid`), then the credential
 variable of the configured profile (`present` or `missing` by name; its value is never kept or
