@@ -207,4 +207,4 @@ PLAN.md "Follow-ups (before or beside M9)". Each on its own `fu/<name>` branch.
 - [ ] F3 One retry of a provider 400 that names no cause — after 9.6
 - [ ] F4 The segmenter pack fails at `initialize` when its model file is missing, so the run ends at resolve (M5 review) — parallel with M9
 - [ ] F5 Provider error excerpts redacted before the journal, `run.json` and stderr (M2 review) — before M9, or after 9.6
-- [ ] F6 CI runs nextest without fail-fast (profile `ci`), both test passes as separate steps — parallel with M9, first
+- [x] F6 CI runs nextest without fail-fast (profile `ci`), both test passes as separate steps — parallel with M9, first (2026-11-01: `.config/nextest.toml` profile `ci`, `NEXTEST_PROFILE=ci` in CI; `just check` is `lint`, `test` (`test-testkit`, `test-release`) and `repo-checks`, each its own CI step that runs after an earlier failure; proved with two planted failures: the default profile stops at the first, `ci` runs all six tests and repeats both failures at the end)
