@@ -161,3 +161,14 @@ tag.
   - [x] vacuous tests made to bite: cancelled spend, heartbeat gaps, path/inline identity; argument errors exit 64 per command; `status_of` exhaustive; `run.json` in the secret scan. Found on the way: a decode bound is `image_limit` (contract `input`, review S1); `input_identity` leaves out how an image arrived (the fixtures' identities changed: refresh table-manners `fixtures/squint/` with v0.2)
   - [x] closed by default: with no client roots and no `[serve] roots`, a path is refused and images go inline (review S6, owner 2026-10-31)
   - [x] only checks take the permit: `describe` and `estimate` answer while a check runs; a queued check beats and a cancel while it waits leaves no run (I4; C4 review 9, 10)
+
+## M8: table-manners v0.2 (branch `m8-v0.2`)
+
+- [x] Owner: M8 approved 2026-10-31 ("keep going")
+- [ ] 8.1 The contract at v0.2 (path dependency until v0.2.0 is published)
+- [ ] 8.2 The session: UUID v4, `squint://session`, `session_id` on every served run
+- [ ] 8.3 Correlation and the run reference: `client_run_id` claimed on acceptance, the refusal, `_meta` on progress
+- [ ] 8.4 Unresolved spend
+- [ ] 8.5 Runs by page
+- [ ] 8.6 Fixtures to rascal, docs; `=0.2.0` from crates.io once published
+- [ ] Checkpoint M8 → tag `m8`
