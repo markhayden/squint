@@ -187,7 +187,9 @@ fn the_served_fixtures_are_what_squint_serves() {
             json!({ "progressToken": "q", CLIENT: "host-attempt-2" }),
         )
         .unwrap();
-    std::thread::sleep(std::time::Duration::from_millis(300));
+    // Its first heartbeat: accepted, so its id is claimed, and waiting for the permit, so the
+    // cancel lands there. Two requests in flight together have no guaranteed order.
+    while c.next_notification().unwrap()["params"]["progressToken"] != "q" {}
     c.cancel(queued).unwrap();
     std::thread::sleep(std::time::Duration::from_millis(300));
     let mut estimate = pair();
