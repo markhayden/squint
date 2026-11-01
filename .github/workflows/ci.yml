@@ -32,7 +32,7 @@ jobs:
       - name: Install pinned helper tools
         uses: taiki-e/install-action@v2
         with:
-          tool: just@1.59.0,cargo-deny@0.20.2
+          tool: just@1.59.0,cargo-deny@0.20.2,cargo-nextest@0.9.148
       - name: Check scripts are executable and the brief is excluded
         run: |
           test -x scripts/check-crate-graph.sh
