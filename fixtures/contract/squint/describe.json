@@ -175,7 +175,9 @@
             "view",
             "{run.dir}",
             "--port",
-            "0"
+            "0",
+            "--frame-ancestor",
+            "{frame_ancestor}"
           ],
           "kind": "server",
           "name": "report",
@@ -364,7 +366,9 @@
             "view",
             "{run.dir}",
             "--port",
-            "0"
+            "0",
+            "--frame-ancestor",
+            "{frame_ancestor}"
           ],
           "kind": "server",
           "name": "report",
@@ -553,7 +557,9 @@
             "view",
             "{run.dir}",
             "--port",
-            "0"
+            "0",
+            "--frame-ancestor",
+            "{frame_ancestor}"
           ],
           "kind": "server",
           "name": "report",
@@ -742,7 +748,9 @@
             "view",
             "{run.dir}",
             "--port",
-            "0"
+            "0",
+            "--frame-ancestor",
+            "{frame_ancestor}"
           ],
           "kind": "server",
           "name": "report",
@@ -931,7 +939,9 @@
             "view",
             "{run.dir}",
             "--port",
-            "0"
+            "0",
+            "--frame-ancestor",
+            "{frame_ancestor}"
           ],
           "kind": "server",
           "name": "report",

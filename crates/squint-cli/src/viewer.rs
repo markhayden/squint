@@ -4,7 +4,8 @@
 //! journals and the run artifacts, named strictly (`run-<n>/journal.jsonl`,
 //! `run-<n>/artifacts/<sha256>`), so nothing outside the directory can be read; a request whose
 //! `Host` is not this server's loopback address is refused, and the page's policy keeps it from
-//! loading anything from elsewhere.
+//! loading anything from elsewhere and from being framed by any page but the one origin given
+//! (`frame-ancestors`, table-manners 3.2; `'none'` without one).
 //!
 //! `squint report export` writes the same page as one self-contained HTML file: the assets
 //! inlined, and `report.json`, the journals and every artifact carried in `SQUINT_BUNDLE`, so the
@@ -26,6 +27,8 @@ const MAX_HEAD_BYTES: usize = 8 * 1024;
 pub struct Server {
     listener: TcpListener,
     dir: PathBuf,
+    /// The `Content-Security-Policy` every response carries.
+    policy: String,
 }
 
 struct Response {
@@ -49,12 +52,14 @@ impl Response {
 }
 
 impl Server {
-    /// Binds `127.0.0.1:port` (0 picks a free port).
-    pub fn bind(dir: &Path, port: u16) -> std::io::Result<Server> {
+    /// Binds `127.0.0.1:port` (0 picks a free port). `frame_ancestor` is the one origin allowed
+    /// to frame the page, already checked by `report::parse_origin`; with none, no page may.
+    pub fn bind(dir: &Path, port: u16, frame_ancestor: Option<&str>) -> std::io::Result<Server> {
         let listener = TcpListener::bind(SocketAddr::from((Ipv4Addr::LOCALHOST, port)))?;
         Ok(Server {
             listener,
             dir: dir.to_path_buf(),
+            policy: policy(frame_ancestor),
         })
     }
 
@@ -67,15 +72,25 @@ impl Server {
         for stream in self.listener.incoming() {
             let stream = stream?;
             let dir = self.dir.clone();
+            let policy = self.policy.clone();
             std::thread::spawn(move || {
-                let _ = handle(stream, &dir);
+                let _ = handle(stream, &dir, &policy);
             });
         }
         Ok(())
     }
 }
 
-fn handle(mut stream: TcpStream, dir: &Path) -> std::io::Result<()> {
+/// The page loads only from this server (images also inline), and only `frame_ancestor` may
+/// frame it, never loopback in general.
+fn policy(frame_ancestor: Option<&str>) -> String {
+    format!(
+        "default-src 'self'; img-src 'self' data:; frame-ancestors {}",
+        frame_ancestor.unwrap_or("'none'")
+    )
+}
+
+fn handle(mut stream: TcpStream, dir: &Path, policy: &str) -> std::io::Result<()> {
     stream.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
     let mut reader = BufReader::new(stream.try_clone()?);
     let mut request_line = String::new();
@@ -126,7 +141,7 @@ fn handle(mut stream: TcpStream, dir: &Path) -> std::io::Result<()> {
         _ => "Error",
     };
     let head = format!(
-        "HTTP/1.1 {} {reason}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: default-src 'self'; img-src 'self' data:\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {} {reason}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nContent-Security-Policy: {policy}\r\nConnection: close\r\n\r\n",
         response.status,
         response.content_type,
         response.body.len()
@@ -196,7 +211,9 @@ fn journal_path(path: &str) -> Option<PathBuf> {
     Some(PathBuf::from(format!("run-{n}")).join("journal.jsonl"))
 }
 
-/// Writes the self-contained page for a decision directory and returns its size in bytes.
+/// Writes the self-contained page for a decision directory and returns its size in bytes: every
+/// script, style and file inline, so the page needs nothing beside it. The page goes to a
+/// temporary file beside `out` first and is renamed into place, so `out` exists only whole.
 pub fn export(dir: &Path, out: &Path) -> std::io::Result<u64> {
     let mut files = serde_json::Map::new();
     let mut add = |rel: String, body: Vec<u8>| {
@@ -280,7 +297,14 @@ pub fn export(dir: &Path, out: &Path) -> std::io::Result<u64> {
             r#"<script src="viewer.js"></script>"#,
             &format!("<script>\n{VIEWER_JS}</script>"),
         );
-    std::fs::write(out, page.as_bytes())?;
+    let mut partial = out.as_os_str().to_os_string();
+    partial.push(format!(".partial-{}", std::process::id()));
+    let partial = PathBuf::from(partial);
+    std::fs::write(&partial, page.as_bytes())?;
+    if let Err(e) = std::fs::rename(&partial, out) {
+        let _ = std::fs::remove_file(&partial);
+        return Err(e);
+    }
     Ok(page.len() as u64)
 }
 

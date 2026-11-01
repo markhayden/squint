@@ -213,7 +213,8 @@ fn each_action_is_ready_or_names_the_credential_it_lacks() {
     }
 }
 
-/// A run shows as a server page and as a document (table-manners 3.2).
+/// A run shows as a server page and as a document (table-manners 3.2): each runs the tool's own
+/// executable (`command[0]` is `tool.name`), and a placeholder is only ever a whole argument.
 #[test]
 fn the_renders_are_a_server_and_a_document() {
     let (d, _) = described();
@@ -231,8 +232,30 @@ fn the_renders_are_a_server_and_a_document() {
             ]
         );
         for render in &action.renders {
+            assert_eq!(render.command[0], d.tool.name);
             assert_eq!(render.command[0], "squint");
+            for arg in &render.command {
+                assert!(
+                    !arg.contains(['{', '}'])
+                        || matches!(arg.as_str(), "{run.dir}" | "{frame_ancestor}"),
+                    "{arg:?} holds a placeholder that is not a whole argument"
+                );
+            }
         }
+        let command = |name: &str| {
+            action
+                .renders
+                .iter()
+                .find(|r| r.name == name)
+                .unwrap()
+                .command
+                .join(" ")
+        };
+        assert_eq!(
+            command("report"),
+            "squint report view {run.dir} --port 0 --frame-ancestor {frame_ancestor}"
+        );
+        assert_eq!(command("export"), "squint report export {run.dir}");
     }
 }
 

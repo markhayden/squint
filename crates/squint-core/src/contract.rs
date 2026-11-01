@@ -617,14 +617,25 @@ pub fn description(
                     typical_s: 60.0,
                     max_s: 900.0,
                 },
+                // Each render runs the tool's own executable, `command[0]` being `tool.name`, with
+                // the contract's placeholders only as whole arguments (table-manners 3.2).
                 renders: vec![
                     Render {
                         name: "report".into(),
                         kind: RenderKind::Server,
                         ready_timeout_s: Some(10),
-                        command: ["squint", "report", "view", "{run.dir}", "--port", "0"]
-                            .map(String::from)
-                            .to_vec(),
+                        command: [
+                            "squint",
+                            "report",
+                            "view",
+                            "{run.dir}",
+                            "--port",
+                            "0",
+                            "--frame-ancestor",
+                            "{frame_ancestor}",
+                        ]
+                        .map(String::from)
+                        .to_vec(),
                     },
                     Render {
                         name: "export".into(),

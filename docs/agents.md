@@ -19,7 +19,11 @@ requires one, and `references` (a list), with `brief`, `requirements` (typed by 
 obligation schema) and `max_spend_usd`. Each action's `readiness` names the credential variable
 of the configured profile, `present` or `missing` by a local lookup; its value is never kept or
 printed. A check on the scripted fake needs nothing and is `ready`. The renders are `report`
-(`report view`, kind `server`) and `export` (`report export`, kind `document`). The same document
+(`squint report view {run.dir} --port 0 --frame-ancestor {frame_ancestor}`, kind `server`, ready
+within ten seconds: its only stdout the URL, exit 0 when its stdin closes or on SIGTERM) and
+`export` (`squint report export {run.dir}`, kind `document`: one self-contained page outside the
+run directory, its absolute path the only stdout); neither modifies the run directory
+(`docs/viewer.md`). The same document
 is the `describe` tool over MCP.
 
 ## Estimate
