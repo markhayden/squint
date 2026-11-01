@@ -38,6 +38,18 @@
         ]
       },
       "params_schema": {
+        "$defs": {
+          "Kind": {
+            "description": "What an obligation does in aggregation.",
+            "enum": [
+              "must_hold",
+              "must_not",
+              "allowed",
+              "observe"
+            ],
+            "type": "string"
+          }
+        },
         "additionalProperties": false,
         "properties": {
           "brief": {
@@ -52,18 +64,6 @@
           "requirements": {
             "description": "Job requirements, as `[[job.requirements]]` in a job file; ids `RQ<n>`.",
             "items": {
-              "$defs": {
-                "Kind": {
-                  "description": "What an obligation does in aggregation.",
-                  "enum": [
-                    "must_hold",
-                    "must_not",
-                    "allowed",
-                    "observe"
-                  ],
-                  "type": "string"
-                }
-              },
               "additionalProperties": false,
               "description": "One obligation as written in a rules file or a job's `[[job.requirements]]`.",
               "properties": {
@@ -216,6 +216,18 @@
         ]
       },
       "params_schema": {
+        "$defs": {
+          "Kind": {
+            "description": "What an obligation does in aggregation.",
+            "enum": [
+              "must_hold",
+              "must_not",
+              "allowed",
+              "observe"
+            ],
+            "type": "string"
+          }
+        },
         "additionalProperties": false,
         "properties": {
           "brief": {
@@ -230,18 +242,6 @@
           "requirements": {
             "description": "Job requirements, as `[[job.requirements]]` in a job file; ids `RQ<n>`.",
             "items": {
-              "$defs": {
-                "Kind": {
-                  "description": "What an obligation does in aggregation.",
-                  "enum": [
-                    "must_hold",
-                    "must_not",
-                    "allowed",
-                    "observe"
-                  ],
-                  "type": "string"
-                }
-              },
               "additionalProperties": false,
               "description": "One obligation as written in a rules file or a job's `[[job.requirements]]`.",
               "properties": {
@@ -394,6 +394,18 @@
         ]
       },
       "params_schema": {
+        "$defs": {
+          "Kind": {
+            "description": "What an obligation does in aggregation.",
+            "enum": [
+              "must_hold",
+              "must_not",
+              "allowed",
+              "observe"
+            ],
+            "type": "string"
+          }
+        },
         "additionalProperties": false,
         "properties": {
           "brief": {
@@ -408,18 +420,6 @@
           "requirements": {
             "description": "Job requirements, as `[[job.requirements]]` in a job file; ids `RQ<n>`.",
             "items": {
-              "$defs": {
-                "Kind": {
-                  "description": "What an obligation does in aggregation.",
-                  "enum": [
-                    "must_hold",
-                    "must_not",
-                    "allowed",
-                    "observe"
-                  ],
-                  "type": "string"
-                }
-              },
               "additionalProperties": false,
               "description": "One obligation as written in a rules file or a job's `[[job.requirements]]`.",
               "properties": {
@@ -572,6 +572,18 @@
         ]
       },
       "params_schema": {
+        "$defs": {
+          "Kind": {
+            "description": "What an obligation does in aggregation.",
+            "enum": [
+              "must_hold",
+              "must_not",
+              "allowed",
+              "observe"
+            ],
+            "type": "string"
+          }
+        },
         "additionalProperties": false,
         "properties": {
           "brief": {
@@ -586,18 +598,6 @@
           "requirements": {
             "description": "Job requirements, as `[[job.requirements]]` in a job file; ids `RQ<n>`.",
             "items": {
-              "$defs": {
-                "Kind": {
-                  "description": "What an obligation does in aggregation.",
-                  "enum": [
-                    "must_hold",
-                    "must_not",
-                    "allowed",
-                    "observe"
-                  ],
-                  "type": "string"
-                }
-              },
               "additionalProperties": false,
               "description": "One obligation as written in a rules file or a job's `[[job.requirements]]`.",
               "properties": {
@@ -750,6 +750,18 @@
         ]
       },
       "params_schema": {
+        "$defs": {
+          "Kind": {
+            "description": "What an obligation does in aggregation.",
+            "enum": [
+              "must_hold",
+              "must_not",
+              "allowed",
+              "observe"
+            ],
+            "type": "string"
+          }
+        },
         "additionalProperties": false,
         "properties": {
           "brief": {
@@ -764,18 +776,6 @@
           "requirements": {
             "description": "Job requirements, as `[[job.requirements]]` in a job file; ids `RQ<n>`.",
             "items": {
-              "$defs": {
-                "Kind": {
-                  "description": "What an obligation does in aggregation.",
-                  "enum": [
-                    "must_hold",
-                    "must_not",
-                    "allowed",
-                    "observe"
-                  ],
-                  "type": "string"
-                }
-              },
               "additionalProperties": false,
               "description": "One obligation as written in a rules file or a job's `[[job.requirements]]`.",
               "properties": {
@@ -928,6 +928,18 @@
         "locations": []
       },
       "params_schema": {
+        "$defs": {
+          "Kind": {
+            "description": "What an obligation does in aggregation.",
+            "enum": [
+              "must_hold",
+              "must_not",
+              "allowed",
+              "observe"
+            ],
+            "type": "string"
+          }
+        },
         "additionalProperties": false,
         "properties": {
           "brief": {
@@ -942,18 +954,6 @@
           "requirements": {
             "description": "Job requirements, as `[[job.requirements]]` in a job file; ids `RQ<n>`.",
             "items": {
-              "$defs": {
-                "Kind": {
-                  "description": "What an obligation does in aggregation.",
-                  "enum": [
-                    "must_hold",
-                    "must_not",
-                    "allowed",
-                    "observe"
-                  ],
-                  "type": "string"
-                }
-              },
               "additionalProperties": false,
               "description": "One obligation as written in a rules file or a job's `[[job.requirements]]`.",
               "properties": {

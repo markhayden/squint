@@ -80,12 +80,12 @@ pub fn run(args: &ServeArgs) -> i32 {
         Ok(c) => c,
         Err(e) => return usage(e.to_string()),
     };
-    let needs_env: Vec<String> = catalog
-        .profile(&config.provider.profile)
-        .map(|p| p.auth.env.clone())
-        .into_iter()
-        .collect();
-    let description = match contract::description(&config, VERSION, &needs_env) {
+    #[cfg(feature = "testkit")]
+    let scripted = args.provider_script.is_some();
+    #[cfg(not(feature = "testkit"))]
+    let scripted = false;
+    let executor = crate::executor(&config, scripted);
+    let description = match contract::description(&config, VERSION, &executor) {
         Ok(d) => d,
         Err(e) => return usage(e.to_string()),
     };
@@ -692,6 +692,8 @@ fn input_schema(action: &table_manners::Action) -> Map<String, Value> {
         ("properties".to_string(), Value::Object(properties)),
         ("required".to_string(), Value::Array(required)),
         ("additionalProperties".to_string(), json!(false)),
+        // The definitions the parameters refer to, kept at this schema's root (squint issue #2).
+        ("$defs".to_string(), action.params_schema["$defs"].clone()),
     ])
 }
 

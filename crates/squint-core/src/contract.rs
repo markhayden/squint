@@ -463,16 +463,25 @@ pub fn rfc3339(unix_ms: u64) -> String {
 /// The longest gap between progress notifications on a live run (table-manners 4.1).
 pub const PROGRESS_INTERVAL_S: u32 = 10;
 
+/// What a check runs on, as far as the description must say (table-manners 3: cost).
+#[derive(Debug, Clone, PartialEq)]
+pub enum Executor {
+    /// A provider that may charge: the credential variable its profile reads (its name, never
+    /// its value; from the catalog, which this crate does not read).
+    Paid { needs_env: Vec<String> },
+    /// A provider that can never charge and reads no credential (the scripted fake).
+    Free,
+}
+
 /// squint's description document (table-manners 3 and 11.2): one action per use case a check can
 /// run (the one `[rules]` names, else every shipped base), taking the images its rules require,
 /// plus `estimate`; every disposition and confidence
-/// word a finding can carry; the inline limit from the decode bound. `needs_env` names the
-/// credential variable of the configured profile (from the catalog, which this crate does not
-/// read); never a value.
+/// word a finding can carry; the inline limit from the decode bound. `executor` says what a check
+/// will run on, so the declared cost is the truth of this configuration (squint issue #2).
 pub fn description(
     config: &Config,
     version: &str,
-    needs_env: &[String],
+    executor: &Executor,
 ) -> crate::Result<Description> {
     let use_cases = use_cases(config)?;
     let mut actions: Vec<Action> = use_cases
@@ -496,10 +505,17 @@ pub fn description(
                     images: Vec::new(),
                     locations: vec![LocationOutput::Found],
                 }),
-                cost: Cost {
-                    may_spend: true,
-                    basis: Some(SpendBasis::Measured),
-                    needs_env: needs_env.to_vec(),
+                cost: match executor {
+                    Executor::Paid { needs_env } => Cost {
+                        may_spend: true,
+                        basis: Some(SpendBasis::Measured),
+                        needs_env: needs_env.clone(),
+                    },
+                    Executor::Free => Cost {
+                        may_spend: false,
+                        basis: None,
+                        needs_env: Vec::new(),
+                    },
                 },
                 duration: Duration {
                     typical_s: 60.0,
@@ -677,23 +693,31 @@ fn title(base: &str) -> String {
 
 /// An obligation's JSON Schema, self-contained (its definitions inlined under `$defs`), so a
 /// client can build a requirement editor without reading squint's rule files.
-fn obligation_schema() -> serde_json::Value {
+/// One job requirement's schema and the definitions it refers to. The definitions are returned
+/// apart: its references (`#/$defs/Kind`) resolve from the root of whatever schema embeds it, so
+/// the embedding schema carries them at its root (squint issue #2).
+fn obligation_schema() -> (serde_json::Value, serde_json::Value) {
     let mut schema = serde_json::to_value(schemars::schema_for!(crate::obligations::Obligation))
         .unwrap_or_default();
+    let mut defs = serde_json::Value::Object(Default::default());
     if let Some(map) = schema.as_object_mut() {
         map.remove("$schema");
+        if let Some(d) = map.remove("$defs") {
+            defs = d;
+        }
     }
-    schema
+    (schema, defs)
 }
 
 /// The arguments of a check beside its images: the brief, the job's requirements, a lower spend
 /// cap; and for `estimate`, which use case.
 fn params_schema(use_cases: Option<&[&str]>) -> serde_json::Value {
+    let (obligation, defs) = obligation_schema();
     let mut properties = serde_json::json!({
         "brief": { "type": "string", "description": "What was asked for, in words." },
         "requirements": {
             "type": "array",
-            "items": obligation_schema(),
+            "items": obligation,
             "description": "Job requirements, as `[[job.requirements]]` in a job file; ids `RQ<n>`."
         },
         "max_spend_usd": {
@@ -711,7 +735,8 @@ fn params_schema(use_cases: Option<&[&str]>) -> serde_json::Value {
         "type": "object",
         "properties": properties,
         "required": required,
-        "additionalProperties": false
+        "additionalProperties": false,
+        "$defs": defs
     })
 }
 

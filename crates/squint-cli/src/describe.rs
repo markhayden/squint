@@ -24,16 +24,8 @@ pub fn run(args: &DescribeArgs) -> i32 {
             return EXIT_USAGE;
         }
     };
-    // The variable's name comes from the catalog's profile; its value is never read here.
-    let needs_env: Vec<String> = squint_providers::catalog::Catalog::shipped()
-        .ok()
-        .and_then(|c| {
-            c.profile(&config.provider.profile)
-                .map(|p| p.auth.env.clone())
-        })
-        .into_iter()
-        .collect();
-    let description = match squint_core::contract::description(&config, VERSION, &needs_env) {
+    let executor = crate::executor(&config, false);
+    let description = match squint_core::contract::description(&config, VERSION, &executor) {
         Ok(d) => d,
         Err(e) => {
             eprintln!("squint: {e}");
