@@ -307,12 +307,13 @@ impl Server {
         }
     }
 
-    /// The association a run of this server carries: its session, and the request's
-    /// `client_run_id` when it sent one.
-    fn association(&self, client_run_id: Option<String>) -> contract::Association {
+    /// The association a run of this server carries: its session, the request's `client_run_id`
+    /// when it sent one, and the action.
+    fn association(&self, action: &str, client_run_id: Option<String>) -> contract::Association {
         contract::Association {
             session_id: Some(self.inner.session_id.clone()),
             client_run_id,
+            action: Some(action.to_string()),
         }
     }
 
@@ -442,6 +443,10 @@ impl Server {
         match (outcome, decided) {
             (Ok(o), _) => decision_result(&o.dir),
             (Err(_), Some(dir)) if dir.join(contract::RUN_FILE).exists() => decision_result(&dir),
+            // Cancelled before the decision was allocated: no run (table-manners 4.2).
+            (Err(squint_core::Error::Cancelled(m)), None) => {
+                Err(ErrorData::internal_error(m, None))
+            }
             (Err(e), _) => self.finished(action, &args, &hooks.association, Some(&e), Map::new()),
         }
     }
@@ -536,7 +541,10 @@ impl Server {
                     None => {
                         let association = contract::Association::read(&dir);
                         table_manners::RunSummary {
-                            action: running_action(&dir, &id),
+                            action: association
+                                .action
+                                .clone()
+                                .unwrap_or_else(|| running_action(&dir, &id)),
                             status: table_manners::RunState::Running,
                             started: contract::rfc3339(ms),
                             resource: format!("squint://run/{id}/{}", contract::RUN_FILE),
@@ -570,7 +578,7 @@ impl Server {
         body: Map<String, Value>,
     ) -> Result<CallToolResult, ErrorData> {
         let started = contract::now_ms();
-        let dir = new_run_dir(&self.inner.out_dir, action)
+        let dir = new_run_dir(&self.inner.out_dir, action, started)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         self.allocated(&dir, association);
         let result = contract::action_result(
@@ -673,8 +681,9 @@ async fn send_progress(
     }
 }
 
-/// The action of a run still going: a decision's use case from its header (written before the
-/// first run), as `describe` names it; else the directory name's leading word (`estimate`).
+/// The action of a run still going that has no association (one made outside this server): a
+/// decision's use case from its header, as `describe` names it; else the directory name's
+/// leading word.
 fn running_action(dir: &Path, id: &str) -> String {
     std::fs::read_to_string(dir.join(squint_core::report::HEADER_FILE))
         .ok()
@@ -796,11 +805,12 @@ fn word(status: &table_manners::Status) -> &'static str {
     }
 }
 
-/// A fresh run directory, `<action>-<unix ms>-<pid>[-n]`, absolute.
-fn new_run_dir(out_dir: &Path, action: &str) -> std::io::Result<PathBuf> {
+/// A fresh run directory, `<action>-<started ms>-<pid>[-n]`, absolute: named for the start its
+/// `run.json` records, so the runs list's order and its times agree.
+fn new_run_dir(out_dir: &Path, action: &str, started_ms: u64) -> std::io::Result<PathBuf> {
     std::fs::create_dir_all(out_dir)?;
     let out_dir = std::path::absolute(out_dir)?;
-    let stem = format!("{action}-{}-{}", contract::now_ms(), std::process::id());
+    let stem = format!("{action}-{started_ms}-{}", std::process::id());
     let mut n = 0u32;
     loop {
         let name = if n == 0 {
@@ -942,7 +952,7 @@ impl ServerHandler for Server {
         if let (Some(id), true) = (&client_run_id, makes_run) {
             self.claim(id)?;
         }
-        let association = self.association(client_run_id);
+        let association = self.association(&name, client_run_id);
         // A client that offers roots is asked for them on every check: they may have changed.
         // Roots are part of revision 2025-11-25, the only one squint serves; SEP-2577 deprecates
         // them in a later revision, which the contract must answer before squint moves (v0.2).

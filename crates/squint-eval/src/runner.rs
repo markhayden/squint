@@ -359,15 +359,22 @@ pub fn run(plan: &Plan, factories: &dyn Factories, cancel: Option<&Cancel>) -> R
                     services.evaluation = true;
                     services.cancel = cancel;
                     let started = Instant::now();
-                    let outcome = block_on(run::check(
+                    let outcome = match block_on(run::check(
                         &config,
                         job,
                         &set.dir,
                         &services,
                         &dir,
                         &plan.harness_version,
-                    ))?
-                    .map_err(|e| Error::Runner(format!("{id}: {e}")))?;
+                    ))? {
+                        Ok(outcome) => outcome,
+                        // Cancelled before the decision was allocated: nothing to redo but it.
+                        Err(squint_core::Error::Cancelled(_)) => {
+                            summary.cancelled = true;
+                            break 'outer;
+                        }
+                        Err(e) => return Err(Error::Runner(format!("{id}: {e}"))),
+                    };
                     let wall_ms = started.elapsed().as_millis() as u64;
                     if let Some(c) = cancel
                         && c.is_cancelled()

@@ -52,7 +52,9 @@ ordinary decision (its directory, journal, report and `run.json`).
   lost connection; an id is good once per server session (a reuse is `-32602`, reason
   `client_run_id_reused`, naming the earlier run).
 - **Cancellation**: `notifications/cancelled` stops the provider call; the run's `run.json` says
-  `cancelled` with spend to date, and the request gets no response.
+  `cancelled` with spend to date, and the request gets no response. A call cancelled before its
+  run is allocated (queued, or while its arguments are resolved) makes no run; its
+  `client_run_id` stays claimed.
 - **Resources**: `squint://runs` (newest first, running ones included, fifty to a page; the next
   page is `squint://runs?cursor=<next_cursor>`), `squint://session` (the session id, budget,
   spent, unresolved, reserved and remaining), and per run `squint://run/<id>/run.json`,

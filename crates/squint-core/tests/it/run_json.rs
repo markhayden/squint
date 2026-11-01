@@ -199,9 +199,11 @@ fn an_image_that_is_not_the_expected_one_is_invalid_input() {
 
 #[test]
 fn a_cancelled_decision_is_cancelled_with_its_spend_to_date() {
-    let cancel = run::Cancel::new();
-    cancel.cancel();
-    let (_, r) = run("cancelled", "held.json", "pair.toml", &[], Some(&cancel));
+    let (_, r) = scripted(
+        "cancelled",
+        serde_json::json!([submission()]),
+        Some("reserved"),
+    );
     assert_eq!(r.status, Status::Cancelled);
     assert!(r.error.is_none());
     assert_eq!(r.spend.usd, 0.0, "cancelled before the first request");
@@ -555,4 +557,90 @@ fn an_answer_without_usage_counts_its_bound_as_estimated() {
 
     let (_, measured) = scripted("usage", serde_json::json!([submission()]), None);
     assert_eq!(measured.spend.basis, table_manners::SpendBasis::Measured);
+}
+
+/// A cancellation that lands before the decision's directory exists allocates nothing
+/// (table-manners 4.2: checked again just before the run is allocated): no directory, no run.
+#[test]
+fn a_decision_cancelled_before_allocation_makes_no_run() {
+    let out = tempdir("cancel-unallocated");
+    let provider =
+        ScriptedProvider::from_json(&serde_json::json!([submission()]).to_string()).unwrap();
+    let tools = tools();
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let cancel = run::Cancel::new();
+    cancel.cancel();
+    let services = run::Services::new(&provider, &tools).with_cancel(&cancel);
+    let outcome = block_on(run::check(
+        &config(&[]),
+        &job,
+        &root(),
+        &services,
+        &out,
+        "test",
+    ));
+    assert!(
+        matches!(outcome, Err(squint_core::Error::Cancelled(_))),
+        "{:?}",
+        outcome.map(|o| o.dir)
+    );
+    assert_eq!(std::fs::read_dir(&out).map(|d| d.count()).unwrap_or(0), 0);
+}
+
+/// The association is in the run's directory from allocation, whole (written then renamed) and
+/// naming the action, so a run still going is listed under its action (table-manners 4.3).
+#[test]
+fn the_association_names_the_action_and_is_written_whole() {
+    let out = tempdir("association");
+    let provider =
+        ScriptedProvider::from_json(&serde_json::json!([submission()]).to_string()).unwrap();
+    let tools = tools();
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let association = squint_core::contract::Association {
+        session_id: Some("session".into()),
+        client_run_id: Some("client-1".into()),
+        action: Some("source_fidelity".into()),
+    };
+    let seen = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let told = seen.clone();
+    let services = run::Services::new(&provider, &tools)
+        .with_association(association.clone())
+        .with_allocated(std::sync::Arc::new(move |dir: &Path| {
+            *told.lock().unwrap() = Some(squint_core::contract::Association::read(dir));
+        }));
+    let outcome = block_on(run::check(
+        &config(&[]),
+        &job,
+        &root(),
+        &services,
+        &out,
+        "test",
+    ))
+    .unwrap();
+    assert_eq!(seen.lock().unwrap().as_ref(), Some(&association));
+    assert_eq!(
+        squint_core::contract::Association::read(&outcome.dir),
+        association
+    );
+    let stray: Vec<_> = std::fs::read_dir(&outcome.dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .filter(|n| n.ends_with(".tmp"))
+        .collect();
+    assert!(stray.is_empty(), "{stray:?}");
+}
+
+/// The directory's name and `run.json`'s `started` come from one clock reading, so the runs list
+/// (ordered by the name) never disagrees with the times it shows.
+#[test]
+fn the_directory_name_carries_the_runs_start() {
+    let (outcome, r) = run("named", "held.json", "pair.toml", &[], None);
+    let name = outcome
+        .dir
+        .file_name()
+        .unwrap()
+        .to_string_lossy()
+        .into_owned();
+    let ms: u64 = name.split('-').nth(1).unwrap().parse().unwrap();
+    assert_eq!(r.started, squint_core::contract::rfc3339(ms), "{name}");
 }
