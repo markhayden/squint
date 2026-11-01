@@ -53,6 +53,20 @@ fn probe(pack: &Pack, run: &str) -> Envelope {
         .unwrap()
 }
 
+/// Waits until the server has written `line` on stderr (the fake server's `--trace` and pong
+/// markers): an observed event, never a guess at how long one takes. Ten seconds is a hang.
+fn wait_for_stderr(pack: &Pack, line: &str) {
+    let until = Instant::now() + Duration::from_secs(10);
+    while !pack.stderr_lines().iter().any(|l| l == line) {
+        assert!(
+            Instant::now() < until,
+            "the server never wrote {line:?}: {:?}",
+            pack.stderr_lines()
+        );
+        std::thread::sleep(Duration::from_millis(5));
+    }
+}
+
 fn measurement(e: &Envelope, name: &str) -> u64 {
     e.measurements
         .iter()
@@ -79,16 +93,18 @@ fn a_listing_that_never_ends_is_refused_as_resolve() {
 
 #[test]
 fn concurrent_tools_run_together_on_one_process_and_serial_ones_take_turns() {
-    // Two slow scripted calls at once: with `concurrent` manifests both are in flight together.
+    // Two scripted calls at once: with `concurrent` manifests both are in flight together. The
+    // server's own count proves it, not the clock: each call waits at the rendezvous until the
+    // other arrives, so concurrent calls overlap however late a thread starts. A client that
+    // serialised them would leave the first waiting out the rendezvous and report one in flight.
     let pack = Pack::connect(
         "fake",
-        spawn(&["--concurrent", "--slow-call-ms", "400"]),
+        spawn(&["--concurrent", "--rendezvous-ms", "10000"]),
         timeouts(),
         env(),
     )
     .unwrap();
     assert!(pack.manifests().iter().all(|m| m.concurrent));
-    let started = Instant::now();
     let threads: Vec<_> = (0..2)
         .map(|_| {
             let pack = Arc::clone(&pack);
@@ -105,17 +121,20 @@ fn concurrent_tools_run_together_on_one_process_and_serial_ones_take_turns() {
     for t in threads {
         assert_eq!(t.join().unwrap().unwrap().status, Status::Ok);
     }
-    let elapsed = started.elapsed();
-    assert!(
-        elapsed < Duration::from_millis(750),
-        "together, not in turn: {elapsed:?}"
-    );
     assert_eq!(measurement(&probe(&pack, "run-1"), "max_in_flight"), 2);
 
-    // Without the declaration the same two calls take turns on the one process.
-    let pack = Pack::connect("fake", spawn(&["--slow-call-ms", "300"]), timeouts(), env()).unwrap();
+    // Without the declaration the same two calls take turns on the one process. The server
+    // serves them on threads and holds each at the rendezvous for a while, so a client that sent
+    // the second before the first was answered would be counted as two in flight; a call leaves
+    // the count before its answer is written, so turns taken properly never overlap.
+    let pack = Pack::connect(
+        "fake",
+        spawn(&["--threaded", "--rendezvous-ms", "300"]),
+        timeouts(),
+        env(),
+    )
+    .unwrap();
     assert!(pack.manifests().iter().all(|m| !m.concurrent));
-    let started = Instant::now();
     let threads: Vec<_> = (0..2)
         .map(|_| {
             let pack = Arc::clone(&pack);
@@ -132,10 +151,6 @@ fn concurrent_tools_run_together_on_one_process_and_serial_ones_take_turns() {
     for t in threads {
         assert_eq!(t.join().unwrap().unwrap().status, Status::Ok);
     }
-    assert!(
-        started.elapsed() >= Duration::from_millis(600),
-        "one after the other"
-    );
     assert_eq!(measurement(&probe(&pack, "run-1"), "max_in_flight"), 1);
 }
 
@@ -143,7 +158,7 @@ fn concurrent_tools_run_together_on_one_process_and_serial_ones_take_turns() {
 fn a_new_run_waits_for_the_previous_runs_calls_before_taking_the_lease() {
     let pack = Pack::connect(
         "fake",
-        spawn(&["--concurrent", "--slow-call-ms", "500"]),
+        spawn(&["--concurrent", "--slow-call-ms", "500", "--trace"]),
         timeouts(),
         env(),
     )
@@ -159,12 +174,30 @@ fn a_new_run_waits_for_the_previous_runs_calls_before_taking_the_lease() {
             )
         })
     };
-    std::thread::sleep(Duration::from_millis(100));
+    // The server has the call, so run-1 holds the lease with a call in flight.
+    wait_for_stderr(&pack, "fake mcp: start fake_regions");
     // run-2 arrives while run-1's call is in flight: it waits, then the server is reset for it.
-    let started = Instant::now();
+    // The server's trace shows the order: run-1's call ended before the reset and run-2's probe.
     let e = probe(&pack, "run-2");
-    assert!(
-        started.elapsed() >= Duration::from_millis(300),
+    wait_for_stderr(&pack, "fake mcp: end probe_state");
+    let trace: Vec<String> = pack
+        .stderr_lines()
+        .into_iter()
+        .filter(|l| {
+            l.starts_with("fake mcp: start")
+                || l.starts_with("fake mcp: end")
+                || l == "fake mcp: reset"
+        })
+        .collect();
+    assert_eq!(
+        trace,
+        [
+            "fake mcp: start fake_regions",
+            "fake mcp: end fake_regions",
+            "fake mcp: reset",
+            "fake mcp: start probe_state",
+            "fake mcp: end probe_state",
+        ],
         "waited for run-1's call"
     );
     assert_eq!(
@@ -183,7 +216,7 @@ fn a_new_run_waits_for_the_previous_runs_calls_before_taking_the_lease() {
     t.startup = Duration::from_millis(300);
     let pack = Pack::connect(
         "fake",
-        spawn(&["--concurrent", "--slow-call-ms", "1500"]),
+        spawn(&["--concurrent", "--slow-call-ms", "1500", "--trace"]),
         t,
         env(),
     )
@@ -199,7 +232,7 @@ fn a_new_run_waits_for_the_previous_runs_calls_before_taking_the_lease() {
             )
         })
     };
-    std::thread::sleep(Duration::from_millis(100));
+    wait_for_stderr(&pack, "fake mcp: start fake_regions");
     let err = pack
         .call(
             "run-2",
@@ -345,7 +378,8 @@ fn the_is_error_truth_table_is_exhaustive() {
 #[test]
 fn a_servers_ping_is_answered_and_disturbs_no_call() {
     let pack = Pack::connect("fake", spawn(&["--ping"]), timeouts(), env()).unwrap();
-    std::thread::sleep(Duration::from_millis(100));
+    // The server says when the pong arrived; the probe then reports it.
+    wait_for_stderr(&pack, "fake mcp: pong");
     let e = probe(&pack, "run-1");
     assert_eq!(e.status, Status::Ok);
     assert!(e.summary.contains("pongs=1"), "{}", e.summary);
@@ -369,6 +403,142 @@ fn a_failed_call_carries_the_servers_stderr() {
         err.to_string()
             .contains("server stderr: fake mcp: dying on call"),
         "{err}"
+    );
+}
+
+/// A dying server's stderr can end after its stdout: the error still carries the last lines,
+/// because it waits for the end of stderr rather than taking what has arrived so far.
+#[test]
+fn stderr_written_after_stdout_ends_still_reaches_the_error() {
+    let client = Client::connect(
+        &spawn(&["--die-on-call", "--late-stderr-ms", "300"]),
+        env(),
+        Instant::now() + Duration::from_secs(10),
+    )
+    .unwrap();
+    let err = client
+        .call(
+            "probe_state",
+            json!({ "_squint": context("run-1") }),
+            Duration::from_secs(5),
+        )
+        .err()
+        .unwrap();
+    let text = err.to_string();
+    assert!(text.contains("ended the conversation"), "{text}");
+    assert!(
+        text.contains("server stderr: fake mcp: last words"),
+        "{text}"
+    );
+    client.shutdown(Duration::from_millis(300));
+}
+
+/// A server whose child holds stderr open long after the server died does not hang the error:
+/// it waits at most `STDERR_DRAIN`, then reports what arrived.
+#[test]
+fn a_stderr_held_open_by_a_child_delays_the_error_by_a_bounded_wait() {
+    let client = Client::connect(
+        &spawn(&["--die-on-call", "--late-stderr-ms", "5000"]),
+        env(),
+        Instant::now() + Duration::from_secs(10),
+    )
+    .unwrap();
+    let started = Instant::now();
+    let err = client
+        .call(
+            "probe_state",
+            json!({ "_squint": context("run-1") }),
+            Duration::from_secs(30),
+        )
+        .err()
+        .unwrap();
+    let waited = started.elapsed();
+    assert!(err.to_string().contains("ended the conversation"), "{err}");
+    assert!(!err.to_string().contains("last words"), "{err}");
+    assert!(
+        waited >= STDERR_DRAIN && waited < STDERR_DRAIN + Duration::from_secs(3),
+        "waited {waited:?}"
+    );
+    client.shutdown(Duration::from_millis(300));
+}
+
+/// A stderr line that is not UTF-8 stops nothing: it arrives with its bad bytes replaced, and
+/// the lines after it still reach the error of a call the server died on.
+#[test]
+fn stderr_that_is_not_utf8_loses_no_later_line() {
+    let client = Client::connect(
+        &spawn(&["--bad-stderr", "--die-on-call"]),
+        env(),
+        Instant::now() + Duration::from_secs(10),
+    )
+    .unwrap();
+    let err = client
+        .call(
+            "probe_state",
+            json!({ "_squint": context("run-1") }),
+            Duration::from_secs(5),
+        )
+        .err()
+        .unwrap();
+    let text = err.to_string();
+    assert!(
+        text.contains("fake mcp: \u{FFFD}\u{FFFD} bad bytes | fake mcp: after the bad bytes"),
+        "{text}"
+    );
+    assert!(text.contains("fake mcp: dying on call"), "{text}");
+    client.shutdown(Duration::from_millis(300));
+}
+
+/// More non-UTF-8 stderr than a pipe holds, written before each answer: the reader drains all of
+/// it, so the calls complete and the newest lines are kept, the long one cut at the bound.
+#[test]
+fn a_flood_of_non_utf8_stderr_never_blocks_the_server() {
+    let client = Client::connect(
+        &spawn(&["--stderr-flood-kib", "256"]),
+        env(),
+        Instant::now() + Duration::from_secs(10),
+    )
+    .unwrap();
+    for _ in 0..2 {
+        let e = client
+            .call(
+                "probe_state",
+                json!({ "_squint": context("run-1") }),
+                Duration::from_secs(10),
+            )
+            .unwrap();
+        assert_eq!(e.structured["status"], "ok");
+    }
+    // The answer can overtake the stderr written before it (another pipe, another thread), so
+    // the lines are read once the process is gone and the reader has reached the end.
+    client.shutdown(Duration::from_millis(300));
+    client.shared.drain_stderr(Duration::from_secs(10));
+    let lines = client.stderr_lines();
+    assert_eq!(lines.len(), STDERR_LINES);
+    let long = lines.last().unwrap();
+    assert!(long.ends_with(TRUNCATED), "the long line is cut");
+    assert_eq!(
+        long.chars().filter(|c| *c == '\u{FFFD}').count(),
+        STDERR_LINE_BYTES
+    );
+}
+
+/// The line reader on its own: CRLF and LF endings, an unterminated last line, empty lines,
+/// invalid bytes and a line past the bound, which is cut and then consumed to its end.
+#[test]
+fn stderr_lines_are_split_decoded_and_bounded() {
+    let mut input = b"one\r\n\ntwo \xC3(\n".to_vec();
+    input.extend(std::iter::repeat_n(b'x', STDERR_LINE_BYTES + 10));
+    input.extend(b"\nafter\nlast");
+    let mut lines = Vec::new();
+    // A one-byte buffer makes every line span many reads.
+    read_stderr_lines(std::io::BufReader::with_capacity(1, &input[..]), |l| {
+        lines.push(l)
+    });
+    let long = format!("{}{TRUNCATED}", "x".repeat(STDERR_LINE_BYTES));
+    assert_eq!(
+        lines,
+        ["one", "", "two \u{FFFD}(", long.as_str(), "after", "last"]
     );
 }
 

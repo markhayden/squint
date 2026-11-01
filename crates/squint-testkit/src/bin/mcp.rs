@@ -30,6 +30,29 @@ struct Options {
     text_block: bool,
     /// The process exits as soon as a `tools/call` arrives.
     die_on_call: bool,
+    /// With `die_on_call`, the dying words come late: the process exits at once, leaving a child
+    /// that holds its stderr open, writes `fake mcp: last words` after this many milliseconds and
+    /// exits. Stdout ends well before stderr, as it can when a real server dies.
+    late_stderr_ms: Option<u64>,
+    /// Calls are served on threads although the manifests do not declare `concurrent`, so a
+    /// client that broke the turns would show as `max_in_flight` above one.
+    threaded: bool,
+    /// `fake_regions` waits until another call has been in flight with it (`max_in_flight` two),
+    /// or this many milliseconds pass:
+    /// calls the client really sends together always overlap, however late a thread starts.
+    rendezvous: Duration,
+    /// Each call writes `fake mcp: start <tool>` on stderr as it begins and `fake mcp: end <tool>`
+    /// just before its answer, and an acknowledged reset `fake mcp: reset`, so a test can wait
+    /// for a call to be in flight and check the order of events.
+    trace: bool,
+    /// At start, a stderr line that is not UTF-8, then `fake mcp: after the bad bytes`.
+    bad_stderr: bool,
+    /// Before answering each call, this many KiB of non-UTF-8 on stderr: short lines, then one
+    /// line far longer than any reader keeps. More than a pipe holds, so every byte must be
+    /// drained while the server writes.
+    stderr_flood_kib: usize,
+    /// The child of `late_stderr_ms`: wait this many milliseconds, write the last words, exit.
+    say_after_ms: Option<u64>,
     /// The process exits after answering this many calls (0: never): a server that dies between
     /// runs or between the calls of one run.
     exit_after_calls: u64,
@@ -56,6 +79,13 @@ fn options() -> Options {
         extra_measurement: false,
         text_block: false,
         die_on_call: false,
+        late_stderr_ms: None,
+        say_after_ms: None,
+        threaded: false,
+        rendezvous: Duration::ZERO,
+        trace: false,
+        bad_stderr: false,
+        stderr_flood_kib: 0,
         exit_after_calls: 0,
         garbage_line: false,
         stray_response: false,
@@ -79,6 +109,18 @@ fn options() -> Options {
             "--extra-measurement" => o.extra_measurement = true,
             "--text-block" => o.text_block = true,
             "--die-on-call" => o.die_on_call = true,
+            "--late-stderr-ms" => o.late_stderr_ms = args.next().and_then(|s| s.parse().ok()),
+            "--threaded" => o.threaded = true,
+            "--rendezvous-ms" => {
+                o.rendezvous =
+                    Duration::from_millis(args.next().and_then(|s| s.parse().ok()).unwrap_or(0));
+            }
+            "--trace" => o.trace = true,
+            "--bad-stderr" => o.bad_stderr = true,
+            "--stderr-flood-kib" => {
+                o.stderr_flood_kib = args.next().and_then(|s| s.parse().ok()).unwrap_or(0)
+            }
+            "--say-after-ms" => o.say_after_ms = args.next().and_then(|s| s.parse().ok()),
             "--exit-after-calls" => {
                 o.exit_after_calls = args.next().and_then(|s| s.parse().ok()).unwrap_or(0)
             }
@@ -162,14 +204,29 @@ impl Server {
     /// `tools/call`: the scripted tool, the state probe, or an unknown tool.
     fn call(&self, id: Option<Value>, params: &Value) {
         let o = &self.options;
+        if o.stderr_flood_kib > 0 {
+            flood_stderr(o.stderr_flood_kib * 1024);
+        }
         let in_flight = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         self.max_in_flight.fetch_max(in_flight, Ordering::SeqCst);
         let calls = self.calls_since_reset.fetch_add(1, Ordering::SeqCst) + 1;
         let name = params["name"].as_str().unwrap_or("");
         let args = &params["arguments"];
+        if o.trace {
+            eprintln!("fake mcp: start {name}");
+        }
         // Only the scripted tool is slow, so a probe can still observe the server.
         if name == "fake_regions" && !o.slow_call.is_zero() {
             std::thread::sleep(o.slow_call);
+        }
+        if name == "fake_regions" && !o.rendezvous.is_zero() {
+            let until = std::time::Instant::now() + o.rendezvous;
+            // The high-water mark, not the current count: a peer that met us and finished
+            // between two looks still counts.
+            while self.max_in_flight.load(Ordering::SeqCst) < 2 && std::time::Instant::now() < until
+            {
+                std::thread::sleep(Duration::from_millis(1));
+            }
         }
         let (envelope, is_error) = if args.get("_squint").is_none() {
             (invalid_args(name, "_squint is required"), true)
@@ -227,10 +284,15 @@ impl Server {
         if o.text_block {
             content.push(json!({ "type": "text", "text": "a stray note" }));
         }
+        // Out of flight before the answer leaves: a client that waits for it to send the next
+        // call can never be counted as overlapping it.
+        self.in_flight.fetch_sub(1, Ordering::SeqCst);
+        if o.trace {
+            eprintln!("fake mcp: end {name}");
+        }
         self.respond(
             json!({ "jsonrpc": "2.0", "id": id, "result": { "content": content, "structuredContent": envelope, "isError": is_error } }),
         );
-        self.in_flight.fetch_sub(1, Ordering::SeqCst);
         let total = self.calls_total.fetch_add(1, Ordering::SeqCst) + 1;
         if o.exit_after_calls > 0 && total >= o.exit_after_calls {
             eprintln!("fake mcp: exiting after {total} calls");
@@ -239,8 +301,34 @@ impl Server {
     }
 }
 
+/// `total` bytes of 0xFF on stderr: half in lines of a hundred bytes, half in one line.
+fn flood_stderr(total: usize) {
+    let mut err = std::io::stderr().lock();
+    let half = total / 2;
+    let mut line = vec![0xFF_u8; 99];
+    line.push(b'\n');
+    for _ in 0..half / line.len() {
+        let _ = err.write_all(&line);
+    }
+    let mut long = vec![0xFF_u8; total - half];
+    long.push(b'\n');
+    let _ = err.write_all(&long);
+    let _ = err.flush();
+}
+
 fn main() {
     let mut o = options();
+    if o.bad_stderr {
+        let mut err = std::io::stderr().lock();
+        let _ = err.write_all(b"fake mcp: \xFF\xFE bad bytes\n");
+        let _ = err.write_all(b"fake mcp: after the bad bytes\n");
+        let _ = err.flush();
+    }
+    if let Some(ms) = o.say_after_ms {
+        std::thread::sleep(Duration::from_millis(ms));
+        eprintln!("fake mcp: last words");
+        return;
+    }
     let envelopes = std::mem::take(&mut o.envelopes);
     let mut fake_regions = manifest(include_str!("../../fixtures/fake_regions.toml"));
     let mut probe_state = manifest(include_str!("../../fixtures/probe_state.toml"));
@@ -275,6 +363,7 @@ fn main() {
         // The client's answer to our ping: a response (no method) for the ping's id.
         if method.is_empty() && id == Some(json!(900_001)) {
             server.pongs.fetch_add(1, Ordering::SeqCst);
+            eprintln!("fake mcp: pong");
             continue;
         }
         match method {
@@ -324,7 +413,19 @@ fn main() {
             }
             "tools/call" => {
                 if o.die_on_call {
-                    eprintln!("fake mcp: dying on call");
+                    match o.late_stderr_ms {
+                        Some(ms) => {
+                            // The child inherits stderr only, so stdout closes when we exit.
+                            let _ = std::env::current_exe().and_then(|exe| {
+                                std::process::Command::new(exe)
+                                    .args(["--say-after-ms", &ms.to_string()])
+                                    .stdin(std::process::Stdio::null())
+                                    .stdout(std::process::Stdio::null())
+                                    .spawn()
+                            });
+                        }
+                        None => eprintln!("fake mcp: dying on call"),
+                    }
                     std::process::exit(3);
                 }
                 if o.garbage_line {
@@ -334,7 +435,7 @@ fn main() {
                     server.respond(json!({ "jsonrpc": "2.0", "id": 999_999, "result": {} }));
                 }
                 let params = msg["params"].clone();
-                if o.concurrent {
+                if o.concurrent || o.threaded {
                     let s = Arc::clone(&server);
                     std::thread::spawn(move || s.call(id, &params));
                 } else {
@@ -351,6 +452,9 @@ fn main() {
                         json!({ "jsonrpc": "2.0", "id": id, "error": { "code": -32601, "message": "Method not found" } }),
                     );
                     continue;
+                }
+                if o.trace {
+                    eprintln!("fake mcp: reset");
                 }
                 server.calls_since_reset.store(0, Ordering::SeqCst);
                 server.max_in_flight.store(0, Ordering::SeqCst);

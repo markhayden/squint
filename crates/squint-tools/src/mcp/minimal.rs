@@ -184,7 +184,7 @@ fn a_timed_out_call_is_cancelled_tombstoned_and_the_process_never_reused() {
 #[test]
 fn the_acquisition_deadline_is_one_clock_covering_a_hanging_reset() {
     let mut t = timeouts();
-    t.startup = Duration::from_millis(600);
+    t.startup = Duration::from_secs(2);
     let pack = Pack::connect("fake", spawn(&["--hang-reset"]), t, env()).unwrap();
     probe(&pack, "run-1");
     let started = Instant::now();
@@ -198,15 +198,27 @@ fn the_acquisition_deadline_is_one_clock_covering_a_hanging_reset() {
         .err()
         .unwrap();
     let elapsed = started.elapsed();
-    assert!(err.to_string().contains("deadline"), "{err}");
+    // The structure: the hanging reset used up the one clock, so the acquisition gave up before
+    // a restart rather than starting the replacement on a clock of its own.
     assert!(
-        elapsed < Duration::from_millis(1500),
+        err.to_string().contains("deadline before a restart"),
+        "{err}"
+    );
+    assert_eq!(pack.restarts(), 0, "no restart under a spent clock");
+    // The time, with a wide margin: the reset waited the whole clock, and the acquisition ended
+    // well inside two clocks (shutting down the hung server is quick: it exits on stdin close).
+    assert!(
+        elapsed >= t.startup,
+        "the reset had the whole clock: {elapsed:?}"
+    );
+    assert!(
+        elapsed < 2 * t.startup,
         "one deadline, not one per step: {elapsed:?}"
     );
     // A later acquisition starts a fresh clock and restarts the server.
     let (calls, _, _) = probe(&pack, "run-3");
     assert_eq!(calls, 1);
-    assert!(pack.restarts() >= 1);
+    assert_eq!(pack.restarts(), 1);
 }
 
 #[test]

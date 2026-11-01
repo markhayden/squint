@@ -35,7 +35,12 @@ stdio.
   threads share the process, so tools whose manifests declare `concurrent = true` run together
   on one server while the others take turns under the pack's serial lock.
 - Every wait has its own deadline. A timeout cancels, tombstones and taints; a stray id, a
-  malformed frame or the end of the stream fails every pending request and taints.
+  malformed frame or the end of the stream fails every pending request and taints. An error
+  about a server that ended the conversation (or could not be written to) carries the server's
+  last stderr lines; it waits for stderr to close, at most a second, because stderr is read on
+  its own thread and a dying server's last words can arrive after the end of stdout. That
+  thread reads stderr as bytes to the end of the pipe whatever it holds, decoding each line
+  lossily and keeping the last 200 lines of at most 4 KiB each.
 - `tools/list` follows `nextCursor` to the end, refusing a repeated cursor or more than 64 pages.
 - The result is the envelope validated against the tool's `outputSchema`; the content blocks must
   be exactly the image blocks of `images`, in order and media type, and nothing else; `isError`
@@ -62,7 +67,11 @@ stdio.
 - The client's surface is the harness's own: additions follow the spec, not an SDK's release
   notes, and the fake server (`squint-testkit-mcp`) grows a flag for every misbehaviour the
   tests need (`--page-size`, `--loop-cursor`, `--concurrent`, `--extra-measurement`,
-  `--text-block`, beside the lifecycle flags of 1.13).
+  `--text-block`, beside the lifecycle flags of 1.13; later `--late-stderr-ms`, a dying server
+  whose stderr outlives its stdout, and `--bad-stderr` and `--stderr-flood-kib`, stderr that is
+  not UTF-8; and, so the tests observe events instead of timing them, `--trace` (start, end and
+  reset markers on stderr), `--rendezvous-ms` (concurrent calls wait for each other) and
+  `--threaded` (calls on threads under serial manifests)).
 - A batch of calls whose tools all declare `concurrent = true` is dispatched together by the run
   (task 4.4a) and ingested in call order, so evidence items keep their order whatever the
   completion order.

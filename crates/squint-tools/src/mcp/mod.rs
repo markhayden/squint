@@ -5,7 +5,9 @@
 //! keeps its own deadline. A call that passes its deadline is cancelled with
 //! `notifications/cancelled`, its id tombstoned so a late answer is ignored, and the process marked
 //! unreusable. A response for an unknown id, a malformed frame or the end of the stream fails
-//! every pending request and taints the process.
+//! every pending request and taints the process. When the stream ends because the server exited,
+//! the error waits (at most `STDERR_DRAIN`) for the server's stderr to close, so a dying server's
+//! last lines are in it.
 
 pub mod pack;
 
@@ -15,7 +17,7 @@ use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
@@ -88,11 +90,77 @@ struct Shared {
     tainted: AtomicBool,
     /// The server's last `STDERR_LINES` lines, for the error a failed call carries.
     stderr: Mutex<Vec<String>>,
+    /// Set when the stderr reader has reached the end of the pipe.
+    stderr_closed: Mutex<bool>,
+    stderr_closed_signal: Condvar,
+    /// Set by the stdout reader when the stream ends, before it fails the pending requests.
+    stdout_closed: AtomicBool,
     stdin: Mutex<Option<ChildStdin>>,
 }
 
 /// Lines of the server's stderr kept.
 const STDERR_LINES: usize = 200;
+
+/// Bytes of one stderr line kept; the rest of a longer line is read and dropped.
+const STDERR_LINE_BYTES: usize = 4096;
+
+/// Marks a stderr line cut at `STDERR_LINE_BYTES`.
+const TRUNCATED: &str = " [truncated]";
+
+/// Reads the server's stderr to the end of the pipe whatever it holds, handing `each` every line
+/// (without its `\n` or `\r\n`) decoded lossily and cut at `STDERR_LINE_BYTES`. It never stops
+/// early: a reader that quit on a bad byte would lose every later line and close the pipe under
+/// a server still writing to it, whose next write then fails with a broken pipe (fatal to many
+/// servers); one that stopped reading but kept the pipe open would leave the server blocked on a
+/// full pipe. Only a read error ends it before the end of the pipe.
+fn read_stderr_lines(mut reader: impl BufRead, mut each: impl FnMut(String)) {
+    let mut line: Vec<u8> = Vec::new();
+    let mut truncated = false;
+    let mut emit = |line: &mut Vec<u8>, truncated: &mut bool| {
+        if line.last() == Some(&b'\r') && !*truncated {
+            line.pop();
+        }
+        let mut text = String::from_utf8_lossy(line).into_owned();
+        if *truncated {
+            text.push_str(TRUNCATED);
+        }
+        each(text);
+        line.clear();
+        *truncated = false;
+    };
+    loop {
+        let buf = match reader.fill_buf() {
+            Ok([]) => break,
+            Ok(buf) => buf,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        };
+        let (chunk, used, ends_line) = match buf.iter().position(|&b| b == b'\n') {
+            Some(i) => (&buf[..i], i + 1, true),
+            None => (buf, buf.len(), false),
+        };
+        let room = STDERR_LINE_BYTES.saturating_sub(line.len());
+        if chunk.len() > room {
+            truncated = true;
+        }
+        line.extend_from_slice(&chunk[..chunk.len().min(room)]);
+        reader.consume(used);
+        if ends_line {
+            emit(&mut line, &mut truncated);
+        }
+    }
+    if !line.is_empty() || truncated {
+        emit(&mut line, &mut truncated);
+    }
+}
+
+/// How long an error about a server that ended the conversation waits for its stderr to close.
+/// The stdout and stderr pipes are read by different threads, so the end of stdout can arrive
+/// before the last lines a dying server wrote to stderr; those lines are often the only
+/// diagnostic left, so the error waits for the end of stderr (the pipe closes when the process
+/// exits). The bound covers a server that closed stdout but lives on, or whose child still holds
+/// stderr open: the error then carries whatever arrived in time.
+const STDERR_DRAIN: Duration = Duration::from_secs(1);
 
 impl Shared {
     fn write(&self, message: &Value) -> Result<()> {
@@ -109,6 +177,34 @@ impl Shared {
             .write_all(text.as_bytes())
             .and_then(|()| stdin.flush())
             .map_err(|e| tool_err(format!("cannot write to the server: {e}")))
+    }
+
+    /// Waits until the stderr reader reaches the end of the pipe or `bound` passes.
+    fn drain_stderr(&self, bound: Duration) {
+        let Ok(closed) = self.stderr_closed.lock() else {
+            return;
+        };
+        let _ = self
+            .stderr_closed_signal
+            .wait_timeout_while(closed, bound, |closed| !*closed);
+    }
+
+    /// The stderr reader is done: wake anyone draining.
+    fn close_stderr(&self) {
+        if let Ok(mut closed) = self.stderr_closed.lock() {
+            *closed = true;
+        }
+        self.stderr_closed_signal.notify_all();
+    }
+
+    /// The server's stderr for the error of a request that failed with the server gone: after the
+    /// stream ended, the complete tail (waiting at most `STDERR_DRAIN` for it); otherwise what has
+    /// arrived so far.
+    fn stderr_tail_after_failure(&self) -> String {
+        if self.stdout_closed.load(Ordering::SeqCst) {
+            self.drain_stderr(STDERR_DRAIN);
+        }
+        self.stderr_tail()
     }
 
     /// The server's recent stderr as one string for an error message, or nothing.
@@ -225,6 +321,9 @@ impl Client {
             tombstones: Mutex::new(BTreeSet::new()),
             tainted: AtomicBool::new(false),
             stderr: Mutex::new(Vec::new()),
+            stderr_closed: Mutex::new(false),
+            stderr_closed_signal: Condvar::new(),
+            stdout_closed: AtomicBool::new(false),
             stdin: Mutex::new(Some(stdin)),
         });
         let reader_shared = Arc::clone(&shared);
@@ -246,18 +345,20 @@ impl Client {
                 }
             }
             reader_shared.tainted.store(true, Ordering::SeqCst);
+            reader_shared.stdout_closed.store(true, Ordering::SeqCst);
             reader_shared.fail_all("the server ended the conversation");
         });
         let sink = Arc::clone(&shared);
         std::thread::spawn(move || {
-            for line in BufReader::new(stderr_pipe).lines().map_while(|l| l.ok()) {
+            read_stderr_lines(BufReader::new(stderr_pipe), |line| {
                 if let Ok(mut v) = sink.stderr.lock() {
                     if v.len() >= STDERR_LINES {
                         v.remove(0);
                     }
                     v.push(line);
                 }
-            }
+            });
+            sink.close_stderr();
         });
 
         let mut client = Client {
@@ -393,7 +494,15 @@ impl Client {
             if let Ok(mut p) = self.shared.pending.lock() {
                 p.remove(&id);
             }
-            return Err(e);
+            // A server that cannot be written to has usually exited, perhaps before the stdout
+            // reader saw the end of the stream; its stderr says why.
+            return Err(match e {
+                Error::Tool(m) => {
+                    self.shared.drain_stderr(STDERR_DRAIN);
+                    Error::Tool(format!("{m}{}", self.shared.stderr_tail()))
+                }
+                other => other,
+            });
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         match rx.recv_timeout(remaining) {
@@ -409,14 +518,14 @@ impl Client {
             }
             Ok(Err(why)) => Err(tool_err(format!(
                 "{method} (id {id}): {why}{}",
-                self.shared.stderr_tail()
+                self.shared.stderr_tail_after_failure()
             ))),
             Err(RecvTimeoutError::Timeout) => Err(self.cancel(id, method)),
             Err(RecvTimeoutError::Disconnected) => {
                 self.shared.tainted.store(true, Ordering::SeqCst);
                 Err(tool_err(format!(
                     "the server died during {method}{}",
-                    self.shared.stderr_tail()
+                    self.shared.stderr_tail_after_failure()
                 )))
             }
         }
