@@ -21,6 +21,7 @@
           "slot": "source"
         },
         {
+          "many": true,
           "required": false,
           "role": "reference",
           "slot": "references"
@@ -210,6 +211,7 @@
           "slot": "candidate"
         },
         {
+          "many": true,
           "required": true,
           "role": "reference",
           "slot": "references"
@@ -399,6 +401,7 @@
           "slot": "candidate"
         },
         {
+          "many": true,
           "required": false,
           "role": "reference",
           "slot": "references"
@@ -588,6 +591,7 @@
           "slot": "candidate"
         },
         {
+          "many": true,
           "required": false,
           "role": "reference",
           "slot": "references"
@@ -777,6 +781,7 @@
           "slot": "candidate"
         },
         {
+          "many": true,
           "required": true,
           "role": "reference",
           "slot": "references"
@@ -986,7 +991,6 @@
     "score_kind": []
   },
   "x-squint": {
-    "references_slot": "takes a list of images, one per reference",
     "self_description": [
       "squint rules show --json",
       "squint tools list --json",

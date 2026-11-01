@@ -15,8 +15,8 @@ squint describe --json --config squint.toml
 The description document: one action per shipped use case (`source_fidelity`,
 `reference_consistency`, `reality_checks`, `brief_compliance`, `product_fidelity`); `estimate` is
 a reserved tool, not an action. Each use case takes `candidate`, a `source` where its rule set
-requires one, and `references` (a list), with `brief`, `requirements` (typed by squint's
-obligation schema) and `max_spend_usd`. Each action's `readiness` names the credential variable
+requires one, and `references` (a `many` slot: a non-empty list, each taken in once, in order),
+with `brief`, `requirements` (typed by squint's obligation schema) and `max_spend_usd`. Each action's `readiness` names the credential variable
 of the configured profile, `present` or `missing` by a local lookup; its value is never kept or
 printed. A check on the scripted fake needs nothing and is `ready`. The renders are `report`
 (`report view`, kind `server`) and `export` (`report export`, kind `document`). The same document

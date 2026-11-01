@@ -157,6 +157,42 @@ fn one_action_per_shipped_use_case_and_no_estimate() {
     );
 }
 
+/// `references` is a `many` slot on every action and the other slots take one image, so `many`
+/// is serialized on `references` alone (table-manners 10.1, 11.2); since the contract has list
+/// slots, no `x-squint` key works around their absence.
+#[test]
+fn references_is_the_only_many_slot_and_no_extension_mentions_a_list() {
+    let (d, doc) = described();
+    for (action, json) in d.actions.iter().zip(doc["actions"].as_array().unwrap()) {
+        let slots = action.images.as_ref().unwrap();
+        for (slot, json) in slots.iter().zip(json["images"].as_array().unwrap()) {
+            let many = slot.slot == "references";
+            assert_eq!(slot.many, many, "{}: {}", action.name, slot.slot);
+            assert_eq!(
+                json.get("many"),
+                many.then_some(&serde_json::Value::Bool(true)),
+                "{}: {json}",
+                action.name
+            );
+        }
+        assert!(
+            slots.iter().any(|s| s.slot == "references"),
+            "{}",
+            action.name
+        );
+    }
+    assert_eq!(
+        doc["x-squint"],
+        serde_json::json!({
+            "self_description": [
+                "squint rules show --json",
+                "squint tools list --json",
+                "squint catalog show"
+            ]
+        })
+    );
+}
+
 /// The schema holds a paid action to declaring `max_spend_usd` above zero: one without it, or
 /// with `minimum: 0`, does not validate (table-manners 4.5).
 #[test]

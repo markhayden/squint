@@ -425,8 +425,9 @@ pub fn write_run_result(dir: &Path, result: &RunResult) -> crate::Result<()> {
     Ok(())
 }
 
-/// The slot an image of `role` comes in through, as `describe` declares it: references share one
-/// list slot.
+/// The slot an image of `role` comes in through, as `describe` declares it: references share the
+/// one `many` slot, which `images.in` lists once per image, in the order given (table-manners
+/// 11.1).
 fn slot_word(role: Role) -> &'static str {
     match role {
         Role::Reference => "references",
@@ -590,7 +591,7 @@ pub fn description(
             if required(Role::Source) {
                 images.push(slot("source", "source", true));
             }
-            images.push(slot("references", "reference", required(Role::Reference)));
+            images.push(references_slot(required(Role::Reference)));
             Action {
                 name: base.replace('-', "_"),
                 title: title(base),
@@ -646,8 +647,7 @@ pub fn description(
                 "squint rules show --json",
                 "squint tools list --json",
                 "squint catalog show"
-            ],
-            "references_slot": "takes a list of images, one per reference"
+            ]
         }),
     );
     Ok(Description {
@@ -742,12 +742,22 @@ fn purpose(base: &str) -> &'static str {
     }
 }
 
+/// A slot that takes one image in.
 fn slot(slot: &str, role: &str, required: bool) -> ImageSlot {
     ImageSlot {
         slot: slot.into(),
         role: role.into(),
         required,
         many: false,
+    }
+}
+
+/// `references`: a `many` slot, a non-empty list of images in, one per reference (table-manners
+/// 10.1, 11.2).
+fn references_slot(required: bool) -> ImageSlot {
+    ImageSlot {
+        many: true,
+        ..slot("references", "reference", required)
     }
 }
 
@@ -760,7 +770,7 @@ pub fn estimate_arguments(use_cases: &[&str]) -> (serde_json::Value, Vec<ImageSl
         vec![
             slot("candidate", "candidate", true),
             slot("source", "source", false),
-            slot("references", "reference", false),
+            references_slot(false),
         ],
     )
 }
@@ -839,10 +849,10 @@ const CALL_ARGUMENTS: &[&str] = &[
 ];
 
 /// A job from a contract call's arguments (table-manners 10.1): `candidate` and an optional
-/// `source`, each one image in, and `references`, a list of them (`ref:1`, `ref:2`, …); the
-/// brief and requirements as in a job file. A path must be absolute; inline bytes become a base64
-/// image; an `expect` is kept, and its projection is the image's. Anything else, or a malformed
-/// image in, is a usage error.
+/// `source`, each one image in, and `references`, a non-empty list of them (`ref:1`, `ref:2`, …,
+/// in the order given); the brief and requirements as in a job file. A path must be absolute;
+/// inline bytes become a base64 image; an `expect` is kept, and its projection is the image's.
+/// Anything else, an empty `references`, or a malformed image in, is a usage error.
 pub fn job_from_call(
     use_case: &str,
     args: &serde_json::Map<String, serde_json::Value>,
@@ -911,7 +921,8 @@ pub fn job_from_call(
     if let Some(references) = args.get("references") {
         let list = references
             .as_array()
-            .ok_or_else(|| Error::Job("references: a list of images".into()))?;
+            .filter(|list| !list.is_empty())
+            .ok_or_else(|| Error::Job("references: a non-empty list of images".into()))?;
         for (n, value) in list.iter().enumerate() {
             images.push(image(format!("ref:{}", n + 1), Role::Reference, value)?);
         }

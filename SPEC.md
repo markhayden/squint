@@ -1493,15 +1493,15 @@ with them.
   the working directory as `check` resolves them; else every shipped use case), named for
   its rule set's `use_case` with a one-sentence purpose (kept beside the description, since sealed
   sets bind the rule files byte for byte), taking `candidate`, the `source` when the
-  rule set requires one, and `references` (a list; contract v0.1 has no list slot, so squint says
-  so under `x-squint`), with the brief, requirements and a lower spend cap as parameters
-  (`estimate` is a reserved tool, never an action); every disposition and confidence word a
-  finding can carry (`vocabulary`), the renders (`report view` of kind `server` with a ten-second
-  `ready_timeout_s`, `report export` of kind `document`), the cost notice and each action's
-  `readiness`: the credential variable the configured profile needs, by name, `present` or
-  `missing` by a local lookup, never its value (a check on the scripted fake, under the `fake`
-  profile or `--provider-script`, declares `may_spend: false`, needs nothing and is `ready`), the
-  expected duration, the inline limit (the decode bound) and the resources. Every
+  rule set requires one, and `references`, a `many` slot (a non-empty list of images in, which
+  `images.in` lists once per image in the order given), with the brief, requirements and a lower
+  spend cap as parameters (`estimate` is a reserved tool, never an action); every disposition and
+  confidence word a finding can carry (`vocabulary`), the renders (`report view` of kind `server`
+  with a ten-second `ready_timeout_s`, `report export` of kind `document`), the cost notice and
+  each action's `readiness`: the credential variable the configured profile needs, by name,
+  `present` or `missing` by a local lookup, never its value (a check on the scripted fake, under
+  the `fake` profile or `--provider-script`, declares `may_spend: false`, needs nothing and is
+  `ready`), the expected duration, the inline limit (the decode bound) and the resources. Every
   `params_schema` and MCP `inputSchema` is a schema of its own: the definitions it refers to sit
   at its root. Argument errors on every command exit 64.
 - **Exit codes** across commands: 0 success, 3 error, 64 usage or input, 130 on SIGINT and 143

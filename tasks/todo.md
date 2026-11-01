@@ -193,7 +193,7 @@ request is the `invalid_arguments` refusal); the plan follows them.
 - [ ] 9.5 The limits check: `cap` vs `budget`, `max_spend_usd` above the cap `invalid`, `_meta["table-manners/estimate"]` → `stale_estimate`
 - [ ] 9.6 A call needing a missing or invalid requirement refused `-32602` `not_ready` before any run (id released, nothing written); `credential` for a 401/403 during a run, never retryable; `retryable` per occurrence for `provider`
 - [x] 9.7 A JSON-RPC refusal (including `not_ready`) releases the `client_run_id` claim (M8 review S3); a cancel before allocation keeps it
-- [ ] 9.8 `references` as a `many: true` slot; the `x-squint` workaround removed
+- [x] 9.8 `references` as a `many: true` slot; the `x-squint` workaround removed
 - [ ] 9.9 Renders: `report view` `kind: server`, URL-only stdout, stdin EOF/SIGTERM, `--frame-ancestor`, `ready_timeout_s`; `report export` `kind: document`, one self-contained file, prints only the path and writes outside the run directory (the cache dir unless `--out`); every `command[0]` is `squint` (a render never modifies it); exit 0 on EOF/SIGTERM; offline smoke updated → tag `m9.3`
 - [ ] 9.10 v0.3 fixtures (CONTRACT 7 item 7, with `refusal-not-ready.json` and one stale fixture for config and session) by `contract_fixtures.rs` and `contract_fixtures_served.rs` with `UPDATE_CONTRACT_FIXTURES=1`, handed to table-manners `fixtures/squint/`; docs
 - [ ] Owner: table-manners v0.3.0 published to crates.io
