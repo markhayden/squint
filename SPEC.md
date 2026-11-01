@@ -1226,9 +1226,9 @@ account = "anthropic:org-xxxx"
 dir = "./squint-out"
 
 [serve]                       # squint serve only (table-manners 4.5, 10.1)
-concurrency = 1               # calls at once; serial by default
+concurrency = 1               # checks at once; serial by default
 session_budget_usd = 20.0     # across every call one server process serves; default ten checks at the default cap
-roots = ["/srv/images"]       # image paths must sit inside these as well as the client's MCP roots; empty: the client's alone
+roots = ["/srv/images"]       # image paths must sit inside these as well as the client's MCP roots; empty: the client's alone, and with neither, inline images only
 ```
 
 Loading: parse, validate against the config schema, resolve the profile, check the model in the
@@ -1430,13 +1430,16 @@ section says what squint does with them.
   stays on the command line and is referenced from the description's `x-squint`. An `invalid` or
   `error` outcome is a result with `isError` and the header; JSON-RPC errors are only for failures
   before a run exists. Each image out carries its reference and the locator the call asked for
-  (path, inline, resource URI); image blocks only when asked. Calls are serial by default
-  (`[serve] concurrency`). Spend: the per-call cap from config, which a call (`max_spend_usd`; on
+  (path, inline, resource URI); image blocks only when asked. Checks are serial by default
+  (`[serve] concurrency`); `describe`, `estimate` and resource reads never wait behind one. A
+  check waiting for its turn beats like a running one, and cancelling it there leaves no run. Spend: the per-call cap from config, which a call (`max_spend_usd`; on
   the command line `--max-spend-usd`) may lower and never raise, and a per-session budget
   (`[serve] session_budget_usd`) across the server's lifetime, a ledger every decision reserves
   against before its first request. Paths: when the client offers roots, squint asks for them on
-  every check and refuses (`invalid`, `input`) a path outside them, or outside `[serve] roots` when
-  the config names any. A check over `serve` is an ordinary decision: its directory, journal,
+  every check and estimate and refuses (`invalid`, `input`) a path outside them, or outside
+  `[serve] roots` when the config names any; a client that offers no roots, under a config that
+  names none, can send images only inline (closed by default). A refusal says nothing about the
+  file, not even whether it exists. A check over `serve` is an ordinary decision: its directory, journal,
   report and `run.json`, with the action's name.
 - **Progress and cancellation**: `check` is a plain `tools/call`. With a progress token, squint
   sends a notification on every journal line of every run (through an observer the journal calls
@@ -1463,7 +1466,9 @@ section says what squint does with them.
   retryable `error` with code `provider`; `tool` is `tool_process`; `budget`, `io` and anything
   else (`internal`) are not retryable; `cancelled` is its own status.
 - **`squint describe --json --config <file>`**: the contract's description document with
-  `profiles: ["images"]`: one action per shipped use case (`source_fidelity`, …), named for
+  `profiles: ["images"]`: one action per use case the config can check (`source_fidelity`, …:
+  the one `[rules]` names, its slots from the merged rules with relative files resolved against
+  the working directory as `check` resolves them; else every shipped use case), named for
   its rule set's `use_case` with a one-sentence purpose (kept beside the description, since sealed
   sets bind the rule files byte for byte), taking `candidate`, the `source` when the
   rule set requires one, and `references` (a list; contract v0.1 has no list slot, so squint says

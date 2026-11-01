@@ -184,7 +184,11 @@ fn journal_artifacts_hold_no_secret_even_when_the_model_echoes_it() {
     ))
     .unwrap();
     assert_eq!(o.exit_code, 0, "{:?}", o.error);
-    let mut files = vec![o.dir.join("report.json"), o.dir.join("run-1/journal.jsonl")];
+    let mut files = vec![
+        o.dir.join("report.json"),
+        o.dir.join("run.json"),
+        o.dir.join("run-1/journal.jsonl"),
+    ];
     files.extend(
         std::fs::read_dir(o.dir.join("run-1/artifacts"))
             .unwrap()

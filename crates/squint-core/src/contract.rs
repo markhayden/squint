@@ -22,7 +22,7 @@ use crate::config::Config;
 use crate::frames::LocationKind;
 use crate::image::{CanonicalImage, hex};
 use crate::job::{Projection, Role};
-use crate::obligations::{RulesFile, SHIPPED_BASES, shipped};
+use crate::obligations::{MergeInput, RulesFile, SHIPPED_BASES, shipped};
 use crate::report::{Report, RootLocation};
 use crate::submission::FindingDisposition;
 
@@ -91,7 +91,12 @@ pub fn location(
     item: &str,
 ) -> Option<Location> {
     let grid = Grid::of(image);
-    let (kind, parts, straddles_wrap) = match (root.kind, &root.seam_parts) {
+    // Only a panorama wraps; a bounded image has no seam to split at (table-manners 9.2).
+    let seam_parts = root
+        .seam_parts
+        .as_ref()
+        .filter(|_| image.projection == Projection::Equirectangular);
+    let (kind, parts, straddles_wrap) = match (root.kind, seam_parts) {
         (LocationKind::Polygon, Some(pieces)) => (
             ContractKind::Polygon,
             pieces.iter().map(|p| grid.polygon(p)).collect(),
@@ -341,7 +346,7 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
             taken: images
                 .iter()
                 .map(|i| ImageTaken {
-                    slot: role_word(i.role).into(),
+                    slot: slot_word(i.role).into(),
                     role: role_word(i.role).into(),
                     image: image_reference(i),
                 })
@@ -368,6 +373,15 @@ pub fn write_run_result(dir: &Path, result: &RunResult) -> crate::Result<()> {
     Ok(())
 }
 
+/// The slot an image of `role` comes in through, as `describe` declares it: references share one
+/// list slot.
+fn slot_word(role: Role) -> &'static str {
+    match role {
+        Role::Reference => "references",
+        other => role_word(other),
+    }
+}
+
 fn role_word(role: Role) -> &'static str {
     match role {
         Role::Candidate => "candidate",
@@ -385,11 +399,20 @@ fn word<T: serde::Serialize>(value: &T) -> String {
 }
 
 /// What this decision ran on: the images' digests, the job, the resolved rules, the redacted
-/// config, the provider, the tools and the prompt and harness versions.
+/// config, the provider, the tools and the prompt and harness versions. How an image arrived (a
+/// path or inline bytes) is left out: its digest already says what it was.
 fn input_identity(report: &Report, images: &[CanonicalImage]) -> String {
+    let mut job = serde_json::to_value(&report.job).unwrap_or_default();
+    if let Some(list) = job["images"].as_array_mut() {
+        for image in list {
+            if let Some(fields) = image.as_object_mut() {
+                fields.remove("source");
+            }
+        }
+    }
     let identity = serde_json::json!({
         "images": images.iter().map(|i| (&i.id, &i.sha256)).collect::<Vec<_>>(),
-        "job": report.job,
+        "job": job,
         "rules": report.rules,
         "config": report.config,
         "provider": report.provider,
@@ -437,23 +460,29 @@ pub fn rfc3339(unix_ms: u64) -> String {
 /// The longest gap between progress notifications on a live run (table-manners 4.1).
 pub const PROGRESS_INTERVAL_S: u32 = 10;
 
-/// squint's description document (table-manners 3 and 11.2): one action per shipped use case,
-/// taking the images its rule set requires, plus `estimate`; every disposition and confidence
+/// squint's description document (table-manners 3 and 11.2): one action per use case a check can
+/// run (the one `[rules]` names, else every shipped base), taking the images its rules require,
+/// plus `estimate`; every disposition and confidence
 /// word a finding can carry; the inline limit from the decode bound. `needs_env` names the
 /// credential variable of the configured profile (from the catalog, which this crate does not
 /// read); never a value.
-pub fn description(config: &Config, version: &str, needs_env: &[String]) -> Description {
-    let mut actions: Vec<Action> = SHIPPED_BASES
+pub fn description(
+    config: &Config,
+    version: &str,
+    needs_env: &[String],
+) -> crate::Result<Description> {
+    let use_cases = use_cases(config)?;
+    let mut actions: Vec<Action> = use_cases
         .iter()
-        .filter_map(|base| {
-            let rules = RulesFile::parse(shipped(base)?, base).ok()?.rules;
-            let required = |role: Role| rules.requires_roles.contains(&role);
+        .map(|(base, requires_roles)| {
+            let base = base.as_str();
+            let required = |role: Role| requires_roles.contains(&role);
             let mut images = vec![slot("candidate", "candidate", true)];
             if required(Role::Source) {
                 images.push(slot("source", "source", true));
             }
             images.push(slot("references", "reference", required(Role::Reference)));
-            Some(Action {
+            Action {
                 name: base.replace('-', "_"),
                 title: title(base),
                 purpose: purpose(base).into(),
@@ -487,7 +516,7 @@ pub fn description(config: &Config, version: &str, needs_env: &[String]) -> Desc
                             .to_vec(),
                     },
                 ],
-            })
+            }
         })
         .collect();
     actions.push(Action {
@@ -495,7 +524,12 @@ pub fn description(config: &Config, version: &str, needs_env: &[String]) -> Desc
         title: "Estimate".into(),
         purpose: "The worst-case cost of one check of a use case, and the session budget left."
             .into(),
-        params_schema: params_schema(Some(SHIPPED_BASES)),
+        params_schema: params_schema(Some(
+            &use_cases
+                .iter()
+                .map(|(base, _)| base.as_str())
+                .collect::<Vec<_>>(),
+        )),
         images: Some(vec![
             slot("candidate", "candidate", true),
             slot("source", "source", false),
@@ -529,7 +563,7 @@ pub fn description(config: &Config, version: &str, needs_env: &[String]) -> Desc
             "references_slot": "takes a list of images, one per reference"
         }),
     );
-    Description {
+    Ok(Description {
         contract: CONTRACT_VERSION.into(),
         profiles: vec![Profile::Images],
         tool: DescribedTool {
@@ -568,7 +602,41 @@ pub fn description(config: &Config, version: &str, needs_env: &[String]) -> Desc
         .map(String::from)
         .to_vec(),
         extensions,
-    }
+    })
+}
+
+/// The use cases a check can run, each with the roles its rules require: the one `[rules]`
+/// names, merged with its profile and extra files (resolved as `check` resolves them, against the
+/// working directory), else every shipped base.
+fn use_cases(config: &Config) -> crate::Result<Vec<(String, Vec<Role>)>> {
+    let Some(rules) = &config.rules else {
+        return Ok(SHIPPED_BASES
+            .iter()
+            .filter_map(|base| {
+                let file = RulesFile::parse(shipped(base)?, base).ok()?;
+                Some((base.to_string(), file.rules.requires_roles))
+            })
+            .collect());
+    };
+    let extra = rules
+        .extra
+        .iter()
+        .map(|path| RulesFile::load(path))
+        .collect::<crate::Result<Vec<_>>>()?;
+    let names: Vec<String> = rules
+        .extra
+        .iter()
+        .map(|p| p.display().to_string())
+        .collect();
+    let merged = crate::obligations::merge(&MergeInput {
+        base: &rules.base,
+        profile: rules.profile.as_deref(),
+        extra: &extra,
+        extra_names: &names,
+        job: None,
+        enabled_tools: &[],
+    })?;
+    Ok(vec![(rules.base.clone(), merged.requires_roles)])
 }
 
 /// What each shipped use case checks, in one sentence. Kept here rather than in the rule sets:
@@ -823,5 +891,66 @@ pub fn action_result(
         }),
         notes: Vec::new(),
         body,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Error;
+
+    /// The contract status and code each error must become (table-manners 2.2). The match is
+    /// exhaustive, so a new error variant does not compile until its mapping is decided here.
+    fn expected(e: &Error) -> (Status, Option<(ErrorCode, bool)>) {
+        match e {
+            Error::Cancelled(_) => (Status::Cancelled, None),
+            Error::Input(_) | Error::ImageLimit(_) => {
+                (Status::Invalid, Some((ErrorCode::Input, false)))
+            }
+            Error::Config(_)
+            | Error::Job(_)
+            | Error::Image(_)
+            | Error::Toml(_)
+            | Error::Auth(_) => (Status::Invalid, Some((ErrorCode::Usage, false))),
+            Error::Provider(_)
+            | Error::Transport(_)
+            | Error::Submission(_)
+            | Error::NoSubmission(_)
+            | Error::ModelOutput(_) => (Status::Error, Some((ErrorCode::Provider, true))),
+            Error::Tool(_) => (Status::Error, Some((ErrorCode::ToolProcess, false))),
+            Error::Budget(_) => (Status::Error, Some((ErrorCode::Budget, false))),
+            Error::Io(_) | Error::Json(_) => (Status::Error, Some((ErrorCode::Io, false))),
+        }
+    }
+
+    #[test]
+    fn every_error_maps_to_its_contract_status_and_code() {
+        let s = || "x".to_string();
+        let errors = [
+            Error::Cancelled(s()),
+            Error::Input(s()),
+            Error::ImageLimit(s()),
+            Error::Config(s()),
+            Error::Job(s()),
+            Error::Image(s()),
+            Error::Toml(toml::from_str::<toml::Value>("=").unwrap_err()),
+            Error::Auth(s()),
+            Error::Provider(s()),
+            Error::Transport(crate::retry::TransportError {
+                status: Some(503),
+                retry_after: None,
+                message: s(),
+            }),
+            Error::Submission(s()),
+            Error::NoSubmission(s()),
+            Error::ModelOutput(s()),
+            Error::Tool(s()),
+            Error::Budget(s()),
+            Error::Io(std::io::Error::other("x")),
+            Error::Json(serde_json::from_str::<serde_json::Value>("{").unwrap_err()),
+        ];
+        for e in &errors {
+            assert_eq!(status_of(e.class()), expected(e), "{e}");
+        }
     }
 }

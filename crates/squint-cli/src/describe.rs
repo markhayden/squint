@@ -33,7 +33,13 @@ pub fn run(args: &DescribeArgs) -> i32 {
         })
         .into_iter()
         .collect();
-    let description = squint_core::contract::description(&config, VERSION, &needs_env);
+    let description = match squint_core::contract::description(&config, VERSION, &needs_env) {
+        Ok(d) => d,
+        Err(e) => {
+            eprintln!("squint: {e}");
+            return EXIT_USAGE;
+        }
+    };
     match serde_json::to_string_pretty(&description) {
         Ok(text) => {
             println!("{text}");

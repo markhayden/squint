@@ -150,13 +150,14 @@ tag.
   - a provider's 401 or 403 is not retryable; squint maps every provider failure to `provider`, retryable (wafflehouse S1.4)
 - [x] Checkpoint M7 → tag `m7` (2026-10-31): merged as `eef1f10`, released by the owner
 - [x] Follow-up: the M7 checkpoint's review and test-coverage pass (agent-skills review and test), skipped before the merge; run 2026-10-31; the release stands, findings are the M7 review fixes below
-- [ ] M7 review fixes (branch `m7-review`):
-  - [ ] `estimate` over MCP checks paths against roots like a check (review C1, security)
-  - [ ] an image path is a regular file read only up to the decode bound (I1)
-  - [ ] every decision writes its own `run.json` on every exit; a cache-store failure is a note; serve returns the decision's run, never a second one (I2)
-  - [ ] a reference's `images.in` slot is `references` (I3)
-  - [ ] serve honours `[rules]` and resolves rule paths as the CLI does (I6)
-  - [ ] client roots parsed as `file:` URLs (I5)
-  - [ ] `straddles_wrap` never on a bounded image; a running run listed under its action (coverage 3, 4)
-  - [ ] vacuous tests made to bite: cancelled spend, heartbeat gaps, path/inline identity; argument errors exit 64 per command; `status_of` exhaustive; `run.json` in the secret scan
-  - with C4 (K3): a heartbeat while a call waits for the permit (I4)
+- [x] M7 review fixes (branch `m7-review`, merged 2026-10-31):
+  - [x] `estimate` over MCP checks paths against roots like a check (review C1, security); a missing path is refused in the words of one outside; the checked real path replaces the given one (S3)
+  - [x] an image path is a regular file read only up to the decode bound; inline data over the bound refused undecoded (I1)
+  - [x] every decision writes its own `run.json` on every exit; a cache-store failure is a note; serve returns the decision's run, never a second one (I2); `Services::allocated` names the directory when it exists
+  - [x] a reference's `images.in` slot is `references` (I3)
+  - [x] serve honours `[rules]` and resolves rule paths as the CLI does (I6); a rules file that cannot be read makes `describe` and `serve` exit 64
+  - [x] client roots parsed as `file:` URLs: an empty or `localhost` host, percent-decoded (I5)
+  - [x] `straddles_wrap` never on a bounded image; a running run listed under its action (coverage 3, 4)
+  - [x] vacuous tests made to bite: cancelled spend, heartbeat gaps, path/inline identity; argument errors exit 64 per command; `status_of` exhaustive; `run.json` in the secret scan. Found on the way: a decode bound is `image_limit` (contract `input`, review S1); `input_identity` leaves out how an image arrived (the fixtures' identities changed: refresh table-manners `fixtures/squint/` with v0.2)
+  - [x] closed by default: with no client roots and no `[serve] roots`, a path is refused and images go inline (review S6, owner 2026-10-31)
+  - [x] only checks take the permit: `describe` and `estimate` answer while a check runs; a queued check beats and a cancel while it waits leaves no run (I4; C4 review 9, 10)

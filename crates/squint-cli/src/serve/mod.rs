@@ -54,6 +54,11 @@ pub struct ServeArgs {
     pub provider_script: Option<PathBuf>,
 }
 
+/// What a call's job resolves against. Its image paths are absolute (`job_from_call` refuses any
+/// other), so this resolves only the config's relative `[rules] extra` files: against the
+/// working directory, as `squint check` does.
+const JOB_BASE: &str = ".";
+
 pub fn run(args: &ServeArgs) -> i32 {
     let usage = |e: String| {
         eprintln!("squint: {e}");
@@ -80,7 +85,10 @@ pub fn run(args: &ServeArgs) -> i32 {
         .map(|p| p.auth.env.clone())
         .into_iter()
         .collect();
-    let description = contract::description(&config, VERSION, &needs_env);
+    let description = match contract::description(&config, VERSION, &needs_env) {
+        Ok(d) => d,
+        Err(e) => return usage(e.to_string()),
+    };
     let out_dir = args
         .out
         .clone()
@@ -171,17 +179,25 @@ impl Server {
 
     /// `estimate`: the envelope a check of the named use case would reserve, from the catalog's
     /// prices; a run of its own, with no spend.
-    fn estimate(&self, args: Map<String, Value>) -> Result<CallToolResult, ErrorData> {
+    fn estimate(
+        &self,
+        args: Map<String, Value>,
+        roots: Option<Vec<PathBuf>>,
+    ) -> Result<CallToolResult, ErrorData> {
         let use_case = args
             .get("use_case")
             .and_then(Value::as_str)
             .ok_or_else(|| ErrorData::invalid_params("use_case: required", None))?
             .to_string();
-        let job = match contract::job_from_call(&use_case, &args) {
+        let mut job = match contract::job_from_call(&use_case, &args) {
             Ok(job) => job,
             Err(squint_core::Error::Job(m)) => return Err(ErrorData::invalid_params(m, None)),
             Err(e) => return self.finished("estimate", &args, Some(&e), Map::new()),
         };
+        // The estimate reads its images' dimensions, so it answers to the roots a check does.
+        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &self.inner.config.serve.roots) {
+            return self.finished("estimate", &args, Some(&e), Map::new());
+        }
         let mut config = self.inner.config.clone();
         if let Some(max) = args.get("max_spend_usd") {
             let lowered = max
@@ -199,8 +215,13 @@ impl Server {
             ));
             return self.finished("estimate", &args, Some(&e), Map::new());
         };
-        match squint_core::run::envelope(&config, &job, Path::new("/"), &self.inner.tools, pricing)
-        {
+        match squint_core::run::envelope(
+            &config,
+            &job,
+            Path::new(JOB_BASE),
+            &self.inner.tools,
+            pricing,
+        ) {
             Ok(envelope) => {
                 let cap = config.budget.spend_cap_usd;
                 let body = json!({
@@ -240,12 +261,12 @@ impl Server {
         hooks: Hooks,
     ) -> Result<CallToolResult, ErrorData> {
         let use_case = action.replace('_', "-");
-        let job = match contract::job_from_call(&use_case, &args) {
+        let mut job = match contract::job_from_call(&use_case, &args) {
             Ok(job) => job,
             Err(squint_core::Error::Job(m)) => return Err(ErrorData::invalid_params(m, None)),
             Err(e) => return self.finished(action, &args, Some(&e), Map::new()),
         };
-        if let Err(e) = inside_roots(&job, roots.as_deref(), &self.inner.config.serve.roots) {
+        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &self.inner.config.serve.roots) {
             return self.finished(action, &args, Some(&e), Map::new());
         }
         let mut config = self.inner.config.clone();
@@ -271,9 +292,18 @@ impl Server {
                 return self.finished(action, &args, Some(&e), Map::new());
             }
         };
+        // The decision's directory once it exists: an error after that is answered with the
+        // decision's own run, never a second one.
+        let allocated = Arc::new(std::sync::Mutex::new(None::<PathBuf>));
+        let told = allocated.clone();
         let mut services = squint_core::run::Services::new(provider.as_ref(), &self.inner.tools)
             .with_shared_ledger(Some(&self.inner.session))
-            .with_cancel(&hooks.cancel);
+            .with_cancel(&hooks.cancel)
+            .with_allocated(Arc::new(move |dir: &Path| {
+                if let Ok(mut slot) = told.lock() {
+                    *slot = Some(dir.to_path_buf());
+                }
+            }));
         if let Some(observer) = hooks.observer {
             services = services.with_observer(observer);
         }
@@ -284,20 +314,16 @@ impl Server {
         let outcome = runtime.block_on(squint_core::run::check(
             &config,
             &job,
-            Path::new("/"),
+            Path::new(JOB_BASE),
             &services,
             &self.inner.out_dir,
             VERSION,
         ));
-        match outcome {
-            Ok(o) => {
-                let text = std::fs::read_to_string(o.dir.join(contract::RUN_FILE))
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-                let result: table_manners::RunResult = serde_json::from_str(&text)
-                    .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-                Ok(tool_result(&result))
-            }
-            Err(e) => self.finished(action, &args, Some(&e), Map::new()),
+        let decided = allocated.lock().ok().and_then(|slot| slot.clone());
+        match (outcome, decided) {
+            (Ok(o), _) => decision_result(&o.dir),
+            (Err(_), Some(dir)) if dir.join(contract::RUN_FILE).exists() => decision_result(&dir),
+            (Err(e), _) => self.finished(action, &args, Some(&e), Map::new()),
         }
     }
 
@@ -368,7 +394,7 @@ impl Server {
                             resource: r.run.resource,
                         },
                         None => table_manners::RunSummary {
-                            action: id.split('-').next().unwrap_or("check").to_string(),
+                            action: running_action(&dir, &id),
                             status: table_manners::RunState::Running,
                             started: contract::rfc3339(ms),
                             resource: format!("squint://run/{id}/{}", contract::RUN_FILE),
@@ -469,10 +495,47 @@ async fn send_progress(
     }
 }
 
+/// The action of a run still going: a decision's use case from its header (written before the
+/// first run), as `describe` names it; else the directory name's leading word (`estimate`).
+fn running_action(dir: &Path, id: &str) -> String {
+    std::fs::read_to_string(dir.join(squint_core::report::HEADER_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .and_then(|header| header["use_case"].as_str().map(|u| u.replace('-', "_")))
+        .unwrap_or_else(|| id.split('-').next().unwrap_or_default().to_string())
+}
+
+/// The local path of a `file:` URL (RFC 8089): an empty or `localhost` host, the path
+/// percent-decoded. Anything else names no local directory and is dropped, so it admits nothing.
+fn file_url_path(uri: &str) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let rest = uri.strip_prefix("file://")?;
+    let path = match rest.find('/') {
+        Some(0) => rest,
+        Some(i) if rest[..i].eq_ignore_ascii_case("localhost") => &rest[i..],
+        _ => return None,
+    };
+    let mut bytes = Vec::with_capacity(path.len());
+    let mut raw = path.bytes();
+    while let Some(b) = raw.next() {
+        if b == b'%' {
+            let hex = [raw.next()?, raw.next()?];
+            bytes.push(u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?);
+        } else {
+            bytes.push(b);
+        }
+    }
+    Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+}
+
 /// Every image path of `job` inside the client's roots (when the client offers roots) and inside
-/// the config's `[serve] roots` (when it names any): an image elsewhere is `input`.
+/// the config's `[serve] roots` (when it names any): an image elsewhere is `input`. With neither,
+/// no path is allowed (closed by default, table-manners 10.1); inline images need no roots. Each path is
+/// replaced by the real one it was checked as, so a symlink swapped afterwards cannot lead out. A
+/// path that does not resolve is refused in the words of one outside, so a refusal says nothing
+/// about what exists.
 fn inside_roots(
-    job: &squint_core::job::Job,
+    job: &mut squint_core::job::Job,
     client: Option<&[PathBuf]>,
     config: &[PathBuf],
 ) -> squint_core::Result<()> {
@@ -481,29 +544,53 @@ fn inside_roots(
             .iter()
             .any(|root| root.canonicalize().is_ok_and(|r| path.starts_with(r)))
     };
-    for image in &job.images {
-        let squint_core::job::ImageSource::Path { path, .. } = &image.source else {
+    for image in &mut job.images {
+        let squint_core::job::ImageSource::Path { path, .. } = &mut image.source else {
             continue;
         };
-        let real = path.canonicalize().map_err(|e| {
-            squint_core::Error::Input(format!("{}: {}: {e}", image.id, path.display()))
-        })?;
-        if client.is_some_and(|roots| !within(&real, roots)) {
+        let refused = |which: &str| {
+            squint_core::Error::Input(format!(
+                "{}: {} is not a readable file inside {which}",
+                image.id,
+                path.display()
+            ))
+        };
+        if client.is_none() && config.is_empty() {
             return Err(squint_core::Error::Input(format!(
-                "{}: {} is outside the client's roots",
+                "{}: {} is refused: neither the client nor [serve] roots names a directory squint \
+                 may read; send the image inline or configure roots",
                 image.id,
                 path.display()
             )));
         }
-        if !config.is_empty() && !within(&real, config) {
-            return Err(squint_core::Error::Input(format!(
-                "{}: {} is outside [serve] roots",
-                image.id,
-                path.display()
-            )));
+        let real = path.canonicalize();
+        if client.is_some_and(|roots| !real.as_ref().is_ok_and(|r| within(r, roots))) {
+            return Err(refused("the client's roots"));
+        }
+        if !config.is_empty() && !real.as_ref().is_ok_and(|r| within(r, config)) {
+            return Err(refused("[serve] roots"));
+        }
+        match real {
+            Ok(real) => *path = real,
+            Err(e) => {
+                return Err(squint_core::Error::Input(format!(
+                    "{}: {}: {e}",
+                    image.id,
+                    path.display()
+                )));
+            }
         }
     }
     Ok(())
+}
+
+/// A decision's `run.json` as the call's result.
+fn decision_result(dir: &Path) -> Result<CallToolResult, ErrorData> {
+    let text = std::fs::read_to_string(dir.join(contract::RUN_FILE))
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    let result: table_manners::RunResult =
+        serde_json::from_str(&text).map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+    Ok(tool_result(&result))
 }
 
 /// The contract's result as an MCP tool result: the header and body as structured content, a
@@ -661,7 +748,7 @@ impl ServerHandler for Server {
         // Roots are part of revision 2025-11-25, the only one squint serves; SEP-2577 deprecates
         // them in a later revision, which the contract must answer before squint moves (v0.2).
         #[allow(deprecated)]
-        let roots = if is_check
+        let roots = if (is_check || name == "estimate")
             && context
                 .peer
                 .peer_info()
@@ -676,20 +763,14 @@ impl ServerHandler for Server {
                 listed
                     .roots
                     .iter()
-                    .filter_map(|r| r.uri.strip_prefix("file://").map(PathBuf::from))
+                    .filter_map(|r| file_url_path(&r.uri))
                     .collect(),
             )
         } else {
             None
         };
-        let permit = self
-            .inner
-            .permits
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let cancel = Arc::new(squint_core::run::Cancel::new());
+        // Progress starts before any wait, so a call queued for the permit beats too.
         let (observer, progress) = match context.meta.get_progress_token().filter(|_| is_check) {
             Some(token) => {
                 let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -702,6 +783,32 @@ impl ServerHandler for Server {
             }
             None => (None, None),
         };
+        // Only a check takes the execution permit: `describe` and `estimate` spend nothing and
+        // stay responsive while a check runs (table-manners C4 review 9). The wait itself is
+        // cancellable, and a call cancelled before it holds the permit gets no run (review 10).
+        let permit = if is_check {
+            let acquired = tokio::select! {
+                acquired = self.inner.permits.clone().acquire_owned() => Some(acquired),
+                () = context.ct.cancelled() => None,
+            };
+            match acquired {
+                Some(Ok(permit)) if !context.ct.is_cancelled() => Some(permit),
+                Some(Err(e)) => return Err(ErrorData::internal_error(e.to_string(), None)),
+                _ => {
+                    drop(observer);
+                    if let Some(progress) = progress {
+                        let _ = progress.await;
+                    }
+                    // rmcp sends nothing for a cancelled request; this never reaches the client.
+                    return Err(ErrorData::internal_error(
+                        "cancelled before a run was allocated",
+                        None,
+                    ));
+                }
+            }
+        } else {
+            None
+        };
         let hooks = Hooks {
             cancel: cancel.clone(),
             observer,
@@ -710,7 +817,7 @@ impl ServerHandler for Server {
             let _permit = permit;
             match name.as_str() {
                 "describe" => server.describe(),
-                "estimate" => server.estimate(args),
+                "estimate" => server.estimate(args, roots),
                 action if is_check => server.check(action, args, roots, hooks),
                 other => Err(ErrorData::invalid_params(
                     format!("no tool {other:?}; call describe for the actions"),

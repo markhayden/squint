@@ -199,7 +199,113 @@ fn a_cancelled_decision_is_cancelled_with_its_spend_to_date() {
     let (_, r) = run("cancelled", "held.json", "pair.toml", &[], Some(&cancel));
     assert_eq!(r.status, Status::Cancelled);
     assert!(r.error.is_none());
-    assert!(r.spend.usd >= 0.0);
+    assert_eq!(r.spend.usd, 0.0, "cancelled before the first request");
+}
+
+/// A decision cancelled after it has spent keeps that spend in its `run.json` (table-manners
+/// 2.3): the first turn is paid for, the cancel lands during a 30 s retry wait, promptly.
+#[test]
+fn a_decision_cancelled_after_spending_keeps_its_spend() {
+    let cancel = run::Cancel::new();
+    let trigger = cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        trigger.cancel();
+    });
+    let started = std::time::Instant::now();
+    let (_, r) = run(
+        "cancelled-spent",
+        "spend-then-slow-retry.json",
+        "pair.toml",
+        &[],
+        Some(&cancel),
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    assert_eq!(r.status, Status::Cancelled, "{:?}", r.error);
+    assert!(r.spend.usd > 0.0, "{:?}", r.spend);
+}
+
+/// A decision whose cache cannot take it still succeeded (review I2): the store's failure is a
+/// note on a `completed` run, and the decision's verdict and spend stay in its own `run.json`.
+#[test]
+fn a_cache_that_cannot_store_is_a_note_not_a_lost_decision() {
+    use std::os::unix::fs::PermissionsExt;
+    let cache = tempdir("cache-readonly");
+    std::fs::create_dir_all(cache.join("decisions")).unwrap();
+    std::fs::set_permissions(
+        cache.join("decisions"),
+        std::fs::Permissions::from_mode(0o555),
+    )
+    .unwrap();
+    let dir_override = format!("cache.dir={:?}", cache.display().to_string());
+    let (o, r) = run(
+        "cache-note",
+        "held.json",
+        "pair.toml",
+        &[&dir_override],
+        None,
+    );
+    std::fs::set_permissions(
+        cache.join("decisions"),
+        std::fs::Permissions::from_mode(0o755),
+    )
+    .unwrap();
+    assert_eq!(o.exit_code, 0);
+    assert_eq!(r.status, Status::Completed);
+    assert!(r.notes.iter().any(|n| n.contains("cache")), "{:?}", r.notes);
+}
+
+/// An error after the decision directory exists still ends that directory with its own
+/// `run.json` (review I2), and the services are told the directory when it is made, so a server
+/// answers with that run rather than inventing another.
+#[test]
+fn a_decision_that_fails_after_allocation_keeps_its_own_run_json() {
+    let out = tempdir("late-error");
+    let not_a_dir = out.join("cache-is-a-file");
+    std::fs::write(&not_a_dir, "").unwrap();
+    let provider = ScriptedProvider::from_path(&root().join("fixtures/scripts/held.json")).unwrap();
+    let tools = tools();
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let told = std::sync::Arc::new(std::sync::Mutex::new(None::<PathBuf>));
+    let seen = told.clone();
+    let services = run::Services::new(&provider, &tools).with_allocated(std::sync::Arc::new(
+        move |dir: &Path| *seen.lock().unwrap() = Some(dir.to_path_buf()),
+    ));
+    let dir_override = format!("cache.dir={:?}", not_a_dir.display().to_string());
+    let err = block_on(run::check(
+        &config(&[&dir_override]),
+        &job,
+        &root(),
+        &services,
+        &out.join("decisions"),
+        "test",
+    ))
+    .unwrap_err();
+    let dir = told
+        .lock()
+        .unwrap()
+        .clone()
+        .expect("told of the decision directory");
+    let r = read(&dir);
+    assert_eq!(r.status, Status::Error, "{err}");
+    assert_eq!(r.error.unwrap().code, ErrorCode::Io);
+    assert_eq!(
+        std::fs::read_dir(out.join("decisions")).unwrap().count(),
+        1,
+        "one decision, one directory"
+    );
+}
+
+/// A reference comes in through the `references` slot, the one `describe` declares, with the
+/// role `reference` (review I3; table-manners 11.1).
+#[test]
+fn a_reference_is_taken_in_through_the_references_slot() {
+    let (_, r) = run("references", "held.json", "pip.toml", &[], None);
+    let taken = &r.images.as_ref().unwrap().taken;
+    let reference = taken.iter().find(|i| i.role == "reference").unwrap();
+    assert_eq!(reference.slot, "references");
+    let candidate = taken.iter().find(|i| i.role == "candidate").unwrap();
+    assert_eq!(candidate.slot, "candidate");
 }
 
 /// `run.json` is written to a temporary name and renamed, so a reader never sees half of one and

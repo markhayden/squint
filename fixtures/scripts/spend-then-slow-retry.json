@@ -1,0 +1,78 @@
+[
+  {
+    "tool_calls": [
+      {
+        "id": "call_1",
+        "name": "submit_verdict",
+        "arguments": {
+          "schema_version": 1,
+          "items": [
+            {
+              "id": "chk:ob:SF1@candidate",
+              "disposition": "held",
+              "confidence": "confident",
+              "reason": "Nothing protected changed.",
+              "allowed_by": null,
+              "location": null,
+              "evidence": []
+            }
+          ],
+          "findings": [],
+          "opinion": {
+            "verdict": "pass",
+            "reason": "recorded only"
+          }
+        }
+      }
+    ],
+    "stop_reason": "tool_use",
+    "usage": {
+      "input_tokens": 1000,
+      "output_tokens": 200
+    }
+  },
+  {
+    "error": {
+      "status": 503,
+      "retry_after_s": 30,
+      "message": "scripted outage"
+    }
+  },
+  {
+    "tool_calls": [
+      {
+        "id": "call_1",
+        "name": "submit_verdict",
+        "arguments": {
+          "schema_version": 1,
+          "items": [
+            {
+              "id": "chk:ob:SF1@candidate",
+              "disposition": "held",
+              "confidence": "confident",
+              "reason": "No protected feature named by the job changed.",
+              "allowed_by": null,
+              "location": null,
+              "evidence": []
+            },
+            {
+              "id": "chk:ob:SF2@candidate",
+              "disposition": "held",
+              "confidence": "confident",
+              "reason": "Same scene, same camera, same projection.",
+              "allowed_by": null,
+              "location": null,
+              "evidence": []
+            }
+          ],
+          "findings": [],
+          "opinion": {
+            "verdict": "pass",
+            "reason": "recorded only"
+          }
+        }
+      }
+    ],
+    "stop_reason": "tool_use"
+  }
+]

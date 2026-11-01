@@ -106,11 +106,11 @@ fn a_check_by_path_and_by_inline_bytes_reaches_the_same_verdict() {
         .unwrap()
         .structured
         .unwrap();
+    // The same bytes are the same inputs, whichever way they came.
     assert_eq!(by_inline["body"]["verdict"], r["body"]["verdict"]);
-    assert_eq!(
-        by_inline["images"]["in"][0]["image"]["file_sha256"],
-        r["images"]["in"][0]["image"]["file_sha256"]
-    );
+    assert_eq!(by_inline["images"]["in"], r["images"]["in"]);
+    assert_eq!(by_inline["locations"], r["locations"]);
+    assert_eq!(by_inline["input_identity"], r["input_identity"]);
 }
 
 #[test]
@@ -131,6 +131,172 @@ fn a_path_outside_the_clients_roots_is_invalid_input_and_spends_nothing() {
     assert_eq!(r["status"], "invalid");
     assert_eq!(r["error"]["code"], "input");
     assert_eq!(r["spend"]["usd"], 0.0);
+}
+
+/// `estimate` reads its images too, so it answers to the same roots as a check (review C1): a
+/// path outside them is refused before it is opened, and a missing path is refused in the same
+/// words, so nothing about the file (its digest, size or existence) comes back.
+#[test]
+fn estimate_refuses_a_path_outside_the_roots_without_reading_it() {
+    // A catalog model, so an estimate that ignored the roots would go on to read the image.
+    let mut c = client(&out("estimate-roots"), &["provider.model=claude-haiku-5-5"]);
+    c.roots = vec![format!(
+        "file://{}",
+        repo_root().join("fixtures/jobs").display()
+    )];
+    let expect = json!({ "file_sha256": "0".repeat(64), "width": 64, "height": 48,
+                         "projection": "flat", "topology": "bounded" });
+    let outside = repo_root().join("fixtures/images/candidate-64x48.png");
+    let missing = repo_root().join("fixtures/images/no-such-image.png");
+    let mut reasons = Vec::new();
+    for path in [&outside, &missing] {
+        let r = c
+            .call(
+                "estimate",
+                json!({ "use_case": "source-fidelity",
+                        "candidate": { "path": path, "expect": expect },
+                        "source": image("source-64x48.png") }),
+            )
+            .unwrap();
+        assert!(r.is_error, "{path:?}");
+        let r = r.structured.unwrap();
+        assert_eq!(r["status"], "invalid", "{r}");
+        assert_eq!(r["error"]["code"], "input", "{r}");
+        let reason = r["error"]["reason"].as_str().unwrap().to_string();
+        assert!(!reason.contains("file_sha256"), "{reason}");
+        reasons.push(reason.replace(&path.display().to_string(), "<path>"));
+    }
+    assert_eq!(
+        reasons[0], reasons[1],
+        "a missing file must read like one outside"
+    );
+}
+
+/// A decision that fails after its directory exists is answered with that decision's own run
+/// (review I2): one run in `squint://runs`, ended, never a second empty one beside it.
+#[test]
+fn a_late_failure_is_answered_with_the_decisions_own_run() {
+    let dir = out("late");
+    std::fs::create_dir_all(&dir).unwrap();
+    let not_a_dir = dir.join("cache-is-a-file");
+    std::fs::write(&not_a_dir, "").unwrap();
+    let cache = format!("cache.dir={:?}", not_a_dir.display().to_string());
+    let mut c = client(&dir.join("runs"), &[&cache]);
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+        )
+        .unwrap();
+    assert!(r.is_error);
+    let r = r.structured.unwrap();
+    assert_eq!(r["status"], "error", "{r}");
+    assert_eq!(r["error"]["code"], "io", "{r}");
+    let runs: serde_json::Value =
+        serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+    let runs = runs["runs"].as_array().unwrap();
+    assert_eq!(runs.len(), 1, "{runs:?}");
+    assert_eq!(runs[0]["id"], r["run"]["id"]);
+    assert_eq!(runs[0]["status"], "error");
+}
+
+/// A config that names its rules serves only that use case, and its relative rules files resolve
+/// against the working directory as `squint check` resolves them (review I6).
+#[test]
+fn a_config_with_rules_serves_its_use_case_with_its_files() {
+    let dir = out("rules");
+    std::fs::create_dir_all(&dir).unwrap();
+    let minimal =
+        std::fs::read_to_string(repo_root().join("fixtures/config/minimal.toml")).unwrap();
+    let config = dir.join("config.toml");
+    std::fs::write(
+        &config,
+        format!("{minimal}\n[rules]\nbase = \"source-fidelity\"\nextra = [\"fixtures/rules/mine.toml\"]\n"),
+    )
+    .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_squint"));
+    command
+        .current_dir(repo_root())
+        .args(["serve", "--config"])
+        .arg(&config)
+        .args(["--provider-script", "fixtures/scripts/held.json", "--out"])
+        .arg(dir.join("runs"));
+    let mut c = Client::start(&mut command).unwrap();
+    c.roots = vec![format!(
+        "file://{}",
+        repo_root().join("fixtures/images").display()
+    )];
+    let names: Vec<String> = c
+        .list_tools()
+        .unwrap()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+    assert_eq!(names, ["describe", "source_fidelity", "estimate"]);
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+        )
+        .unwrap();
+    let r = r.structured.unwrap();
+    assert_eq!(r["status"], "completed", "{r}");
+}
+
+/// Roots are `file:` URLs (RFC 8089): a percent-encoded space and a `localhost` host name the
+/// same directory as the plain path (review I5).
+#[test]
+fn roots_are_read_as_file_urls() {
+    let dir = out("root-urls");
+    let images = dir.join("my images");
+    std::fs::create_dir_all(&images).unwrap();
+    for name in ["candidate-64x48.png", "source-64x48.png"] {
+        std::fs::copy(
+            repo_root().join("fixtures/images").join(name),
+            images.join(name),
+        )
+        .unwrap();
+    }
+    let encoded = images.display().to_string().replace(' ', "%20");
+    for root in [
+        format!("file://{encoded}"),
+        format!("file://localhost{encoded}"),
+    ] {
+        let mut c = client(&dir.join("runs"), &[]);
+        c.roots = vec![root.clone()];
+        let r = c
+            .call(
+                "source_fidelity",
+                json!({ "candidate": { "path": images.join("candidate-64x48.png") },
+                        "source": { "path": images.join("source-64x48.png") } }),
+            )
+            .unwrap();
+        let r = r.structured.unwrap();
+        assert_eq!(r["status"], "completed", "{root}: {r}");
+    }
+}
+
+/// With no roots from the client and none in `[serve] roots`, a path names nothing squint may read
+/// (table-manners 10.1): closed by default. Inline images still work.
+#[test]
+fn with_no_roots_anywhere_a_path_is_refused() {
+    let mut c = Client::start_without_roots(&mut server(&out("no-roots"), &[])).unwrap();
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+        )
+        .unwrap();
+    let r = r.structured.unwrap();
+    assert_eq!(r["status"], "invalid", "{r}");
+    assert_eq!(r["error"]["code"], "input", "{r}");
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": inline("candidate-64x48.png"), "source": inline("source-64x48.png") }),
+        )
+        .unwrap();
+    assert_eq!(r.structured.unwrap()["status"], "completed");
 }
 
 #[test]

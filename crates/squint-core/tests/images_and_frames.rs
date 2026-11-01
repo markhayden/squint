@@ -68,8 +68,9 @@ fn oversized_pixel_count_is_refused_before_decode() {
     )
     .unwrap_err();
     match err {
-        Error::Image(m) => assert!(m.contains("60000000") && m.contains("50000000"), "{m}"),
-        other => panic!("expected an image error, got {other}"),
+        // Over a limit is the caller's input (table-manners 2.2), not a usage error.
+        Error::ImageLimit(m) => assert!(m.contains("60000000") && m.contains("50000000"), "{m}"),
+        other => panic!("expected an image limit error, got {other}"),
     }
 }
 
@@ -85,7 +86,39 @@ fn oversized_byte_count_is_refused_before_decode() {
         &tiny,
     )
     .unwrap_err();
-    assert!(matches!(err, Error::Image(m) if m.contains("bytes")));
+    assert!(matches!(err, Error::ImageLimit(m) if m.contains("bytes")));
+}
+
+/// Only a regular file is read, and never past the byte bound (review I1): a FIFO or a device is
+/// refused without being opened, so a path from an MCP call cannot hang or exhaust the server.
+#[test]
+fn only_a_regular_file_is_read() {
+    let dir = std::env::temp_dir().join(format!("squint-fifo-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let fifo = dir.join("image.png");
+    let made = std::process::Command::new("mkfifo")
+        .arg(&fifo)
+        .status()
+        .unwrap();
+    assert!(made.success());
+    for path in [fifo.clone(), dir.clone(), PathBuf::from("/dev/zero")] {
+        let spec = spec("c", path.to_str().unwrap());
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(image::load(&spec, &root(), &bounds()).map(|_| ()));
+        });
+        let result = rx
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .unwrap_or_else(|_| panic!("{} was opened and blocked", path.display()));
+        let err = result.unwrap_err();
+        assert!(
+            matches!(&err, Error::Image(m) if m.contains("not a regular file")),
+            "{}: {err}",
+            path.display()
+        );
+    }
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

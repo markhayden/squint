@@ -120,7 +120,21 @@ fn a_waiting_call_beats_and_a_cancel_leaves_a_cancelled_run_and_no_result() {
         }
         assert!(started.elapsed() < Duration::from_secs(20), "no heartbeat");
     }
+    // The next beat comes within the declared interval (table-manners 4.1: 10 s).
+    let beat = Instant::now();
+    c.next_notification().unwrap();
+    assert!(
+        beat.elapsed() <= Duration::from_secs(10),
+        "a {:?} gap between heartbeats",
+        beat.elapsed()
+    );
     increasing(&progress(&c, "tok-2"));
+    // While it waits, the run is listed as running under its action, as `describe` names it.
+    let runs: serde_json::Value =
+        serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+    let running = &runs["runs"][0];
+    assert_eq!(running["status"], "running", "{runs}");
+    assert_eq!(running["action"], "source_fidelity", "{runs}");
     c.cancel(id).unwrap();
     let mut cancelled = None;
     for _ in 0..100 {
@@ -215,4 +229,47 @@ fn a_repeated_call_is_answered_from_the_cache_and_costs_nothing() {
     assert_eq!(again["cache"], "hit");
     assert_eq!(again["spend"]["usd"], 0.0);
     assert_eq!(again["body"]["verdict"], first["body"]["verdict"]);
+}
+
+/// While a check holds the only permit (table-manners C4 review 9, 10; M7 review I4): `describe`
+/// answers at once, a second check waiting for the permit beats within the interval, and
+/// cancelling it while it waits leaves no run.
+#[test]
+fn a_queued_call_beats_and_cancels_without_a_run_while_describe_answers() {
+    let mut c = client(&out("queued"), "slow-retry.json", &[]);
+    let first = c.start_call("source_fidelity", pair(), "tok-a").unwrap();
+    // The first check is running once it reports progress.
+    loop {
+        let n = c.next_notification().unwrap();
+        if n["params"]["progressToken"] == "tok-a" {
+            break;
+        }
+    }
+    let asked = Instant::now();
+    c.call("describe", json!({})).unwrap();
+    assert!(
+        asked.elapsed() < Duration::from_secs(3),
+        "describe waited {:?} behind a running check",
+        asked.elapsed()
+    );
+
+    let queued = c.start_call("source_fidelity", pair(), "tok-b").unwrap();
+    let waiting = Instant::now();
+    loop {
+        let n = c.next_notification().unwrap();
+        if n["params"]["progressToken"] == "tok-b" {
+            break;
+        }
+        assert!(
+            waiting.elapsed() <= Duration::from_secs(10),
+            "a queued call went silent"
+        );
+    }
+    c.cancel(queued).unwrap();
+    // The cancel lands while it waits: it never gets a run, and the first check is the only one.
+    std::thread::sleep(Duration::from_millis(500));
+    let runs: serde_json::Value =
+        serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+    assert_eq!(runs["runs"].as_array().unwrap().len(), 1, "{runs}");
+    c.cancel(first).unwrap();
 }

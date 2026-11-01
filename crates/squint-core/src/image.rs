@@ -4,7 +4,7 @@
 //! management, so "sRGB" here means 8-bit RGB as decoded); the original bytes and the canonical
 //! pixels are both hashed; projection comes from the spec, else GPano metadata, else `flat`.
 
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::path::Path;
 use std::sync::Arc;
 
@@ -159,9 +159,9 @@ pub fn canonical_png(id: &str, pixels: &DynamicImage) -> Result<Prepared> {
 
 /// Loads one image spec, resolving a relative path against `base`.
 pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<CanonicalImage> {
-    let bytes = read_bytes(spec, base)?;
+    let bytes = read_bytes(spec, base, bounds.max_bytes)?;
     if bytes.len() as u64 > bounds.max_bytes {
-        return Err(Error::Image(format!(
+        return Err(Error::ImageLimit(format!(
             "{}: {} bytes exceeds the decode bound of {} bytes",
             spec.id,
             bytes.len(),
@@ -185,7 +185,7 @@ pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<Cano
     }
     let pixels = u64::from(w) * u64::from(h);
     if pixels > bounds.max_pixels {
-        return Err(Error::Image(format!(
+        return Err(Error::ImageLimit(format!(
             "{}: {w}x{h} = {pixels} pixels exceeds the decode bound of {} pixels",
             spec.id, bounds.max_pixels
         )));
@@ -250,7 +250,10 @@ pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<Cano
     })
 }
 
-fn read_bytes(spec: &ImageSpec, base: &Path) -> Result<Vec<u8>> {
+/// The image's bytes: a path is read only when it is a regular file, and never past `max_bytes`
+/// (one byte more, so the caller sees it is over), so a FIFO, a device or a huge file cannot hang
+/// or exhaust the process; inline data longer than the bound could decode to is refused undecoded.
+fn read_bytes(spec: &ImageSpec, base: &Path, max_bytes: u64) -> Result<Vec<u8>> {
     let bytes = match &spec.source {
         ImageSource::Path { path, sha256 } => {
             let full = if path.is_absolute() {
@@ -258,9 +261,29 @@ fn read_bytes(spec: &ImageSpec, base: &Path) -> Result<Vec<u8>> {
             } else {
                 base.join(path)
             };
-            let bytes = std::fs::read(&full).map_err(|e| {
+            let cannot = |e: std::io::Error| {
                 Error::Image(format!("{}: cannot read {}: {e}", spec.id, full.display()))
-            })?;
+            };
+            // Checked before opening: opening a FIFO blocks until a writer appears.
+            let meta = std::fs::metadata(&full).map_err(cannot)?;
+            if !meta.is_file() {
+                return Err(Error::Image(format!(
+                    "{}: {} is not a regular file",
+                    spec.id,
+                    full.display()
+                )));
+            }
+            if meta.len() > max_bytes {
+                return Err(Error::ImageLimit(format!(
+                    "{}: {} bytes exceeds the decode bound of {max_bytes} bytes",
+                    spec.id,
+                    meta.len()
+                )));
+            }
+            let mut bytes = Vec::new();
+            std::fs::File::open(&full)
+                .and_then(|f| f.take(max_bytes + 1).read_to_end(&mut bytes))
+                .map_err(cannot)?;
             if let Some(pinned) = sha256 {
                 let actual = sha256_hex(&bytes);
                 if !actual.eq_ignore_ascii_case(pinned) {
@@ -273,8 +296,17 @@ fn read_bytes(spec: &ImageSpec, base: &Path) -> Result<Vec<u8>> {
             }
             bytes
         }
-        ImageSource::Base64 { base64, .. } => base64_decode(base64)
-            .map_err(|e| Error::Image(format!("{}: invalid base64: {e}", spec.id)))?,
+        ImageSource::Base64 { base64, .. } => {
+            let decoded_at_least = (base64.trim().len() as u64 / 4) * 3;
+            if decoded_at_least.saturating_sub(2) > max_bytes {
+                return Err(Error::ImageLimit(format!(
+                    "{}: about {decoded_at_least} bytes exceeds the decode bound of {max_bytes} bytes",
+                    spec.id
+                )));
+            }
+            base64_decode(base64)
+                .map_err(|e| Error::Image(format!("{}: invalid base64: {e}", spec.id)))?
+        }
     };
     if let Some(expect) = &spec.expect {
         let actual = sha256_hex(&bytes);

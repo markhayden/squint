@@ -67,7 +67,13 @@ pub struct Services<'a> {
     pub fail_journal_at: Option<u64>,
     /// Told of every journal line every run writes (a server's progress).
     pub observer: Option<Observer>,
+    /// Told of the decision directory as soon as it exists, before anything is spent: the run a
+    /// server answers with, whatever happens after.
+    pub allocated: Option<Allocated>,
 }
+
+/// See [`Services::allocated`].
+pub type Allocated = std::sync::Arc<dyn Fn(&Path) + Send + Sync>;
 
 impl<'a> Services<'a> {
     pub fn new(provider: &'a dyn Provider, tools: &'a ToolRegistry) -> Services<'a> {
@@ -79,7 +85,13 @@ impl<'a> Services<'a> {
             evaluation: false,
             fail_journal_at: None,
             observer: None,
+            allocated: None,
         }
+    }
+
+    pub fn with_allocated(mut self, allocated: Allocated) -> Services<'a> {
+        self.allocated = Some(allocated);
+        self
     }
 
     pub fn with_observer(mut self, observer: Observer) -> Services<'a> {
@@ -149,14 +161,76 @@ pub async fn check(
     out_dir: &Path,
     harness_version: &str,
 ) -> Result<Outcome> {
-    let provider = services.provider;
-    let tools = services.tools;
-    let shared = services.shared_ledger;
     if !(1..=2).contains(&config.budget.decision_runs) {
         return Err(Error::Config("decision_runs must be 1 or 2".into()));
     }
     let started_ms = crate::contract::now_ms();
     let dir = new_decision_dir(out_dir)?;
+    if let Some(allocated) = &services.allocated {
+        allocated(&dir);
+    }
+    match decide(
+        config,
+        job,
+        job_base,
+        services,
+        &dir,
+        started_ms,
+        harness_version,
+    )
+    .await
+    {
+        Ok(outcome) => Ok(outcome),
+        Err(e) => {
+            // Whatever failed, the decision's directory ends with its own result (table-manners
+            // 4.3, 7.3): rebuilt from the journals when there are any, else the header alone.
+            if !dir.join(crate::contract::RUN_FILE).exists() {
+                let result = match Report::rebuild(&dir) {
+                    Ok(report) => {
+                        let mut result = crate::contract::run_result(&report, &dir, started_ms);
+                        let (status, code) = crate::contract::status_of(e.class());
+                        if let Some((code, retryable)) = code {
+                            result.status = status;
+                            result.error = Some(table_manners::ErrorInfo {
+                                code,
+                                retryable,
+                                reason: e.to_string(),
+                            });
+                        }
+                        result
+                    }
+                    Err(_) => crate::contract::action_result(
+                        &dir,
+                        harness_version,
+                        &job.use_case.replace('-', "_"),
+                        started_ms,
+                        &serde_json::to_value(job.summary()).unwrap_or_default(),
+                        Some(&e),
+                        serde_json::Map::new(),
+                    ),
+                };
+                let _ = crate::contract::write_run_result(&dir, &result);
+            }
+            Err(e)
+        }
+    }
+}
+
+/// The body of [`check`] once the decision directory exists: every error it returns leaves the
+/// directory for `check` to close with a result.
+async fn decide(
+    config: &Config,
+    job: &Job,
+    job_base: &Path,
+    services: &Services<'_>,
+    dir: &Path,
+    started_ms: u64,
+    harness_version: &str,
+) -> Result<Outcome> {
+    let provider = services.provider;
+    let tools = services.tools;
+    let shared = services.shared_ledger;
+    let dir = dir.to_path_buf();
     let setup = setup(config, job, job_base, tools);
 
     // The cache, once per decision: a hit returns the whole cached decision before any request.
@@ -269,40 +343,27 @@ pub async fn check(
             s.settle(closing.envelope_usd, closing.spent_usd);
         }
     }
-    if let Err(e) = runs_result {
-        // The run could not finish its own record; the directory still ends with a result that
-        // says so, as far as the journals let the report be rebuilt.
-        if let Ok(report) = Report::rebuild(&dir) {
-            let mut result = crate::contract::run_result(&report, &dir, started_ms);
-            let (status, code) = crate::contract::status_of(e.class());
-            if let Some((code, retryable)) = code {
-                result.status = status;
-                result.error = Some(table_manners::ErrorInfo {
-                    code,
-                    retryable,
-                    reason: e.to_string(),
-                });
-            }
-            let _ = crate::contract::write_run_result(&dir, &result);
-        }
-        return Err(e);
-    }
+    // A run that could not finish its own record: `check` closes the directory with a result
+    // that says so, as far as the journals let the report be rebuilt.
+    runs_result?;
 
     let report = Report::rebuild(&dir)?;
     report.write(&dir)?;
-    // Written once, after every run, only when none errored.
+    let mut result = crate::contract::run_result(&report, &dir, started_ms);
+    // Written once, after every run, only when none errored. The decision stands without it, so
+    // a cache that cannot take it is a note, not an error.
     if let (Some(cache), Some(key)) = (&cache, &cache_status.key)
         && config.cache.write
         && report.verdict.is_some()
         && report.runs.iter().all(|r| r.error.is_none())
+        && let Err(e) = cache.store(key, &dir)
     {
-        cache.store(key, &dir)?;
+        result
+            .notes
+            .push(format!("the decision was not cached: {e}"));
     }
     // Last: the contract's result, once everything else in the directory is written.
-    crate::contract::write_run_result(
-        &dir,
-        &crate::contract::run_result(&report, &dir, started_ms),
-    )?;
+    crate::contract::write_run_result(&dir, &result)?;
     Ok(outcome(dir, report))
 }
 

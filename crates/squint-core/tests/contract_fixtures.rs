@@ -96,12 +96,14 @@ fn fix(result: &mut Value, case: &str) {
 
 fn description() -> Value {
     let text = std::fs::read_to_string(root().join("examples/source-fidelity.toml")).unwrap();
-    let config = Config::parse(&text, &[], &|_| Some("org-fixture".into())).unwrap();
-    serde_json::to_value(squint_core::contract::description(
-        &config,
-        "0.0.0",
-        &["ANTHROPIC_API_KEY".to_string()],
-    ))
+    let mut config = Config::parse(&text, &[], &|_| Some("org-fixture".into())).unwrap();
+    // The server a host runs for every use case: a config without `[rules]` (one that names
+    // them describes only its own use case).
+    config.rules = None;
+    serde_json::to_value(
+        squint_core::contract::description(&config, "0.0.0", &["ANTHROPIC_API_KEY".to_string()])
+            .unwrap(),
+    )
     .unwrap()
 }
 
