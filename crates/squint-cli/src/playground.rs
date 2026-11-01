@@ -1,5 +1,5 @@
-//! `squint playground`: hands off to Wafflehouse, the shared local program, by the launcher
-//! agreement (wafflehouse H1). squint finds the program, runs `wafflehouse --tool squint` and keeps
+//! `squint playground`: hands off to Wafflery, the shared local program, by the launcher
+//! agreement (wafflery H1). squint finds the program, runs `wafflery --tool squint` and keeps
 //! its exit code; the launcher owns everything after that (the host, its locks, the browser).
 
 use std::io::{BufRead, IsTerminal, Write};
@@ -8,9 +8,9 @@ use std::os::unix::process::ExitStatusExt;
 use std::path::{Path, PathBuf};
 
 /// The program's name on `PATH` and in `~/.local/bin`.
-const PROGRAM: &str = "wafflehouse";
+const PROGRAM: &str = "wafflery";
 /// The variable naming the program explicitly: an absolute path, never a fall-through.
-const OVERRIDE: &str = "WAFFLEHOUSE_BIN";
+const OVERRIDE: &str = "WAFFLERY_BIN";
 /// The program, its release or a terminal to ask on is unavailable (H1).
 const EXIT_UNAVAILABLE: i32 = 69;
 /// Installation or local I/O failed (H1).
@@ -50,8 +50,8 @@ pub fn run(args: &PlaygroundArgs) -> i32 {
     launch(&program)
 }
 
-/// The program: `WAFFLEHOUSE_BIN` when set, else the first `wafflehouse` on `PATH`, else
-/// `~/.local/bin/wafflehouse`. An unusable override is an error, never a reason to look further.
+/// The program: `WAFFLERY_BIN` when set, else the first `wafflery` on `PATH`, else
+/// `~/.local/bin/wafflery`. An unusable override is an error, never a reason to look further.
 fn find(home: Option<&Path>) -> Result<Option<PathBuf>, String> {
     if let Some(explicit) = std::env::var_os(OVERRIDE).filter(|v| !v.is_empty()) {
         let path = PathBuf::from(&explicit);
@@ -89,19 +89,19 @@ fn local_bin(home: &Path) -> PathBuf {
 /// No program: explain, then offer to install on a terminal when an installer exists.
 fn missing(home: Option<&Path>, terminal: bool, installer: Option<&Path>) -> i32 {
     eprintln!(
-        "squint: Wafflehouse is not installed. It is a separate shared local program, the \
+        "squint: Wafflery is not installed. It is a separate shared local program, the \
          workspace squint opens with `{PROGRAM} --tool squint`.\n\
          Install `{PROGRAM}` on your PATH or in ~/.local/bin, or set {OVERRIDE} to its absolute \
          path, then run `squint playground` again."
     );
     let (Some(installer), Some(home), true) = (installer, home, terminal) else {
         if terminal {
-            eprintln!("squint: an installer for Wafflehouse is not available yet.");
+            eprintln!("squint: an installer for Wafflery is not available yet.");
         }
         return EXIT_UNAVAILABLE;
     };
     let destination = local_bin(home);
-    eprint!("Install Wafflehouse into {}? [y/N] ", destination.display());
+    eprint!("Install Wafflery into {}? [y/N] ", destination.display());
     let _ = std::io::stderr().flush();
     let mut answer = String::new();
     let _ = std::io::stdin().lock().read_line(&mut answer);

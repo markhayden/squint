@@ -55,7 +55,7 @@ enum Command {
     Estimate(JobArgs),
     /// Serve the contract's actions over MCP on stdio (protocol 2025-11-25).
     Serve(serve::ServeArgs),
-    /// Open Wafflehouse, the shared local workspace, on squint (`wafflehouse --tool squint`).
+    /// Open Wafflery, the shared local workspace, on squint (`wafflery --tool squint`).
     Playground(playground::PlaygroundArgs),
 }
 
