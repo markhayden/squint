@@ -8,28 +8,53 @@ use std::path::PathBuf;
 use squint_core::aggregate::Confidence;
 use squint_core::config::Config;
 use squint_core::contract;
+use squint_core::readiness::{self, Answers, Credential, Inspection};
 use squint_core::submission::FindingDisposition;
 use table_manners::{
-    Description, Profile, ReadinessState, RenderKind, RequirementKind, RequirementState,
+    Description, Profile, ReadinessState, RenderKind, Requirement, RequirementKind,
+    RequirementState,
 };
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-fn described() -> (Description, serde_json::Value) {
-    described_with(&contract::Executor::Paid {
-        credential: Some(contract::CredentialEnv {
+/// A paid provider whose profile reads `GEMINI_API_KEY`, set, and calls `gemini-3.8-flash`.
+fn inspection(present: bool) -> Inspection {
+    Inspection {
+        config: present_config(),
+        credential: Some(Credential {
             name: "GEMINI_API_KEY".to_string(),
-            present: true,
+            present,
         }),
-    })
+        model: Some("gemini-3.8-flash".to_string()),
+        files: Vec::new(),
+    }
 }
 
-fn described_with(executor: &contract::Executor) -> (Description, serde_json::Value) {
+fn present_config() -> Requirement {
+    Requirement {
+        kind: RequirementKind::Config,
+        name: "squint.toml".into(),
+        state: RequirementState::Present,
+        setup: None,
+    }
+}
+
+fn described() -> (Description, serde_json::Value) {
+    described_with(
+        contract::Executor::Paid,
+        &inspection(true).readiness(&Answers::default()),
+    )
+}
+
+fn described_with(
+    executor: contract::Executor,
+    readiness: &table_manners::Readiness,
+) -> (Description, serde_json::Value) {
     let text = std::fs::read_to_string(root().join("fixtures/config/minimal.toml")).unwrap();
     let config = Config::parse(&text, &[], &|_| None).unwrap();
-    let d = contract::description(Some(&config), "0.9.0", executor).unwrap();
+    let d = contract::description(Some(&config), "0.9.0", executor, readiness).unwrap();
     let doc = serde_json::to_value(&d).unwrap();
     valid(&doc);
     (d, doc)
@@ -176,39 +201,22 @@ fn a_paid_action_without_a_positive_max_spend_does_not_validate() {
     assert!(schema.is_valid(&doc));
 }
 
-/// Readiness from what the executor knows (table-manners 3.1): a paid provider's credential by
-/// name, `present` or `missing`, never its value; the scripted fake needs nothing.
+/// Every action carries the readiness it is given (table-manners 3.1), and a check on the
+/// scripted fake declares no spend.
 #[test]
-fn each_action_is_ready_or_names_the_credential_it_lacks() {
-    let paid = |present| {
-        described_with(&contract::Executor::Paid {
-            credential: Some(contract::CredentialEnv {
-                name: "GEMINI_API_KEY".to_string(),
-                present,
-            }),
-        })
-        .0
-    };
-    for (present, state, requirement) in [
-        (true, ReadinessState::Ready, RequirementState::Present),
-        (false, ReadinessState::NeedsSetup, RequirementState::Missing),
-    ] {
-        for action in paid(present).actions {
-            assert_eq!(action.readiness.state, state, "{}", action.name);
-            let [r] = action.readiness.requirements.as_slice() else {
-                panic!("{}: one requirement", action.name);
-            };
-            assert_eq!(
-                (r.kind, r.name.as_str(), r.state),
-                (RequirementKind::Credential, "GEMINI_API_KEY", requirement)
-            );
-            assert!(r.setup.as_deref().unwrap().contains("GEMINI_API_KEY"));
+fn each_action_carries_the_readiness_and_the_cost() {
+    for present in [true, false] {
+        let readiness = inspection(present).readiness(&Answers::default());
+        let (d, _) = described_with(contract::Executor::Paid, &readiness);
+        for action in d.actions {
+            assert_eq!(action.readiness, readiness, "{}", action.name);
+            assert!(action.cost.may_spend);
         }
     }
-    let (free, _) = described_with(&contract::Executor::Free);
+    let ready = Inspection::config_only(present_config()).readiness(&Answers::default());
+    let (free, _) = described_with(contract::Executor::Free, &ready);
     for action in free.actions {
         assert_eq!(action.readiness.state, ReadinessState::Ready);
-        assert!(action.readiness.requirements.is_empty());
         assert!(!action.cost.may_spend);
     }
 }
@@ -274,7 +282,8 @@ fn a_config_with_rules_describes_only_its_use_case() {
     let d = contract::description(
         Some(&with_rules(mine.to_str().unwrap())),
         "0.9.0",
-        &contract::Executor::Free,
+        contract::Executor::Free,
+        &Inspection::config_only(present_config()).readiness(&Answers::default()),
     )
     .unwrap();
     valid(&serde_json::to_value(&d).unwrap());
@@ -285,7 +294,8 @@ fn a_config_with_rules_describes_only_its_use_case() {
         contract::description(
             Some(&with_rules(missing.to_str().unwrap())),
             "0.9.0",
-            &contract::Executor::Free
+            contract::Executor::Free,
+            &Inspection::config_only(present_config()).readiness(&Answers::default())
         )
         .is_err()
     );
@@ -321,7 +331,7 @@ fn an_unconfigured_description_needs_only_the_configuration() {
         std::process::id()
     ));
     let file = Config::open_with(Some(&path), &[], &|_| None);
-    let config = contract::config_requirement(&file).unwrap();
+    let config = readiness::config_requirement(&file);
     assert_eq!(
         (config.kind, config.state, config.name.as_str()),
         (
@@ -334,9 +344,8 @@ fn an_unconfigured_description_needs_only_the_configuration() {
     let d = contract::description(
         None,
         "0.9.0",
-        &contract::Executor::Unconfigured {
-            config: config.clone(),
-        },
+        contract::Executor::Paid,
+        &Inspection::config_only(config.clone()).readiness(&Answers::default()),
     )
     .unwrap();
     valid(&serde_json::to_value(&d).unwrap());
@@ -364,11 +373,11 @@ fn an_invalid_configuration_says_what_to_fix() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("squint.toml");
     std::fs::write(&path, "[provider\n").unwrap();
-    let r = contract::config_requirement(&Config::open_with(Some(&path), &[], &|_| None)).unwrap();
+    let r = readiness::config_requirement(&Config::open_with(Some(&path), &[], &|_| None));
     assert_eq!(r.state, RequirementState::Invalid);
     let text = std::fs::read_to_string(root().join("examples/source-fidelity.toml")).unwrap();
     std::fs::write(&path, text).unwrap();
-    let r = contract::config_requirement(&Config::open_with(Some(&path), &[], &|_| None)).unwrap();
+    let r = readiness::config_requirement(&Config::open_with(Some(&path), &[], &|_| None));
     assert_eq!(r.state, RequirementState::Invalid);
     assert!(
         r.setup
@@ -378,5 +387,6 @@ fn an_invalid_configuration_says_what_to_fix() {
         "{r:?}"
     );
     let loaded = Config::open_with(Some(&path), &[], &|_| Some("org-x".into()));
-    assert!(contract::config_requirement(&loaded).is_none());
+    let r = readiness::config_requirement(&loaded);
+    assert_eq!((r.state, r.setup), (RequirementState::Present, None));
 }

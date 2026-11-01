@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 use squint_core::config::Config;
 use squint_core::job::Job;
+use squint_core::readiness::{Answers, Credential, Inspection};
 use squint_core::run;
 use squint_core::tool::{Envelope, Tool, ToolRegistry};
 use squint_testkit::{ScriptedProvider, ScriptedTool};
@@ -109,12 +110,22 @@ fn description() -> Value {
         squint_core::contract::description(
             Some(&config),
             "0.0.0",
-            &squint_core::contract::Executor::Paid {
-                credential: Some(squint_core::contract::CredentialEnv {
+            squint_core::contract::Executor::Paid,
+            &Inspection {
+                config: table_manners::Requirement {
+                    kind: table_manners::RequirementKind::Config,
+                    name: "squint.toml".into(),
+                    state: table_manners::RequirementState::Present,
+                    setup: None,
+                },
+                credential: Some(Credential {
                     name: "ANTHROPIC_API_KEY".to_string(),
                     present: true,
                 }),
-            },
+                model: Some(config.provider.model.clone()),
+                files: Vec::new(),
+            }
+            .readiness(&Answers::default()),
         )
         .unwrap(),
     )

@@ -64,7 +64,12 @@ pub struct ScriptedProvider {
     pub seen_history_lengths: Mutex<Vec<usize>>,
     /// Every request as sent, for tests that assert the provider history is append-only.
     pub recorded: Mutex<Vec<RecordedRequest>>,
+    /// A file every request appends a line to, so a test in another process can count calls.
+    calls_log: Option<std::path::PathBuf>,
 }
+
+/// The variable a testkit build reads for [`ScriptedProvider::with_calls_log`]'s file.
+pub const CALLS_LOG_ENV: &str = "SQUINT_TESTKIT_PROVIDER_CALLS";
 
 /// A request as the scripted provider saw it.
 #[derive(Debug, Clone, PartialEq)]
@@ -85,7 +90,15 @@ impl ScriptedProvider {
             turns: Mutex::new(turns.into()),
             seen_history_lengths: Mutex::new(Vec::new()),
             recorded: Mutex::new(Vec::new()),
+            calls_log: None,
         }
+    }
+
+    /// Appends a line to `path` on every request: the call counter a test outside this process
+    /// reads (the proof that describing and estimating call no provider, table-manners 7).
+    pub fn with_calls_log(mut self, path: Option<std::path::PathBuf>) -> ScriptedProvider {
+        self.calls_log = path;
+        self
     }
 
     /// Parses a JSON array of turn responses and transport errors.
@@ -135,6 +148,16 @@ impl Provider for ScriptedProvider {
 
     fn send<'a>(&'a self, req: TurnRequest<'a>) -> SendFuture<'a> {
         Box::pin(async move {
+            if let Some(log) = &self.calls_log {
+                use std::io::Write;
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(log)
+                {
+                    let _ = writeln!(file, "call");
+                }
+            }
             if let Ok(mut seen) = self.seen_history_lengths.lock() {
                 seen.push(req.history.len());
             }

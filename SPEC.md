@@ -1514,13 +1514,24 @@ with them.
   so under `x-squint`), with the brief, requirements and a lower spend cap as parameters
   (`estimate` is a reserved tool, never an action); every disposition and confidence word a
   finding can carry (`vocabulary`), the renders (`report view` of kind `server` with a ten-second
-  `ready_timeout_s`, `report export` of kind `document`), the cost notice and each action's
-  `readiness`: the credential variable the configured profile needs, by name, `present` or
-  `missing` by a local lookup, never its value (a check on the scripted fake, under the `fake`
-  profile or `--provider-script`, declares `may_spend: false`, needs nothing and is `ready`; with
-  no configuration that loads, the one requirement is the configuration, and a check may spend),
-  the expected duration, the inline limit (the decode bound, the default one with no
-  configuration) and the resources. Every
+  `ready_timeout_s`, `report export` of kind `document`), the cost notice (a check on the
+  scripted fake, under the `fake` profile or `--provider-script`, declares `may_spend: false`;
+  with no configuration that loads, a check may spend) and each action's `readiness`
+  (`readiness::Inspection`, the same for every action since they share a provider and tools),
+  by local inspection only, never a network call, a paid step or a run: the configuration
+  (`present` at its path, `missing`, or `invalid`, including a profile or model the catalog
+  lacks), then, when it loaded, the credential variable the configured profile reads, by name,
+  `missing` or `present` by a lookup, never its value, the configured model, `present`, and the
+  segmenter file (`$XDG_CACHE_HOME/squint/models/segmenter-v1/<artifact>` from the record the
+  installed pack ships) when `regions` or `classes` is enabled, `present` when it is there at
+  the recorded size, never hashed so never `valid`. With no configuration only the configuration
+  is listed; the `fake` profile lists no credential or model; a scripted run still lists the
+  configured profile's, since the script stands in for its endpoint; squint emits no `env`
+  requirement. The command describes a fresh session. A server computes `describe` per call
+  from its start-up inspection and the provider answers its session has had (`Services` reports
+  each: a response makes the credential and the model `valid`, a 401 or 403 makes the credential
+  `invalid`); a new server starts from `present` again. Then the expected duration, the inline
+  limit (the decode bound, the default one with no configuration) and the resources. Every
   `params_schema` and MCP `inputSchema` is a schema of its own: the definitions it refers to sit
   at its root. Argument errors on every command exit 64.
 - **Exit codes** across commands: 0 success, 3 error, 64 usage or input, 130 on SIGINT and 143

@@ -21,9 +21,14 @@ The description document: one action per shipped use case (`source_fidelity`,
 `reference_consistency`, `reality_checks`, `brief_compliance`, `product_fidelity`); `estimate` is
 a reserved tool, not an action. Each use case takes `candidate`, a `source` where its rule set
 requires one, and `references` (a list), with `brief`, `requirements` (typed by squint's
-obligation schema) and `max_spend_usd`. Each action's `readiness` names the credential variable
-of the configured profile, `present` or `missing` by a local lookup; its value is never kept or
-printed. A check on the scripted fake needs nothing and is `ready`. The renders are `report`
+obligation schema) and `max_spend_usd`. Each action's `readiness` comes from a local look,
+never a network call: the configuration (`present`, `missing` or `invalid`), then the credential
+variable of the configured profile (`present` or `missing` by name; its value is never kept or
+printed), the configured model, and the segmenter file when `regions` or `classes` is enabled
+(`present` once fetched, at its recorded size). Over MCP, `describe` also reflects this session's
+provider answers: after an accepted request the credential and model are `valid`, after a 401 or
+403 the credential is `invalid` (restart squint with a working key). A check on the scripted fake
+needs only the configuration. The renders are `report`
 (`report view`, kind `server`) and `export` (`report export`, kind `document`). The same document
 is the `describe` tool over MCP.
 

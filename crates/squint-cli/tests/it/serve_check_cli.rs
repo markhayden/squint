@@ -344,23 +344,37 @@ fn every_tool_input_schema_compiles_on_its_own() {
     }
 }
 
-/// A server running the scripted provider declares what it can do: no check spends or needs a
-/// credential (squint issue #2), whatever profile the config names, so every check is ready.
+/// A server running the scripted provider declares what it can do: no check spends (squint
+/// issue #2), whatever profile the config names. Its readiness is still the configured
+/// profile's (task 9.3): the script stands in for that endpoint, so the configuration, the
+/// profile's credential by name and the model are listed.
 #[test]
 fn a_scripted_server_declares_free_checks() {
-    let mut c = client(
+    let mut command = server(
         &out("free"),
         &[
             "provider.profile=anthropic",
             "provider.model=claude-haiku-5-5",
         ],
     );
+    command.env("ANTHROPIC_API_KEY", "sk-scripted-not-a-key");
+    let mut c = Client::start(&mut command).unwrap();
     let d = c.call("describe", json!({})).unwrap().structured.unwrap();
+    assert!(!d.to_string().contains("sk-scripted-not-a-key"));
     for action in d["actions"].as_array().unwrap() {
         assert_eq!(action["cost"]["may_spend"], false, "{}", action["name"]);
         assert_eq!(
             action["readiness"],
-            json!({ "state": "ready", "requirements": [] }),
+            json!({ "state": "ready", "requirements": [
+                { "kind": "config", "name": "fixtures/config/minimal.toml", "state": "present" },
+                {
+                    "kind": "credential",
+                    "name": "ANTHROPIC_API_KEY",
+                    "state": "present",
+                    "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with."
+                },
+                { "kind": "model", "name": "claude-haiku-5-5", "state": "present" }
+            ] }),
             "{}",
             action["name"]
         );

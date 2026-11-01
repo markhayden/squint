@@ -20,6 +20,7 @@ use serde_json::{Map, Value, json};
 use squint_core::config::Config;
 use squint_core::contract;
 use squint_core::ledger::{CapLedger, Ledger};
+use squint_core::readiness::{Answers, Inspection};
 use squint_core::tool::ToolRegistry;
 use table_manners::Description;
 use table_manners::images::ImageSlot;
@@ -125,15 +126,14 @@ pub fn run(args: &ServeArgs) -> i32 {
     let scripted = args.provider_script.is_some();
     #[cfg(not(feature = "testkit"))]
     let scripted = false;
-    let (file, description) = match crate::describe::described(
+    let described = match crate::describe::described(
         Config::open(args.config.as_deref(), &args.overrides),
         scripted,
     ) {
         Ok(described) => described,
         Err(e) => return usage(e.to_string()),
     };
-    let not_ready = contract::config_requirement(&file);
-    let config = file.config().cloned();
+    let config = described.file.config().cloned();
     #[cfg(feature = "testkit")]
     let script = args.tool_script.as_deref();
     #[cfg(not(feature = "testkit"))]
@@ -165,11 +165,12 @@ pub fn run(args: &ServeArgs) -> i32 {
             permits: Arc::new(Semaphore::new(serve.concurrency as usize)),
             #[cfg(feature = "testkit")]
             provider_script: args.provider_script.clone(),
-            not_ready,
+            inspection: described.inspection,
+            answers: Default::default(),
+            description: described.description,
             config,
             tools,
             catalog,
-            description,
             out_dir,
         }),
     };
@@ -202,10 +203,15 @@ struct Inner {
     /// None when the server started without a configuration that loads: it then refuses every
     /// call that makes a run (table-manners 3.1) and writes nothing.
     config: Option<Config>,
-    /// The `config` requirement such a refusal names; none when the configuration loaded.
-    not_ready: Option<table_manners::Requirement>,
+    /// What the local inspection at start found (table-manners 3.1): with `answers`, every
+    /// action's readiness, recomputed on each `describe`.
+    inspection: Inspection,
+    /// The provider answers this session had, by credential name and model.
+    answers: Answers,
     tools: ToolRegistry,
     catalog: squint_providers::catalog::Catalog,
+    /// The description at start; its readiness is replaced by the current one on each
+    /// `describe`.
     description: Description,
     /// Where runs go: `--out`, else `[output] dir`; none for an unconfigured server without
     /// `--out`, whose runs list is empty.
@@ -264,8 +270,19 @@ impl Server {
         tools
     }
 
+    /// The description with every action's readiness as of now: the inspection at start and
+    /// the provider answers since (table-manners 3.1). A local computation, never a call.
+    fn description(&self) -> Description {
+        let readiness = self.inner.inspection.readiness(&self.inner.answers);
+        let mut description = self.inner.description.clone();
+        for action in &mut description.actions {
+            action.readiness = readiness.clone();
+        }
+        description
+    }
+
     fn describe(&self) -> Result<CallToolResult, ErrorData> {
-        let value = serde_json::to_value(&self.inner.description)
+        let value = serde_json::to_value(self.description())
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let mut result = CallToolResult::success(vec![ContentBlock::text(
             "squint's description document (table-manners)",
@@ -348,7 +365,7 @@ impl Server {
     fn configured(&self) -> Result<(&Config, &Path), ErrorData> {
         match (&self.inner.config, &self.inner.out_dir) {
             (Some(config), Some(out_dir)) => Ok((config, out_dir)),
-            _ => Err(not_ready(self.inner.not_ready.iter().cloned().collect())),
+            _ => Err(not_ready(vec![self.inner.inspection.config.clone()])),
         }
     }
 
@@ -467,7 +484,22 @@ impl Server {
         let server = self.clone();
         let association = hooks.association.clone();
         let progress = hooks.progress.clone();
+        // Each settled answer goes into the session's readiness, under the credential this
+        // profile reads and the model it calls.
+        let session = self.inner.clone();
+        let credential = self
+            .inner
+            .inspection
+            .credential
+            .as_ref()
+            .map(|c| c.name.clone());
+        let model = config.provider.model.clone();
         let mut services = squint_core::run::Services::new(provider.as_ref(), &self.inner.tools)
+            .with_answered(Arc::new(move |answer| {
+                session
+                    .answers
+                    .record(credential.as_deref(), &model, answer);
+            }))
             .with_association(hooks.association.clone())
             .with_shared_ledger(Some(&self.inner.session))
             .with_cancel(&hooks.cancel)

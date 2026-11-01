@@ -579,31 +579,126 @@ fn select_provider(args: &CheckArgs, config: &mut Config) -> Result<Box<dyn Prov
     provider_for(config, &opts)
 }
 
-/// What a check under `config` runs on, for the description's cost and readiness (squint issue
-/// #2, table-manners 3.1): the scripted provider (`--provider-script`, or the fake profile, which
-/// runs only with one) can never charge and needs no credential; any catalog profile may charge,
-/// and names its credential variable, `present` or `missing` by a local lookup.
+/// What a check under `config` runs on, for the description's cost (squint issue #2): the
+/// scripted provider (`--provider-script`, or the fake profile, which runs only with one) can
+/// never charge; any catalog profile may.
 fn executor(config: &Config, scripted: bool) -> squint_core::contract::Executor {
-    use squint_core::contract::{CredentialEnv, Executor};
-    use squint_providers::catalog::{Catalog, FAKE_PROFILE};
-    if scripted || config.provider.profile == FAKE_PROFILE {
-        return Executor::Free;
+    use squint_core::contract::Executor;
+    if scripted || config.provider.profile == squint_providers::catalog::FAKE_PROFILE {
+        Executor::Free
+    } else {
+        Executor::Paid
     }
-    // The variable's name comes from the catalog's profile. Set means set to something other
-    // than blanks, as the provider's credential lookup reads it; the value is never kept or shown.
-    let credential = Catalog::shipped()
-        .ok()
-        .and_then(|c| {
-            c.profile(&config.provider.profile)
-                .map(|p| p.auth.env.clone())
-        })
-        .map(|name| CredentialEnv {
-            present: std::env::var_os(&name)
-                .is_some_and(|v| !v.to_string_lossy().trim().is_empty()),
-            name,
-        });
-    Executor::Paid { credential }
 }
+
+/// The local inspection behind every action's readiness (table-manners 3.1, task 9.3), never a
+/// network call: `config` is the loaded configuration's `present` requirement. The profile's
+/// credential variable, set or not by a lookup of its name (never its value; a scripted run
+/// still reports the configured profile's, since the script stands in for its endpoint); the
+/// configured model, which the catalog must have; and the segmenter file when an enabled pack
+/// tool needs it. A profile or model the catalog lacks makes the configuration `invalid`. The
+/// fake profile reads no credential and calls no catalog model.
+fn inspect(
+    config: &Config,
+    mut config_requirement: table_manners::Requirement,
+) -> squint_core::readiness::Inspection {
+    use squint_core::readiness::{Credential, Inspection, invalid_config};
+    use squint_providers::catalog::{Catalog, FAKE_PROFILE};
+    let files = segmenter_files(config);
+    if config.provider.profile == FAKE_PROFILE {
+        return Inspection {
+            files,
+            ..Inspection::config_only(config_requirement)
+        };
+    }
+    let catalog = Catalog::shipped().ok();
+    let profile = catalog
+        .as_ref()
+        .and_then(|c| c.profile(&config.provider.profile));
+    // Set means set to something other than blanks, as the provider's credential lookup reads it.
+    let credential = profile.map(|p| Credential {
+        present: std::env::var_os(&p.auth.env)
+            .is_some_and(|v| !v.to_string_lossy().trim().is_empty()),
+        name: p.auth.env.clone(),
+    });
+    if profile.is_none() {
+        config_requirement = invalid_config(
+            &config_requirement,
+            &format!(
+                "profile {:?} is not in the catalog (squint catalog show)",
+                config.provider.profile
+            ),
+        );
+    }
+    let model = if catalog
+        .as_ref()
+        .is_some_and(|c| c.model(&config.provider.model).is_some())
+    {
+        Some(config.provider.model.clone())
+    } else {
+        config_requirement = invalid_config(
+            &config_requirement,
+            &format!(
+                "model {:?} is not in the catalog (squint catalog show)",
+                config.provider.model
+            ),
+        );
+        None
+    };
+    Inspection {
+        config: config_requirement,
+        credential,
+        model,
+        files,
+    }
+}
+
+/// The segmenter's file when the config enables a pack tool that runs it (`regions`,
+/// `classes`): the artifact the installed pack's record names, under the pack's models
+/// directory, `present` when it is there at the recorded size (never hashed here). A pack run by
+/// `command`, or one not installed, ships no record squint can read, so nothing is listed.
+fn segmenter_files(config: &Config) -> Vec<squint_core::readiness::LocalFile> {
+    use squint_core::readiness::{LocalFile, SEGMENTER, SEGMENTER_TOOLS};
+    use squint_tools::provision::{Installed, data_home, models_dir};
+    if !config
+        .tools
+        .enabled
+        .iter()
+        .any(|t| SEGMENTER_TOOLS.contains(&t.as_str()))
+    {
+        return Vec::new();
+    }
+    config
+        .tools
+        .packs
+        .values()
+        .filter_map(|pack| {
+            let installed = Installed::locate(
+                &data_home(),
+                pack.package.as_deref()?,
+                pack.version.as_deref()?,
+            )
+            .ok()?;
+            let record = installed.model_record(SEGMENTER)?;
+            let path = record.artifact_path(&models_dir(), SEGMENTER);
+            let present =
+                std::fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() == record.size_bytes);
+            Some(LocalFile {
+                path: path.display().to_string(),
+                present,
+                setup: format!(
+                    "Fetch the segmenter: `{} fetch` (or `squint tools setup` again) puts it here.",
+                    installed.executable.display()
+                ),
+            })
+        })
+        .take(1)
+        .collect()
+}
+
+/// The variable a testkit build reads to replace the configured profile's `base_url`.
+#[cfg(feature = "testkit")]
+const TESTKIT_BASE_URL_ENV: &str = "SQUINT_TESTKIT_BASE_URL";
 
 /// The provider for a config: the catalog's adapter over a live client, a recording or, in a
 /// testkit build, a script. A live credential is added to the config's secrets.
@@ -620,8 +715,9 @@ fn provider_for(
     use squint_providers::replay::{Player, Recorder};
     #[cfg(feature = "testkit")]
     if let Some(path) = opts.provider_script {
+        let calls = std::env::var_os(squint_testkit::provider::CALLS_LOG_ENV).map(PathBuf::from);
         return squint_testkit::ScriptedProvider::from_path(path)
-            .map(|p| Box::new(p) as Box<dyn Provider>)
+            .map(|p| Box::new(p.with_calls_log(calls)) as Box<dyn Provider>)
             .map_err(|e| e.to_string());
     }
     if config.provider.profile == FAKE_PROFILE {
@@ -634,6 +730,17 @@ fn provider_for(
             config.provider.profile
         )
     })?;
+    // A testkit build may point the profile at a local endpoint, so a test can see whether
+    // anything connected (the proof that describing and estimating make no network call).
+    #[cfg(feature = "testkit")]
+    let redirected = std::env::var(TESTKIT_BASE_URL_ENV).ok().map(|base_url| {
+        squint_providers::catalog::Profile {
+            base_url,
+            ..profile.clone()
+        }
+    });
+    #[cfg(feature = "testkit")]
+    let profile = redirected.as_ref().unwrap_or(profile);
     let model = catalog
         .model(&config.provider.model)
         .ok_or_else(|| format!("model {:?} is not in the catalog", config.provider.model))?;

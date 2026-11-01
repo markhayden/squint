@@ -233,6 +233,33 @@ pub fn data_home() -> PathBuf {
     PathBuf::from(home).join(".local").join("share")
 }
 
+/// Where the pack keeps fetched model artifacts, as the pack itself decides it (its
+/// `models.models_dir`): `$XDG_CACHE_HOME/squint/models`, else `~/.cache/squint/models`.
+pub fn models_dir() -> PathBuf {
+    let cache = std::env::var_os("XDG_CACHE_HOME")
+        .filter(|x| !x.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| {
+            PathBuf::from(std::env::var_os("HOME").unwrap_or_else(|| ".".into())).join(".cache")
+        });
+    cache.join("squint").join("models")
+}
+
+/// What a model record shipped with the pack (`squint_tools/models/<name>.json`) says about its
+/// artifact: the file name and its size. The digest is the pack's to check when it fetches.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct ModelRecord {
+    pub artifact: String,
+    pub size_bytes: u64,
+}
+
+impl ModelRecord {
+    /// Where the pack expects the artifact: `<models dir>/<record name>/<artifact>`.
+    pub fn artifact_path(&self, models: &Path, name: &str) -> PathBuf {
+        models.join(name).join(&self.artifact)
+    }
+}
+
 /// The environment a provisioning subprocess (`uv sync`, the pack's `fetch`) gets: the pack
 /// allowlist (`PATH`, `HOME`, locale) plus uv's own settings (`UV_CACHE_DIR`, `UV_OFFLINE`,
 /// `UV_PYTHON` and the rest of `UV_*`), which decide where the locked wheels come from; never a
@@ -372,6 +399,26 @@ impl Installed {
             )));
         }
         Ok(())
+    }
+
+    /// The model record `name` as this install ships it, read from the package inside its
+    /// environment (`.venv/lib/<python>/site-packages/squint_tools/models/<name>.json`); none
+    /// when the install has no such record. A local read, never a fetch.
+    pub fn model_record(&self, name: &str) -> Option<ModelRecord> {
+        let lib = self.dir.join(".venv").join("lib");
+        std::fs::read_dir(lib)
+            .ok()?
+            .flatten()
+            .map(|python| {
+                python
+                    .path()
+                    .join("site-packages/squint_tools/models")
+                    .join(format!("{name}.json"))
+            })
+            .find_map(|path| {
+                let text = std::fs::read_to_string(path).ok()?;
+                serde_json::from_str(&text).ok()
+            })
     }
 
     /// How the harness launches the pack: offline, no Python downloads, the lock digest exposed.
@@ -549,6 +596,39 @@ mod tests {
         )
         .expect("write");
         dir
+    }
+
+    /// An install's model record is read from the package in its environment, whatever the
+    /// Python version directory is called; an install without one has none.
+    #[test]
+    fn an_installed_pack_ships_its_model_record() {
+        let dir = synthetic("record");
+        let installed = Installed {
+            dir: dir.clone(),
+            executable: dir.join(".venv/bin/p"),
+            lock_digest: String::new(),
+            header: Bundle::load(&dir).expect("load").header,
+        };
+        assert_eq!(installed.model_record("segmenter-v1"), None);
+        let models = dir.join(".venv/lib/python3.13/site-packages/squint_tools/models");
+        std::fs::create_dir_all(&models).expect("mkdir");
+        std::fs::write(
+            models.join("segmenter-v1.json"),
+            r#"{"artifact": "seg.onnx", "size_bytes": 42, "sha256": "ab"}"#,
+        )
+        .expect("write");
+        let record = installed.model_record("segmenter-v1").expect("record");
+        assert_eq!(
+            record,
+            ModelRecord {
+                artifact: "seg.onnx".into(),
+                size_bytes: 42
+            }
+        );
+        assert_eq!(
+            record.artifact_path(Path::new("/cache/models"), "segmenter-v1"),
+            Path::new("/cache/models/segmenter-v1/seg.onnx")
+        );
     }
 
     #[test]

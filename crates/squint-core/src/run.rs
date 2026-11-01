@@ -73,10 +73,16 @@ pub struct Services<'a> {
     /// The serving session and client request the decision belongs to, written into its
     /// directory when it is made (table-manners 4.3); none outside a server.
     pub association: Option<crate::contract::Association>,
+    /// Told of every settled provider answer (table-manners 3.1): a response is accepted, a 401
+    /// or 403 rejected; a server keeps them for its readiness.
+    pub answered: Option<Answered>,
 }
 
 /// See [`Services::allocated`].
 pub type Allocated = std::sync::Arc<dyn Fn(&Path) + Send + Sync>;
+
+/// See [`Services::answered`].
+pub type Answered = std::sync::Arc<dyn Fn(crate::readiness::Answer) + Send + Sync>;
 
 impl<'a> Services<'a> {
     pub fn new(provider: &'a dyn Provider, tools: &'a ToolRegistry) -> Services<'a> {
@@ -90,7 +96,13 @@ impl<'a> Services<'a> {
             observer: None,
             allocated: None,
             association: None,
+            answered: None,
         }
+    }
+
+    pub fn with_answered(mut self, answered: Answered) -> Services<'a> {
+        self.answered = Some(answered);
+        self
     }
 
     pub fn with_association(mut self, association: crate::contract::Association) -> Services<'a> {
@@ -819,7 +831,7 @@ async fn drive(
     while turns_used < config.budget.tool_turns {
         let response = send_turn(
             config,
-            provider,
+            services,
             prepared,
             &history,
             &definitions,
@@ -828,7 +840,6 @@ async fn drive(
             state,
             pricing,
             account,
-            services.cancel,
         )
         .await?;
         allowance = config.provider.max_output_tokens;
@@ -995,7 +1006,7 @@ async fn drive(
     loop {
         let response = send_turn(
             config,
-            provider,
+            services,
             prepared,
             &history,
             &definitions,
@@ -1004,7 +1015,6 @@ async fn drive(
             state,
             pricing,
             account,
-            services.cancel,
         )
         .await?;
         allowance = config.provider.max_output_tokens;
@@ -1229,7 +1239,7 @@ fn assistant_message(response: &TurnResponse) -> Message {
 #[allow(clippy::too_many_arguments)]
 async fn send_turn(
     config: &Config,
-    provider: &dyn Provider,
+    services: &Services<'_>,
     prepared: &Prepared,
     history: &[Message],
     definitions: &[ToolDefinition],
@@ -1238,8 +1248,8 @@ async fn send_turn(
     state: &mut RunState,
     pricing: &dyn Pricing,
     account: &mut Account,
-    cancel: Option<&Cancel>,
 ) -> Result<TurnResponse> {
+    let (provider, cancel) = (services.provider, services.cancel);
     let turn = state.turns + 1;
     if let Some(c) = cancel
         && c.is_cancelled()
@@ -1328,6 +1338,17 @@ async fn send_turn(
         }
         None => send.await,
     };
+    // A settled answer tells the session's readiness about the credential and the model.
+    let answer = match &sent {
+        Ok(_) => Some(crate::readiness::Answer::Accepted),
+        Err(Error::Transport(t)) if matches!(t.status, Some(401 | 403)) => {
+            Some(crate::readiness::Answer::Rejected)
+        }
+        Err(_) => None,
+    };
+    if let (Some(answer), Some(answered)) = (answer, &services.answered) {
+        answered(answer);
+    }
     let sent = match sent {
         Ok(sent) => sent,
         Err(e) => {

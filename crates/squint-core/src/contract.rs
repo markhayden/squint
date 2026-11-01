@@ -14,8 +14,8 @@ use table_manners::images::{
 };
 use table_manners::{
     Action, CONTRACT_VERSION, Cache, Cost, DescribedTool, Description, Duration, ErrorCode,
-    ErrorInfo, Profile, Readiness, ReadinessState, Render, RenderKind, Requirement,
-    RequirementKind, RequirementState, Run, RunResult, Spend, SpendBasis, Status, Tool,
+    ErrorInfo, Profile, Readiness, Render, RenderKind, Run, RunResult, Spend, SpendBasis, Status,
+    Tool,
 };
 
 use crate::aggregate::Confidence;
@@ -512,103 +512,13 @@ pub fn rfc3339(unix_ms: u64) -> String {
 /// The longest gap between progress notifications on a live run (table-manners 4.1).
 pub const PROGRESS_INTERVAL_S: u32 = 10;
 
-/// What a check runs on, as far as the description must say (table-manners 3: cost and
-/// readiness).
-#[derive(Debug, Clone, PartialEq)]
+/// What a check runs on, as far as the description's cost must say (table-manners 3): a
+/// provider that may charge (any catalog profile, or one not chosen yet with no configuration),
+/// or one that never can (the scripted fake). Readiness is [`crate::readiness`]'s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Executor {
-    /// A provider that may charge, with the credential its profile reads, when the catalog names
-    /// one (from the catalog, which this crate does not read).
-    Paid { credential: Option<CredentialEnv> },
-    /// A provider that can never charge and reads no credential (the scripted fake).
+    Paid,
     Free,
-    /// No configuration loaded, so no provider is chosen yet: a check may spend once one is,
-    /// and the one requirement is the configuration (ADR 0018 amendment).
-    Unconfigured { config: Requirement },
-}
-
-/// A credential variable by name, and whether it is set: a local lookup, never its value.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CredentialEnv {
-    /// The variable the profile reads (`ANTHROPIC_API_KEY`, …).
-    pub name: String,
-    /// Whether it is set to something other than blanks.
-    pub present: bool,
-}
-
-/// An action's readiness (table-manners 3.1) from what the executor knows: a paid provider needs
-/// its profile's credential, `present` or `missing` by name; the scripted fake needs nothing.
-fn readiness(executor: &Executor) -> Readiness {
-    let requirements: Vec<Requirement> = match executor {
-        Executor::Paid {
-            credential: Some(credential),
-        } => vec![Requirement {
-            kind: RequirementKind::Credential,
-            name: credential.name.clone(),
-            state: if credential.present {
-                RequirementState::Present
-            } else {
-                RequirementState::Missing
-            },
-            setup: Some(format!(
-                "Set {} in the environment squint is started with.",
-                credential.name
-            )),
-        }],
-        Executor::Unconfigured { config } => vec![config.clone()],
-        Executor::Paid { credential: None } | Executor::Free => Vec::new(),
-    };
-    let blocked = requirements.iter().any(|r| {
-        matches!(
-            r.state,
-            RequirementState::Missing | RequirementState::Invalid
-        )
-    });
-    Readiness {
-        state: if blocked {
-            ReadinessState::NeedsSetup
-        } else {
-            ReadinessState::Ready
-        },
-        requirements,
-    }
-}
-
-/// The `config` requirement of a configuration that did not load (table-manners 3.1): `missing`
-/// at the path the lookup would use, or `invalid` with what to fix (the unset variable by name,
-/// never a value).
-pub fn config_requirement(file: &crate::config::ConfigFile) -> Option<Requirement> {
-    use crate::config::ConfigState;
-    let (state, setup) = match &file.state {
-        ConfigState::Loaded(_) => return None,
-        ConfigState::Missing => (
-            RequirementState::Missing,
-            format!(
-                "Create {} or pass --config <path> (squint also looks for ./{} and \
-                 $XDG_CONFIG_HOME/squint/{}).",
-                file.path.display(),
-                crate::config::CONFIG_FILE,
-                crate::config::CONFIG_FILE
-            ),
-        ),
-        ConfigState::Invalid {
-            unset: Some(name), ..
-        } => (
-            RequirementState::Invalid,
-            format!(
-                "Set {name} in the environment squint is started with: the configuration expands it."
-            ),
-        ),
-        ConfigState::Invalid { reason, .. } => (
-            RequirementState::Invalid,
-            format!("Fix the configuration: {reason}"),
-        ),
-    };
-    Some(Requirement {
-        kind: RequirementKind::Config,
-        name: file.path.display().to_string(),
-        state,
-        setup: Some(setup),
-    })
 }
 
 /// squint's description document (table-manners 3 and 11.2): one action per use case a check can
@@ -616,14 +526,14 @@ pub fn config_requirement(file: &crate::config::ConfigFile) -> Option<Requiremen
 /// with no configuration), taking the images its rules require (`estimate` is reserved and never
 /// an action); every disposition and confidence word a finding can carry; the inline limit from
 /// the decode bound (the default one with no configuration). `executor` says what a check will
-/// run on, so the declared cost and readiness are the truth of this configuration (squint issue
-/// #2).
+/// run on, so the declared cost is the truth of this configuration (squint issue #2); every
+/// action carries `readiness` ([`crate::readiness`]).
 pub fn description(
     config: Option<&Config>,
     version: &str,
-    executor: &Executor,
+    executor: Executor,
+    readiness: &Readiness,
 ) -> crate::Result<Description> {
-    let readiness = readiness(executor);
     let actions: Vec<Action> = use_cases(config)?
         .iter()
         .map(|(base, requires_roles)| {
@@ -646,7 +556,7 @@ pub fn description(
                     locations: vec![LocationOutput::Found],
                 }),
                 cost: match executor {
-                    Executor::Paid { .. } | Executor::Unconfigured { .. } => Cost {
+                    Executor::Paid => Cost {
                         may_spend: true,
                         basis: Some(SpendBasis::Measured),
                     },

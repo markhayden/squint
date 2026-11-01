@@ -159,9 +159,19 @@
       "readiness": {
         "requirements": [
           {
+            "kind": "config",
+            "name": "squint.toml",
+            "state": "present"
+          },
+          {
             "kind": "credential",
             "name": "ANTHROPIC_API_KEY",
             "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with.",
+            "state": "present"
+          },
+          {
+            "kind": "model",
+            "name": "claude-haiku-5-5",
             "state": "present"
           }
         ],
@@ -348,9 +358,19 @@
       "readiness": {
         "requirements": [
           {
+            "kind": "config",
+            "name": "squint.toml",
+            "state": "present"
+          },
+          {
             "kind": "credential",
             "name": "ANTHROPIC_API_KEY",
             "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with.",
+            "state": "present"
+          },
+          {
+            "kind": "model",
+            "name": "claude-haiku-5-5",
             "state": "present"
           }
         ],
@@ -537,9 +557,19 @@
       "readiness": {
         "requirements": [
           {
+            "kind": "config",
+            "name": "squint.toml",
+            "state": "present"
+          },
+          {
             "kind": "credential",
             "name": "ANTHROPIC_API_KEY",
             "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with.",
+            "state": "present"
+          },
+          {
+            "kind": "model",
+            "name": "claude-haiku-5-5",
             "state": "present"
           }
         ],
@@ -726,9 +756,19 @@
       "readiness": {
         "requirements": [
           {
+            "kind": "config",
+            "name": "squint.toml",
+            "state": "present"
+          },
+          {
             "kind": "credential",
             "name": "ANTHROPIC_API_KEY",
             "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with.",
+            "state": "present"
+          },
+          {
+            "kind": "model",
+            "name": "claude-haiku-5-5",
             "state": "present"
           }
         ],
@@ -915,9 +955,19 @@
       "readiness": {
         "requirements": [
           {
+            "kind": "config",
+            "name": "squint.toml",
+            "state": "present"
+          },
+          {
             "kind": "credential",
             "name": "ANTHROPIC_API_KEY",
             "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with.",
+            "state": "present"
+          },
+          {
+            "kind": "model",
+            "name": "claude-haiku-5-5",
             "state": "present"
           }
         ],

@@ -27,7 +27,11 @@ a "Generated with" line or an assistant's no-reply address): the repository show
 association, in its history or its files.
 
 The `testkit` feature of the `squint` package enables the scripted fake provider and the
-`--provider-script` flag for tests and debugging. Release builds never enable it.
+`--provider-script` flag for tests and debugging, and two observation seams the tests use to
+prove a command makes no provider call: `SQUINT_TESTKIT_PROVIDER_CALLS=<file>` (the scripted
+provider appends a line per request) and `SQUINT_TESTKIT_BASE_URL=<url>` (the configured
+profile's endpoint replaced, so a local listener sees any connection). Release builds never
+enable it.
 
 Toolchain: `rust-toolchain.toml` pins an exact stable version (bumped deliberately, since `just
 check` runs Clippy with `-D warnings`) with `clippy` and `rustfmt`; rustup installs them on first use. `uv` is needed from M1 task 1.14 onward for the Python tool pack.
