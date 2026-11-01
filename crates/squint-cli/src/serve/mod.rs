@@ -391,7 +391,10 @@ impl Server {
         match what {
             "run.json" => std::fs::read_to_string(dir.join(contract::RUN_FILE)).ok(),
             "report.json" => std::fs::read_to_string(dir.join("report.json")).ok(),
-            "journal" => {
+            // Every run that exists has a journal: a decision's runs' lines in order, and an empty
+            // one for a run with no decision journal (an `estimate`, a call refused before its
+            // first run). A run that does not exist has none.
+            "journal" if dir.is_dir() => {
                 let mut text = String::new();
                 for n in 1.. {
                     let Ok(part) =
@@ -401,7 +404,7 @@ impl Server {
                     };
                     text.push_str(&part);
                 }
-                (!text.is_empty()).then_some(text)
+                Some(text)
             }
             _ => None,
         }
