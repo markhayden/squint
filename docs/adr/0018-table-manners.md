@@ -109,6 +109,34 @@ SIGINT and 143 for SIGTERM (squint exits 3 on cancellation today and changes). 1
 needs squint's `allowed` obligations to take a region. It is its own milestone after the
 conformance work, and the contract's cross-tool acceptance test is its definition of done.
 
+*Amended 2026-11-01 for table-manners v0.3 (PLAN.md M9; takes effect as each task lands;
+squint's planning questions settled in table-manners `7f9316c`).* The contract now decides that
+an estimate is a control, never a run, and that `estimate` takes the paid call's exact arguments;
+squint's zero-spend estimate runs go, and `estimate` no longer reports "the session budget left"
+in a body of its own (the estimate's `session` is the session resource; a command-line estimate
+has none, `session_id` and `session` null, and no server accepts its binding). The error codes gain
+`credential`, `cap` and `stale_estimate`; a call that needs a missing or invalid requirement is
+refused `not_ready` before any run, and `credential` is a provider's 401 or 403 during a run.
+Where the contract leaves the choice to the tool, squint chooses:
+
+- **Configuration lookup.** `--config <path>`, else `./squint.toml`, else
+  `$XDG_CONFIG_HOME/squint/squint.toml`; none found is not an error for `describe` or `serve`.
+  An unconfigured server refuses a call that needs the config with `not_ready`, so it writes
+  nothing and needs no output directory.
+- **Readiness with no configuration** lists only the `config` requirement: the credential and
+  the model are the config's choice, and naming one profile's key would be a guess. A config that
+  loads is `present`, one that does not is `invalid`. The segmenter file is never hashed while
+  describing, so it is `present` at most, never `valid`. squint emits no `env` requirement.
+- **Binding and expiry.** The binding is a sha256 over the action, the arguments with each image
+  replaced by its file digest (path and inline bind equal) and without `return_images` and
+  `image_blocks`, the tool version, the identity of the redacted configuration and the session
+  id; an estimate expires after one hour, and a binding the session never issued is stale.
+- **Cap and budget.** Refusals by the per-call ledger, including a retry the decision envelope can
+  no longer cover, are `cap`; refusals by the session ledger are `budget`.
+- **Renders.** With no `--frame-ancestor`, `report view` allows no framing at all
+  (`frame-ancestors 'none'`). A render never modifies the run directory, so `report export`
+  writes to `$XDG_CACHE_HOME/squint/reports/<run id>.html` unless `--out` says otherwise.
+
 ## Alternatives
 
 - **squint stays the origin of the shared schemas.** It is how rascal's copies went stale, and it
