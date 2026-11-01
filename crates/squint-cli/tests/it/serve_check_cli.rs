@@ -135,8 +135,9 @@ fn a_path_outside_the_clients_roots_is_invalid_input_and_spends_nothing() {
 }
 
 /// `estimate` reads its images too, so it answers to the same roots as a check (review C1): a
-/// path outside them is refused before it is opened, and a missing path is refused in the same
-/// words, so nothing about the file (its digest, size or existence) comes back.
+/// path outside them is refused before it is opened (the `invalid_arguments` refusal, `input`,
+/// since an estimate has no result), and a missing path is refused in the same words, so nothing
+/// about the file (its digest, size or existence) comes back.
 #[test]
 fn estimate_refuses_a_path_outside_the_roots_without_reading_it() {
     // A catalog model, so an estimate that ignored the roots would go on to read the image.
@@ -151,19 +152,20 @@ fn estimate_refuses_a_path_outside_the_roots_without_reading_it() {
     let missing = repo_root().join("fixtures/images/no-such-image.png");
     let mut reasons = Vec::new();
     for path in [&outside, &missing] {
-        let r = c
-            .call(
-                "estimate",
-                json!({ "use_case": "source-fidelity",
-                        "candidate": { "path": path, "expect": expect },
-                        "source": image("source-64x48.png") }),
-            )
-            .unwrap();
-        assert!(r.is_error, "{path:?}");
-        let r = r.structured.unwrap();
-        assert_eq!(r["status"], "invalid", "{r}");
-        assert_eq!(r["error"]["code"], "input", "{r}");
-        let reason = r["error"]["reason"].as_str().unwrap().to_string();
+        let r = c.call(
+            "estimate",
+            json!({ "action": "source_fidelity",
+                    "arguments": { "candidate": { "path": path, "expect": expect },
+                                   "source": image("source-64x48.png") } }),
+        );
+        let Err(Failure::Rpc { code, data, .. }) = r else {
+            panic!("{path:?}: {r:?}");
+        };
+        assert_eq!(code, -32602);
+        let data = data.unwrap();
+        assert_eq!(data["reason"], "invalid_arguments", "{data}");
+        assert_eq!(data["error"]["code"], "input", "{data}");
+        let reason = data["error"]["reason"].as_str().unwrap().to_string();
         assert!(!reason.contains("file_sha256"), "{reason}");
         reasons.push(reason.replace(&path.display().to_string(), "<path>"));
     }
@@ -383,26 +385,33 @@ fn a_scripted_server_declares_free_checks() {
 }
 
 /// `references` is a `many` slot (table-manners 10.1, 11.2): every tool that takes it declares a
-/// non-empty array of images in, and the slots that take one image declare an object.
+/// non-empty array of images in, the estimate's `arguments` too, and the slots that take one
+/// image declare an object.
 #[test]
 fn the_references_input_is_a_non_empty_array_of_images() {
     let mut c = client(&out("many-schema"), &[]);
     let tools = c.list_tools().unwrap();
-    let checks: Vec<_> = tools
+    let mut checks: Vec<(String, serde_json::Value)> = tools
         .iter()
         .filter(|t| t.input_schema["properties"].get("candidate").is_some())
+        .map(|t| (t.name.clone(), t.input_schema.clone()))
         .collect();
-    assert!(checks.len() >= 6, "{tools:?}");
-    for tool in checks {
-        let properties = &tool.input_schema["properties"];
-        assert_eq!(properties["references"]["type"], "array", "{}", tool.name);
-        assert_eq!(properties["references"]["minItems"], 1, "{}", tool.name);
+    assert!(checks.len() >= 5, "{tools:?}");
+    let estimate = tools.iter().find(|t| t.name == "estimate").unwrap();
+    checks.push((
+        "estimate".into(),
+        estimate.input_schema["properties"]["arguments"].clone(),
+    ));
+    for (name, schema) in checks {
+        let properties = &schema["properties"];
+        assert_eq!(properties["references"]["type"], "array", "{}", name);
+        assert_eq!(properties["references"]["minItems"], 1, "{}", name);
         assert_eq!(
             properties["references"]["items"], properties["candidate"],
             "{}",
-            tool.name
+            name
         );
-        assert_eq!(properties["candidate"]["type"], "object", "{}", tool.name);
+        assert_eq!(properties["candidate"]["type"], "object", "{}", name);
     }
 }
 

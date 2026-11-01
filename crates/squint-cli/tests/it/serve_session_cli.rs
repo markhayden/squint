@@ -118,15 +118,18 @@ fn every_run_a_server_makes_carries_its_session() {
         .structured
         .unwrap();
     assert_eq!(checked["run"]["session_id"], id);
-    let mut call = pair();
-    call["use_case"] = json!("source-fidelity");
-    let estimated = c.call("estimate", call).unwrap();
-    let estimated = estimated.structured.unwrap();
-    assert_eq!(estimated["run"]["session_id"], id);
-    assert!(
-        estimated["body"].get("session_budget_left_usd").is_none(),
-        "{estimated}"
-    );
+    // An estimate is no run, but it is bound to the session and observes it (table-manners 4.5).
+    let estimated = c
+        .call(
+            "estimate",
+            json!({ "action": "source_fidelity", "arguments": pair() }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    valid("urn:table-manners:core:estimate", &estimated);
+    assert_eq!(estimated["session_id"], id);
+    assert_eq!(estimated["session"]["id"], id);
 }
 
 #[test]
@@ -280,9 +283,8 @@ fn tree(dir: &Path) -> Vec<PathBuf> {
 /// Twice over: under a scripted provider whose call counter (a file every request appends to)
 /// must stay absent, and under the real Anthropic profile with a key set and its endpoint moved
 /// to a local listener that must see no connection. Each part ends with a check, the control
-/// that proves the counter and the listener do see a call. `describe` (command and tool) leaves
-/// the output directory unchanged; the estimate's own run directory goes with task 9.4, which
-/// extends the directory assertion to it.
+/// that proves the counter and the listener do see a call. `describe` and `estimate` (command
+/// and tool) leave the output directory unchanged: an estimate is never a run (task 9.4).
 #[test]
 fn describing_and_estimating_call_no_provider() {
     let dir = out("no-call");
@@ -337,7 +339,7 @@ fn describing_and_estimating_call_no_provider() {
             .unwrap();
         assert_eq!(described.status.code(), Some(0));
         assert!(!String::from_utf8_lossy(&described.stdout).contains("sk-no-call-not-a-key"));
-        let estimated = squint(&["estimate"])
+        let estimated = squint(&["estimate", "--json"])
             .args(config)
             .args(["--use-case", "source-fidelity", "--candidate"])
             .arg(&candidate)
@@ -363,10 +365,15 @@ fn describing_and_estimating_call_no_provider() {
         let d = c.call("describe", json!({})).unwrap();
         assert!(!d.is_error);
         assert_eq!(tree(&runs), before, "describe wrote nothing");
-        let mut call = pair();
-        call["use_case"] = json!("source-fidelity");
-        let e = c.call("estimate", call).unwrap();
+        let e = c
+            .call(
+                "estimate",
+                json!({ "action": "source_fidelity", "arguments": pair() }),
+            )
+            .unwrap();
         assert!(!e.is_error, "{e:?}");
+        assert_eq!(e.structured.unwrap()["allowed"], true);
+        assert_eq!(tree(&runs), before, "estimate wrote nothing");
         assert!(!calls.exists(), "no provider call");
         nothing_connected();
 

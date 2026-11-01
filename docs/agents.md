@@ -39,12 +39,35 @@ is the `describe` tool over MCP.
 ## Estimate
 
 ```
-squint estimate [--config squint.toml] --job job.toml [--max-spend-usd 0.10]
+squint estimate --json [--config squint.toml] --job job.toml [--max-spend-usd 0.10]
 ```
 
-The worst case one check would reserve, priced from the catalog with no credential, and whether
-the cap covers it (`fits`). Every recorded provider replay spends within its estimate. Over MCP,
-the session's budget, spent and remaining are the `squint://session` resource.
+An estimate is a control, never a run: nothing is written, nothing is sent, no credential is
+read. Over MCP the reserved `estimate` tool takes the action and exactly the arguments the call
+would send, images included:
+
+```jsonc
+{ "action": "source_fidelity", "arguments": { "candidate": { "path": "/abs/edit.png" }, "source": { "path": "/abs/orig.png" } } }
+```
+
+and returns the contract's estimate (table-manners 4.5) as `structuredContent`:
+`worst_case_usd` (what the limits check would reserve; every recorded provider replay spends
+within it), `cap_usd` (the configured per-call cap, lowered by `max_spend_usd`), `allowed`, and
+when not, `refused`: `readiness` (the action is not ready: see its `readiness`), `cap` or
+`budget` (the session cannot hold it; `session` is the same observation as `squint://session`);
+`effective.model` and `effective.config_identity`, with the decision runs, requests and attempts
+under `x-squint`; `expires`, an hour on; and `binding`. The binding covers the action, the
+arguments with each image as its file digest (a path and inline bytes of one file bind equal)
+and its `expect`, squint's version, the configuration and the session; `return_images` and
+`image_blocks` do not change it. A call that cannot be priced (no configuration, or a model the
+catalog lacks) is refused for readiness with `worst_case_usd` and `effective.model` null (and
+`effective.config_identity` null with no configuration), never zero. A wrong request is a
+JSON-RPC error: arguments the input schema rejects are plain `-32602`; `max_spend_usd` above the
+configured cap, an `expect` that does not match, an unknown action or a path outside the roots is
+`-32602` with `{"reason": "invalid_arguments", "run": null, "error": {"code": "usage" | "input",
+…}}`. An estimate takes no permit and claims no `client_run_id`. On the command line the same
+document has `session_id` and `session` null, so no server accepts its binding; with no
+configuration it answers like `describe`, refused for readiness; a wrong request exits 64.
 
 ## Serve
 
@@ -55,9 +78,9 @@ squint serve [--config squint.toml] [--out runs/] [--set serve.session_budget_us
 MCP over stdio at protocol revision `2025-11-25` only, on `rmcp` `=3.8.0`; nothing but the
 protocol on stdout. The configuration is found as for `describe` and read once, at start; to
 take up a change, restart the server (a new session). A server with no configuration that loads
-still starts and answers `describe` and its resources, writes nothing, and refuses a check or an
-`estimate` with `-32602`, `{"reason": "not_ready", "run": null, "requirements": [...]}` naming
-the configuration. Tools: `describe`, `estimate`, and one per use case. A use-case call is one
+still starts and answers `describe`, `estimate` and its resources, writes nothing, and refuses a
+check with `-32602`, `{"reason": "not_ready", "run": null, "requirements": [...]}` naming the
+configuration. Tools: `describe`, `estimate`, and one per use case. A use-case call is one
 ordinary decision (its directory, journal, report and `run.json`).
 
 - **Images** by absolute `path` or `inline` bytes, each with an optional `expect` reference whose

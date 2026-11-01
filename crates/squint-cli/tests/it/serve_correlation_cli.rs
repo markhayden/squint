@@ -145,12 +145,15 @@ fn an_accepted_id_is_the_runs_and_a_reused_one_is_refused_with_that_run() {
     assert_eq!(data["run"]["resource"], first["run"]["resource"]);
     assert_eq!(data["run"]["session_id"], session_id);
     assert_eq!(data["run"]["client_run_id"], "host-attempt-1");
-    // An estimate claims ids the same way.
-    let mut call = pair();
-    call["use_case"] = json!("source-fidelity");
-    let (code, _) =
-        refused(c.call_with_meta("estimate", call, json!({ CLIENT: "host-attempt-1" })));
-    assert_eq!(code, -32602);
+    // An estimate is never a run, so it claims no id and is answered whatever id it carries.
+    let estimated = c
+        .call_with_meta(
+            "estimate",
+            json!({ "action": "source_fidelity", "arguments": pair() }),
+            json!({ CLIENT: "host-attempt-1" }),
+        )
+        .unwrap();
+    assert!(!estimated.is_error, "{estimated:?}");
 }
 
 #[test]
@@ -200,8 +203,12 @@ fn an_id_refused_with_no_run_is_released_for_the_corrected_request() {
     for (tool, call) in [
         ("source_fidelity", unknown),
         ("source_fidelity", no_cap),
-        // An estimate that names no use case.
-        ("estimate", pair()),
+        // Arguments with no `max_spend_usd` above zero.
+        ("source_fidelity", {
+            let mut zero = pair();
+            zero["max_spend_usd"] = json!(0);
+            zero
+        }),
     ] {
         let (code, data) = refused(c.call_with_meta(tool, call, json!({ CLIENT: "fix-1" })));
         assert_eq!(code, -32602, "{tool}");
@@ -255,9 +262,7 @@ fn an_id_cancelled_before_its_run_stays_claimed_with_no_run() {
     c.cancel(running).unwrap();
     let runs = runs_once_ended(&mut c, 1);
     assert_eq!(runs["runs"][0]["client_run_id"], "a", "{runs}");
-    let mut call = pair();
-    call["use_case"] = json!("source-fidelity");
-    let (code, data) = refused(c.call_with_meta("estimate", call, json!({ CLIENT: "q" })));
+    let (code, data) = refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: "q" })));
     assert_eq!(code, -32602);
     valid("urn:table-manners:core:refusal", &data);
     assert_eq!(data["reason"], "client_run_id_reused");
@@ -268,13 +273,11 @@ fn an_id_cancelled_before_its_run_stays_claimed_with_no_run() {
 #[test]
 fn concurrent_requests_with_one_id_run_once() {
     let mut c = client(&out("concurrent"), "held.json");
-    let mut call = pair();
-    call["use_case"] = json!("source-fidelity");
     let one = c
-        .start_call_with_meta("estimate", call.clone(), json!({ CLIENT: "same" }))
+        .start_call_with_meta("source_fidelity", pair(), json!({ CLIENT: "same" }))
         .unwrap();
     let two = c
-        .start_call_with_meta("estimate", call, json!({ CLIENT: "same" }))
+        .start_call_with_meta("source_fidelity", pair(), json!({ CLIENT: "same" }))
         .unwrap();
     let results = [c.finish(one), c.finish(two)];
     let accepted = results.iter().filter(|r| r.is_ok()).count();
@@ -307,8 +310,8 @@ fn an_id_in_use_is_refused_while_queued_and_while_running() {
         )
         .unwrap();
     // The queued call's heartbeat, before any allocation: no reference. It also shows "q" is
-    // accepted and claimed; sent without waiting for it, the estimate below could be accepted
-    // first and take the id itself.
+    // accepted and claimed; sent without waiting for it, the call below could be accepted first
+    // and take the id itself. A call refused as a reuse never reaches the permit.
     let heartbeat = first_progress(&mut c, "q");
     assert!(
         heartbeat["params"]["message"]
@@ -321,13 +324,11 @@ fn an_id_in_use_is_refused_while_queued_and_while_running() {
         heartbeat["params"]["_meta"].get(RUN).is_none(),
         "{heartbeat}"
     );
-    let mut call = pair();
-    call["use_case"] = json!("source-fidelity");
-    let (code, data) = refused(c.call_with_meta("estimate", call.clone(), json!({ CLIENT: "q" })));
+    let (code, data) = refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: "q" })));
     assert_eq!(code, -32602);
     valid("urn:table-manners:core:refusal", &data);
     assert!(data["run"].is_null(), "queued, so no run yet: {data}");
-    let (code, data) = refused(c.call_with_meta("estimate", call, json!({ CLIENT: "a" })));
+    let (code, data) = refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: "a" })));
     assert_eq!(code, -32602);
     assert_eq!(data["run"], reference, "running, so its run");
     c.cancel(queued).unwrap();

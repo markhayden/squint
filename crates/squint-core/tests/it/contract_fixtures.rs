@@ -197,7 +197,6 @@ fn the_conformance_fixtures_are_what_squint_emits() {
             "run-fail.json",
             "run-invalid.json",
             "run-served-cancelled-unresolved.json",
-            "run-served-estimate.json",
             "runs.json",
             "session.json",
         ],

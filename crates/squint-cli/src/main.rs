@@ -51,8 +51,9 @@ enum Command {
     Sets(sets::SetsArgs),
     /// Print the table-manners description document: actions, inputs, cost.
     Describe(describe::DescribeArgs),
-    /// Print the worst-case cost of one check and whether the cap covers it; nothing is sent.
-    Estimate(JobArgs),
+    /// Print the estimate of one check (table-manners 4.5): its worst case against the cap,
+    /// bound to its inputs; nothing is sent and nothing is written.
+    Estimate(EstimateArgs),
     /// Serve the contract's actions over MCP on stdio (protocol 2025-11-25).
     Serve(serve::ServeArgs),
     /// Open Wafflery, the shared local workspace, on squint (`wafflery --tool squint`).
@@ -145,6 +146,15 @@ struct CheckArgs {
     /// Record every exchange with the provider into this directory, secrets stripped.
     #[arg(long, value_name = "DIR")]
     record: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+struct EstimateArgs {
+    #[command(flatten)]
+    input: JobArgs,
+    /// Print the estimate as JSON (the only form).
+    #[arg(long, required = true)]
+    json: bool,
 }
 
 /// What `check` and `estimate` share: the config and the job.
@@ -450,22 +460,50 @@ fn redacted(text: &str, config: &Config) -> String {
     out
 }
 
-/// `squint estimate`: the envelope `check` would reserve, priced from the catalog (or, in a
-/// testkit build, the scripted provider); nothing is sent and no credential is read.
-fn estimate(args: &JobArgs) -> i32 {
+/// `squint estimate --json`: the contract's estimate of one check (table-manners 4.5), the same
+/// document the served tool returns, with no session: `session_id` and `session` are null, so no
+/// server accepts its binding. Priced from the catalog (or, in a testkit build, the scripted
+/// provider) with no credential; nothing is sent and nothing is written. Like `describe`, it
+/// works with no configuration: the estimate is then refused for readiness, with nothing priced.
+fn estimate(args: &EstimateArgs) -> i32 {
+    let input = &args.input;
     let usage = |e: String| {
         eprintln!("squint: {e}");
         EXIT_USAGE
     };
-    let config = match load_config(args) {
-        Ok(c) => c,
-        Err(e) => return usage(e),
+    #[cfg(feature = "testkit")]
+    let scripted = input.provider_script.is_some();
+    #[cfg(not(feature = "testkit"))]
+    let scripted = false;
+    let described = match describe::described(
+        Config::open(input.config.as_deref(), &input.overrides),
+        scripted,
+    ) {
+        Ok(d) => d,
+        Err(e) => return usage(e.to_string()),
     };
-    let job = match load_job(args) {
+    let config = described.file.config();
+    let job = match load_job(input) {
         Ok(j) => j,
         Err(e) => return usage(e),
     };
-    let tools = match build_tools(args, &config) {
+    let action = job.use_case.replace('-', "_");
+    if !described
+        .description
+        .actions
+        .iter()
+        .any(|a| a.name == action)
+    {
+        return usage(format!(
+            "no action for the use case {:?}; squint describe --json lists them",
+            job.use_case
+        ));
+    }
+    let tools = match config {
+        Some(config) => build_tools(input, config),
+        None => ToolRegistry::new(Vec::new(), &[], &[]).map_err(|e| e.to_string()),
+    };
+    let tools = match tools {
         Ok(t) => t,
         Err(e) => return usage(e),
     };
@@ -474,48 +512,53 @@ fn estimate(args: &JobArgs) -> i32 {
         Err(e) => return usage(e.to_string()),
     };
     #[cfg(feature = "testkit")]
-    let scripted = match args
-        .provider_script
-        .as_deref()
-        .map(squint_testkit::ScriptedProvider::from_path)
-        .transpose()
-    {
-        Ok(p) => p,
-        Err(e) => return usage(e.to_string()),
-    };
-    #[cfg(feature = "testkit")]
-    let scripted_pricing = scripted.as_ref().and_then(|p| p.pricing());
+    let scripted_pricing: Option<&dyn squint_core::ledger::Pricing> =
+        scripted.then_some(&squint_testkit::FAKE_PRICES as &dyn squint_core::ledger::Pricing);
     #[cfg(not(feature = "testkit"))]
     let scripted_pricing: Option<&dyn squint_core::ledger::Pricing> = None;
-    let pricing: &dyn squint_core::ledger::Pricing = match scripted_pricing {
-        Some(p) => p,
-        None => match catalog.model(&config.provider.model) {
-            Some(model) => model,
-            None => {
-                return usage(format!(
-                    "model {:?} is not in the catalog",
-                    config.provider.model
-                ));
-            }
+    let pricing = scripted_pricing.or_else(|| {
+        config
+            .and_then(|c| catalog.model(&c.provider.model))
+            .map(|m| m as &dyn squint_core::ledger::Pricing)
+    });
+    let identity = config.map(squint_core::contract::config_identity);
+    let context = squint_core::contract::EstimateContext {
+        binder: squint_core::contract::Binder {
+            version: VERSION,
+            config_identity: identity.as_deref(),
+            session_id: None,
         },
+        config,
+        tools: &tools,
+        readiness: described
+            .inspection
+            .readiness(&squint_core::readiness::Answers::default()),
+        pricing,
+        session: None,
+        now_ms: squint_core::contract::now_ms(),
+        ttl_ms: squint_core::contract::ESTIMATE_TTL_MS,
     };
-    match squint_core::run::envelope(&config, &job, Path::new("."), &tools, pricing) {
-        Ok(envelope) => {
-            let cap = config.budget.spend_cap_usd;
-            let out = serde_json::json!({
-                "use_case": job.use_case,
-                "model": config.provider.model,
-                "envelope_usd": envelope.usd,
-                "cap_usd": cap,
-                "fits": envelope.usd <= cap,
-                "decision_runs": envelope.decision_runs,
-                "requests": envelope.requests.len(),
-                "attempts": envelope.attempts,
-            });
-            println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+    match squint_core::contract::estimate(
+        &context,
+        &action,
+        &job,
+        Path::new("."),
+        input.max_spend_usd,
+    ) {
+        Ok(estimate) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&estimate).unwrap_or_default()
+            );
             0
         }
-        Err(e) => usage(e.to_string()),
+        Err(e) => {
+            eprintln!("squint: {e}");
+            match squint_core::contract::status_of(e.class()).0 {
+                table_manners::Status::Invalid => EXIT_USAGE,
+                _ => squint_core::run::EXIT_ERROR,
+            }
+        }
     }
 }
 

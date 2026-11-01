@@ -549,7 +549,7 @@ pub fn description(
                 name: base.replace('-', "_"),
                 title: title(base),
                 purpose: purpose(base).into(),
-                params_schema: params_schema(None),
+                params_schema: params_schema(),
                 images: Some(images),
                 locations: Some(Vec::new()),
                 outputs: Some(Outputs {
@@ -728,12 +728,13 @@ fn references_slot(required: bool) -> ImageSlot {
     }
 }
 
-/// The served `estimate` tool's arguments while it keeps its v0.2 shape (until M9 task 9.4 makes
-/// it the reserved `{action, arguments}` tool): a check's parameters plus which use case, and
-/// every image slot optional but the candidate.
-pub fn estimate_arguments(use_cases: &[&str]) -> (serde_json::Value, Vec<ImageSlot>) {
+/// The `arguments` the reserved `estimate` tool takes (table-manners 4.5): exactly what a call of
+/// any action would send, so its parameters and image slots, `references` a `many` slot, every
+/// slot optional but the candidate (whether an action needs its source is that action's to say,
+/// when the arguments are checked as its call's).
+pub fn estimate_arguments() -> (serde_json::Value, Vec<ImageSlot>) {
     (
-        params_schema(Some(use_cases)),
+        params_schema(),
         vec![
             slot("candidate", "candidate", true),
             slot("source", "source", false),
@@ -771,10 +772,10 @@ fn obligation_schema() -> (serde_json::Value, serde_json::Value) {
 }
 
 /// The arguments of a check beside its images: the brief, the job's requirements, a lower spend
-/// cap; and for `estimate`, which use case.
-fn params_schema(use_cases: Option<&[&str]>) -> serde_json::Value {
+/// cap.
+fn params_schema() -> serde_json::Value {
     let (obligation, defs) = obligation_schema();
-    let mut properties = serde_json::json!({
+    let properties = serde_json::json!({
         "brief": { "type": "string", "description": "What was asked for, in words." },
         "requirements": {
             "type": "array",
@@ -787,15 +788,10 @@ fn params_schema(use_cases: Option<&[&str]>) -> serde_json::Value {
             "description": "Lowers the configured per-call cap; never raises it."
         }
     });
-    let mut required = Vec::new();
-    if let Some(cases) = use_cases {
-        properties["use_case"] = serde_json::json!({ "enum": cases });
-        required.push("use_case");
-    }
     serde_json::json!({
         "type": "object",
         "properties": properties,
-        "required": required,
+        "required": [],
         "additionalProperties": false,
         "$defs": defs
     })
@@ -810,7 +806,6 @@ const CALL_ARGUMENTS: &[&str] = &[
     "brief",
     "requirements",
     "max_spend_usd",
-    "use_case",
     "return_images",
     "image_blocks",
 ];
@@ -914,9 +909,282 @@ pub fn job_from_call(
     Ok(job)
 }
 
-/// The result of an action that is not a decision (`estimate`): the header with no spend and no
-/// images or locations, and the action's own body; `error` sets the status from its class. The
-/// input identity is a digest of the call's arguments.
+/// How long the server honours an estimate's binding: one hour (table-manners 4.5, ADR 0018
+/// amendment), after which prices or the catalog may have moved.
+pub const ESTIMATE_TTL_MS: u64 = 3_600_000;
+
+/// A JSON value as canonical text: object keys sorted at every level, no whitespace, so two equal
+/// documents digest equal however their keys arrived.
+fn canonical(value: &serde_json::Value) -> String {
+    fn sorted(value: &serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Object(map) => {
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
+                let mut out = serde_json::Map::new();
+                for key in keys {
+                    out.insert(key.clone(), sorted(&map[key]));
+                }
+                serde_json::Value::Object(out)
+            }
+            serde_json::Value::Array(items) => {
+                serde_json::Value::Array(items.iter().map(sorted).collect())
+            }
+            other => other.clone(),
+        }
+    }
+    // Keys are written in insertion order whether or not serde_json keeps it, so sorting once
+    // and writing by hand gives the same text under either feature.
+    fn write(value: &serde_json::Value, out: &mut String) {
+        match value {
+            serde_json::Value::Object(map) => {
+                out.push('{');
+                for (n, (key, item)) in map.iter().enumerate() {
+                    if n > 0 {
+                        out.push(',');
+                    }
+                    out.push_str(&serde_json::Value::String(key.clone()).to_string());
+                    out.push(':');
+                    write(item, out);
+                }
+                out.push('}');
+            }
+            serde_json::Value::Array(items) => {
+                out.push('[');
+                for (n, item) in items.iter().enumerate() {
+                    if n > 0 {
+                        out.push(',');
+                    }
+                    write(item, out);
+                }
+                out.push(']');
+            }
+            other => out.push_str(&other.to_string()),
+        }
+    }
+    let mut out = String::new();
+    write(&sorted(value), &mut out);
+    out
+}
+
+/// `sha256:<hex>` of a value's canonical text.
+fn digest(value: &serde_json::Value) -> String {
+    format!(
+        "sha256:{}",
+        hex(&Sha256::digest(canonical(value).as_bytes()))
+    )
+}
+
+/// The identity of the configuration in force (table-manners 4.5 `effective.config_identity`):
+/// the digest of the redacted configuration's canonical JSON, so a secret never shapes it and the
+/// same settings read from anywhere are the same identity.
+pub fn config_identity(config: &Config) -> String {
+    digest(&config.redacted_json())
+}
+
+/// What an estimate's binding covers beside the call (table-manners 4.5): the tool version, the
+/// configuration's identity (none without one) and the session (none from the command line).
+pub struct Binder<'a> {
+    pub version: &'a str,
+    pub config_identity: Option<&'a str>,
+    pub session_id: Option<&'a str>,
+}
+
+impl Binder<'_> {
+    /// The binding of one call of `action` (table-manners 4.5, ADR 0018 amendment): sha256 over
+    /// the canonical JSON of the action, the call's arguments with every image replaced by its
+    /// file digest (`file_digests`, one per job image in order, so a path and inline bytes of the
+    /// same file bind equal) and its `expect` kept, the tool version, the configuration's identity
+    /// and the session id. `return_images` and `image_blocks` only choose how results are
+    /// delivered and are not part of it; an empty `requirements` is the same call as none.
+    pub fn binding(
+        &self,
+        action: &str,
+        job: &crate::job::Job,
+        file_digests: &[String],
+        max_spend_usd: Option<f64>,
+    ) -> String {
+        let image = |n: usize| {
+            let spec = &job.images[n];
+            let mut bound = serde_json::Map::new();
+            bound.insert(
+                "file_sha256".into(),
+                file_digests.get(n).cloned().unwrap_or_default().into(),
+            );
+            if let Some(expect) = &spec.expect {
+                bound.insert(
+                    "expect".into(),
+                    serde_json::to_value(expect).unwrap_or_default(),
+                );
+            }
+            serde_json::Value::Object(bound)
+        };
+        let of_role = |role: Role| -> Vec<serde_json::Value> {
+            (0..job.images.len())
+                .filter(|&n| job.images[n].role == role)
+                .map(image)
+                .collect()
+        };
+        let mut arguments = serde_json::Map::new();
+        if let Some(candidate) = of_role(Role::Candidate).pop() {
+            arguments.insert("candidate".into(), candidate);
+        }
+        if let Some(source) = of_role(Role::Source).pop() {
+            arguments.insert("source".into(), source);
+        }
+        let references = of_role(Role::Reference);
+        if !references.is_empty() {
+            arguments.insert("references".into(), references.into());
+        }
+        if let Some(brief) = &job.brief {
+            arguments.insert("brief".into(), brief.clone().into());
+        }
+        if !job.requirements.is_empty() {
+            arguments.insert(
+                "requirements".into(),
+                serde_json::to_value(&job.requirements).unwrap_or_default(),
+            );
+        }
+        if let Some(max) = max_spend_usd {
+            arguments.insert("max_spend_usd".into(), max.into());
+        }
+        digest(&serde_json::json!({
+            "action": action,
+            "arguments": arguments,
+            "tool_version": self.version,
+            "config_identity": self.config_identity,
+            "session_id": self.session_id,
+        }))
+    }
+}
+
+/// What an estimate is computed under (table-manners 4.5): the configuration in force (none when
+/// none loaded), its tools, the action's readiness, the prices the limits check would plan with
+/// (none when the call cannot be priced), the session observed once (none from the command line)
+/// and the clock.
+pub struct EstimateContext<'a> {
+    pub binder: Binder<'a>,
+    pub config: Option<&'a Config>,
+    pub tools: &'a crate::tool::ToolRegistry,
+    pub readiness: Readiness,
+    pub pricing: Option<&'a dyn crate::ledger::Pricing>,
+    pub session: Option<table_manners::Session>,
+    pub now_ms: u64,
+    /// How long the binding is honoured; [`ESTIMATE_TTL_MS`] outside tests.
+    pub ttl_ms: u64,
+}
+
+/// The estimate of one call of `action` (table-manners 4.5): never a run, never a provider call.
+/// The images are read and checked as a check reads them (an `expect` that does not match is
+/// `input`), the rules resolved when a configuration is loaded, and the worst case planned by the
+/// same envelope the limits check reserves. A call that cannot be priced (no configuration, or no
+/// prices for its model) is refused for readiness with nulls, never a made-up zero; otherwise the
+/// refusal is the first of readiness, cap and budget that applies. `max_spend_usd` above the
+/// configured cap is a usage error, never silently lowered.
+pub fn estimate(
+    ctx: &EstimateContext<'_>,
+    action: &str,
+    job: &crate::job::Job,
+    job_base: &Path,
+    max_spend_usd: Option<f64>,
+) -> crate::Result<table_manners::Estimate> {
+    use table_manners::{Effective, Estimate, EstimateRefusal, ReadinessState};
+    // With no configuration, squint's defaults stand for the cap and the image bounds.
+    let configured_cap = ctx.config.map_or_else(
+        || crate::config::BudgetConfig::default().spend_cap_usd,
+        |c| c.budget.spend_cap_usd,
+    );
+    let cap = match max_spend_usd {
+        Some(max) if max.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) => {
+            return Err(crate::Error::Config(format!(
+                "max_spend_usd {max} must be a positive amount"
+            )));
+        }
+        Some(max) if max > configured_cap => {
+            return Err(crate::Error::Config(format!(
+                "max_spend_usd {max} is above the configured per-call cap of {configured_cap}; \
+                 it may lower the cap, never raise it"
+            )));
+        }
+        Some(max) => max,
+        None => configured_cap,
+    };
+    let (images, setup) = match ctx.config {
+        Some(config) => {
+            let setup = crate::run::setup(config, job, job_base, ctx.tools)?;
+            (setup.images.clone(), Some(setup))
+        }
+        None => {
+            let bounds = crate::config::ImagesConfig::default().decode_bounds();
+            let images = job
+                .images
+                .iter()
+                .map(|spec| crate::image::load(spec, job_base, &bounds))
+                .collect::<crate::Result<Vec<_>>>()?;
+            (images, None)
+        }
+    };
+    let file_digests: Vec<String> = images.iter().map(|i| i.sha256.clone()).collect();
+    let envelope = match (ctx.config, &setup, ctx.pricing) {
+        (Some(config), Some(setup), Some(pricing)) => Some(crate::run::envelope_of(
+            config, setup, job, ctx.tools, pricing,
+        )?),
+        _ => None,
+    };
+    let worst = envelope.as_ref().map(|e| usd(e.usd));
+    let remaining = ctx.session.as_ref().and_then(|s| s.remaining_usd);
+    // Rounding slack, as the ledgers compare.
+    const EPSILON: f64 = 1e-9;
+    let refused = match worst {
+        None => Some(EstimateRefusal::Readiness),
+        Some(_) if ctx.readiness.state != ReadinessState::Ready => Some(EstimateRefusal::Readiness),
+        Some(w) if w > cap + EPSILON => Some(EstimateRefusal::Cap),
+        Some(w) if remaining.is_some_and(|r| w > r + EPSILON) => Some(EstimateRefusal::Budget),
+        Some(_) => None,
+    };
+    let mut extensions = std::collections::BTreeMap::new();
+    if let Some(e) = &envelope {
+        extensions.insert(
+            "x-squint".into(),
+            serde_json::json!({
+                "decision_runs": e.decision_runs,
+                "requests": e.requests.len(),
+                "attempts": e.attempts,
+            }),
+        );
+    }
+    Ok(Estimate {
+        contract: CONTRACT_VERSION.into(),
+        tool: Tool {
+            name: "squint".into(),
+            version: ctx.binder.version.into(),
+        },
+        action: action.into(),
+        binding: ctx
+            .binder
+            .binding(action, job, &file_digests, max_spend_usd),
+        session_id: ctx.binder.session_id.map(str::to_string),
+        effective: Effective {
+            model: envelope
+                .as_ref()
+                .and(ctx.config)
+                .map(|c| c.provider.model.clone()),
+            config_identity: ctx.binder.config_identity.map(str::to_string),
+            extensions,
+        },
+        worst_case_usd: worst,
+        cap_usd: Some(usd(cap)),
+        allowed: refused.is_none(),
+        refused,
+        readiness: ctx.readiness.clone(),
+        session: ctx.session.clone(),
+        expires: rfc3339(ctx.now_ms.saturating_add(ctx.ttl_ms)),
+    })
+}
+
+/// The result of a check refused before its decision was allocated (its arguments, a path outside
+/// the roots, its provider): the header with no spend and no images or locations; `error` sets
+/// the status from its class. The input identity is a digest of the call's arguments.
 #[allow(clippy::too_many_arguments)]
 pub fn action_result(
     dir: &Path,

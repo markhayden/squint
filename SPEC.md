@@ -1248,8 +1248,9 @@ None found is not an error for `describe` or `serve` (table-manners 3.1): the de
 the configuration as a `missing` requirement at the path the lookup would use (the user file),
 or `invalid` when it does not load (a parse error, an unreadable file, an unset `${VAR}` named
 in the setup sentence, rules that do not resolve), and the server starts and refuses every call
-that makes a run `not_ready`. `check` and `estimate` exit 64 naming where squint looked. A
-parse error never quotes an expanded value.
+that makes a run `not_ready`. `check` exits 64 naming where squint looked; `estimate` answers
+like `describe`, its estimate refused for readiness with nothing priced. A parse error never
+quotes an expanded value.
 
 ## Evaluation
 
@@ -1441,12 +1442,11 @@ with them.
 - **`squint serve`**: an MCP server over stdio at revision `2025-11-25`, under the contract's
   server conventions. Tools: one per use case, as `describe` lists them (`source_fidelity`, …: one
   decision each; images by path or inline bytes in any slot; paths only inside the client's MCP
-  roots narrowed by config; inline bytes bounded), `estimate` (worst-case cost of a check and the
-  effective per-call cap; the session's budget is the `squint://session` resource; on the command
-  line `squint estimate`, priced from the catalog with no credential), and `describe`. It reads
+  roots narrowed by config; inline bytes bounded), the reserved `estimate` (below), and
+  `describe`. It reads
   its configuration once, at start, and never reloads it (table-manners 4.6). Without one that
-  loads it still starts, needs no output directory and writes nothing: `describe` and the
-  resources answer, and a check or `estimate` is refused before any run as JSON-RPC `-32602` with
+  loads it still starts, needs no output directory and writes nothing: `describe`, `estimate` and
+  the resources answer, and a check is refused before any run as JSON-RPC `-32602` with
   `{"reason": "not_ready", "run": null, "requirements": [the config]}`, which releases its
   `client_run_id`. squint's own self-description (`rules`, `tools list`, `catalog`)
   stays on the command line and is referenced from the description's `x-squint`. An `invalid` or
@@ -1458,11 +1458,36 @@ with them.
   the command line `--max-spend-usd`) may lower and never raise, and a per-session budget
   (`[serve] session_budget_usd`) across the server's lifetime, a ledger every decision reserves
   against before its first request. Paths: when the client offers roots, squint asks for them on
-  every check and estimate and refuses (`invalid`, `input`) a path outside them, or outside
+  every check and estimate and refuses (`input`) a path outside them, or outside
   `[serve] roots` when the config names any; a client that offers no roots, under a config that
   names none, can send images only inline (closed by default). A refusal says nothing about the
   file, not even whether it exists. A check over `serve` is an ordinary decision: its directory, journal,
   report and `run.json`, with the action's name.
+- **Estimates** (table-manners 4.5): a control, never a run: no directory, journal, runs entry or
+  `run.json`, no permit, no `client_run_id` claimed, no provider call. The `estimate` tool takes
+  `{"action": <an action's name>, "arguments": <exactly the call's arguments, images included>}`
+  and returns the contract's estimate as `structuredContent`: `worst_case_usd`, the envelope the
+  limits check would reserve (`run::envelope`, from the same setup a check makes: the images read
+  and checked, the rules resolved); `cap_usd`, the configured per-call cap lowered by
+  `max_spend_usd`; `allowed`, and when not, `refused`: `readiness` (the action is not `ready`),
+  then `cap`, then `budget` (the session cannot hold it); the action's `readiness`; `session`, the
+  same observation as `squint://session`; `effective.model` (the configured model),
+  `effective.config_identity` (sha256 of the redacted configuration's canonical JSON) and under
+  `x-squint` the decision runs, requests per run and billable attempts; `expires`, one hour on;
+  and `binding`, sha256 over the canonical JSON of the action, the arguments with each image
+  replaced by its file digest (a path and inline bytes of one file bind equal) and its `expect`
+  kept, the tool version, the configuration's identity and the session id (`return_images` and
+  `image_blocks` left out). The server records each binding it issues with its expiry. A call
+  that cannot be priced (no configuration, or a model the catalog lacks) is refused for
+  readiness with `worst_case_usd` and `effective.model` null, and without a configuration
+  `effective.config_identity` null, never a made-up zero. A wrong request is a JSON-RPC error,
+  since there is no run: arguments the input schema rejects are plain `-32602`; any other
+  (`max_spend_usd` above the configured cap, an `expect` that does not match, an unknown action,
+  a path outside the roots) is `-32602` with `{"reason": "invalid_arguments", "run": null,
+  "error": {"code": "usage" | "input", "retryable": false, "reason": …}}`. `squint estimate
+  --json` prints the same document from the command line, priced from the catalog with no
+  credential, with `session_id` and `session` null, so no server accepts its binding; a wrong
+  request there exits 64.
 - **Progress and cancellation**: `check` is a plain `tools/call`. With a progress token, squint
   sends a notification on every journal line of every run (through an observer the journal calls
   after each write) and a heartbeat after five seconds of silence, well inside the ten the
@@ -1490,7 +1515,7 @@ with them.
   cursor opaque base64url; a run started during a walk is seen by reading page one again),
   `squint://run/<id>/run.json`, `…/report.json` and `…/journal` for every decision the server ran,
   readable after a timeout or a dropped connection; every run has a journal, an empty one when it
-  made no decision (an `estimate`, a call refused before its first run).
+  made no decision (a check refused before its first run).
 - **`run.json`**: written last and atomically (a temporary name, then a rename) into every
   decision directory by `check` on every surface, cache hits and cancelled decisions included: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
@@ -1597,7 +1622,7 @@ squint report rebuild ./squint-out/<run-id>
 squint report prune --older-than 30d
 squint tools list --config squint.toml      # manifests as the model will see them
 squint describe --json [--config squint.toml] # the contract's description document (ADR 0018); works with no config
-squint estimate --config squint.toml --job job.toml [--max-spend-usd 0.10]   # worst case of one check; nothing sent
+squint estimate --json --config squint.toml --job job.toml [--max-spend-usd 0.10]   # the estimate of one check; nothing sent
 squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check, never raises it
 squint serve [--config squint.toml] [--out runs/]   # MCP over stdio, protocol 2025-11-25 (table-manners 5); starts with no config
 squint sets check evalsets/

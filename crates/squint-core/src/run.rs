@@ -439,8 +439,24 @@ pub fn envelope(
     tools: &ToolRegistry,
     pricing: &dyn Pricing,
 ) -> Result<ledger::Envelope> {
-    let s = setup(config, job, job_base, tools)?;
-    ledger::plan(config, &plan_input(&s.prepared, job, tools), pricing)
+    envelope_of(
+        config,
+        &setup(config, job, job_base, tools)?,
+        job,
+        tools,
+        pricing,
+    )
+}
+
+/// [`envelope`] for a job whose rules and images are already set up.
+pub fn envelope_of(
+    config: &Config,
+    setup: &Setup,
+    job: &Job,
+    tools: &ToolRegistry,
+    pricing: &dyn Pricing,
+) -> Result<ledger::Envelope> {
+    ledger::plan(config, &plan_input(&setup.prepared, job, tools), pricing)
 }
 
 /// Resolves the rules and decodes the images once per decision.
