@@ -1,7 +1,8 @@
 # squint for agents and pipelines
 
 squint speaks the waffle tools' shared contract, [table-manners](https://github.com/markhayden/table-manners)
-v0.1.0, core and images profile (ADR 0018). An agent or a script that knows the contract can
+v0.3.0, core and images profile (ADR 0018); until v0.3.0 is published squint builds against the
+contract's `v0.3` branch. An agent or a script that knows the contract can
 describe squint, estimate a check, run one, follow it, stop it and read it back, the same way it
 does rascal. This page is squint's side; the contract's `CONTRACT.md` is the reference.
 
@@ -12,11 +13,14 @@ squint describe --json --config squint.toml
 ```
 
 The description document: one action per shipped use case (`source_fidelity`,
-`reference_consistency`, `reality_checks`, `brief_compliance`, `product_fidelity`) and `estimate`.
-Each use case takes `candidate`, a `source` where its rule set requires one, and `references` (a
-list), with `brief`, `requirements` (typed by squint's obligation schema) and `max_spend_usd`.
-`cost.needs_env` names the credential variable of the configured profile; its value is never read
-or printed. The same document is the `describe` tool over MCP.
+`reference_consistency`, `reality_checks`, `brief_compliance`, `product_fidelity`); `estimate` is
+a reserved tool, not an action. Each use case takes `candidate`, a `source` where its rule set
+requires one, and `references` (a list), with `brief`, `requirements` (typed by squint's
+obligation schema) and `max_spend_usd`. Each action's `readiness` names the credential variable
+of the configured profile, `present` or `missing` by a local lookup; its value is never kept or
+printed. A check on the scripted fake needs nothing and is `ready`. The renders are `report`
+(`report view`, kind `server`) and `export` (`report export`, kind `document`). The same document
+is the `describe` tool over MCP.
 
 ## Estimate
 

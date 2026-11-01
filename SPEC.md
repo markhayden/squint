@@ -1405,8 +1405,10 @@ Schemas (the source of truth), test vectors, a fixture per tool and a Rust crate
 The contract has a core every tool follows and profiles a kind of tool adds; squint implements the
 core and the images profile, and lists `images` in its description's `profiles`. squint pins a
 tagged release, keeps a hash-checked copy of its schemas under `schemas/contract/`, and warns in CI
-when a newer tag exists. squint pins v0.1.0. Field names and schemas are the contract's; this
-section says what squint does with them.
+when a newer tag exists. squint conforms to v0.3.0, built against the contract's unpublished
+`v0.3` branch by path until the release is published (M9; `SOURCES.toml` names the branch and
+commit copied). Field names and schemas are the contract's; this section says what squint does
+with them.
 
 - **Image reference**: `file_sha256`, width and height of the caller's file (enforced), projection
   and topology, an optional `pixel_sha256` in the contract's canonical form. squint computes the
@@ -1489,11 +1491,13 @@ section says what squint does with them.
   its rule set's `use_case` with a one-sentence purpose (kept beside the description, since sealed
   sets bind the rule files byte for byte), taking `candidate`, the `source` when the
   rule set requires one, and `references` (a list; contract v0.1 has no list slot, so squint says
-  so under `x-squint`), with the brief, requirements and a lower spend cap as parameters; an
-  `estimate` action; every disposition and confidence word a finding can carry (`vocabulary`),
-  the renders (`report view`, `report export`), the cost notice and the credential variable the
-  configured profile needs (its name, never its value; a check on the scripted fake, under the
-  `fake` profile or `--provider-script`, declares `may_spend: false` and no credential), the
+  so under `x-squint`), with the brief, requirements and a lower spend cap as parameters
+  (`estimate` is a reserved tool, never an action); every disposition and confidence word a
+  finding can carry (`vocabulary`), the renders (`report view` of kind `server` with a ten-second
+  `ready_timeout_s`, `report export` of kind `document`), the cost notice and each action's
+  `readiness`: the credential variable the configured profile needs, by name, `present` or
+  `missing` by a local lookup, never its value (a check on the scripted fake, under the `fake`
+  profile or `--provider-script`, declares `may_spend: false`, needs nothing and is `ready`), the
   expected duration, the inline limit (the decode bound) and the resources. Every
   `params_schema` and MCP `inputSchema` is a schema of its own: the definitions it refers to sit
   at its root. Argument errors on every command exit 64.

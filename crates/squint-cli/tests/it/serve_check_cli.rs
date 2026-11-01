@@ -345,7 +345,7 @@ fn every_tool_input_schema_compiles_on_its_own() {
 }
 
 /// A server running the scripted provider declares what it can do: no check spends or needs a
-/// credential (squint issue #2), whatever profile the config names.
+/// credential (squint issue #2), whatever profile the config names, so every check is ready.
 #[test]
 fn a_scripted_server_declares_free_checks() {
     let mut c = client(
@@ -358,6 +358,11 @@ fn a_scripted_server_declares_free_checks() {
     let d = c.call("describe", json!({})).unwrap().structured.unwrap();
     for action in d["actions"].as_array().unwrap() {
         assert_eq!(action["cost"]["may_spend"], false, "{}", action["name"]);
-        assert_eq!(action["cost"]["needs_env"], json!([]), "{}", action["name"]);
+        assert_eq!(
+            action["readiness"],
+            json!({ "state": "ready", "requirements": [] }),
+            "{}",
+            action["name"]
+        );
     }
 }

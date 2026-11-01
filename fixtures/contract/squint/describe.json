@@ -3,10 +3,7 @@
     {
       "cost": {
         "basis": "measured",
-        "may_spend": true,
-        "needs_env": [
-          "ANTHROPIC_API_KEY"
-        ]
+        "may_spend": true
       },
       "duration": {
         "max_s": 900.0,
@@ -159,6 +156,17 @@
         "type": "object"
       },
       "purpose": "An edited or re-generated image kept what mattered in the original.",
+      "readiness": {
+        "requirements": [
+          {
+            "kind": "credential",
+            "name": "ANTHROPIC_API_KEY",
+            "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with.",
+            "state": "present"
+          }
+        ],
+        "state": "ready"
+      },
       "renders": [
         {
           "command": [
@@ -169,7 +177,9 @@
             "--port",
             "0"
           ],
-          "name": "report"
+          "kind": "server",
+          "name": "report",
+          "ready_timeout_s": 10
         },
         {
           "command": [
@@ -178,6 +188,7 @@
             "export",
             "{run.dir}"
           ],
+          "kind": "document",
           "name": "export"
         }
       ],
@@ -186,10 +197,7 @@
     {
       "cost": {
         "basis": "measured",
-        "may_spend": true,
-        "needs_env": [
-          "ANTHROPIC_API_KEY"
-        ]
+        "may_spend": true
       },
       "duration": {
         "max_s": 900.0,
@@ -337,6 +345,17 @@
         "type": "object"
       },
       "purpose": "A subject from one or more reference images appears faithfully in a new scene.",
+      "readiness": {
+        "requirements": [
+          {
+            "kind": "credential",
+            "name": "ANTHROPIC_API_KEY",
+            "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with.",
+            "state": "present"
+          }
+        ],
+        "state": "ready"
+      },
       "renders": [
         {
           "command": [
@@ -347,7 +366,9 @@
             "--port",
             "0"
           ],
-          "name": "report"
+          "kind": "server",
+          "name": "report",
+          "ready_timeout_s": 10
         },
         {
           "command": [
@@ -356,6 +377,7 @@
             "export",
             "{run.dir}"
           ],
+          "kind": "document",
           "name": "export"
         }
       ],
@@ -364,10 +386,7 @@
     {
       "cost": {
         "basis": "measured",
-        "may_spend": true,
-        "needs_env": [
-          "ANTHROPIC_API_KEY"
-        ]
+        "may_spend": true
       },
       "duration": {
         "max_s": 900.0,
@@ -515,6 +534,17 @@
         "type": "object"
       },
       "purpose": "The image makes no mistake a real photograph would not make.",
+      "readiness": {
+        "requirements": [
+          {
+            "kind": "credential",
+            "name": "ANTHROPIC_API_KEY",
+            "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with.",
+            "state": "present"
+          }
+        ],
+        "state": "ready"
+      },
       "renders": [
         {
           "command": [
@@ -525,7 +555,9 @@
             "--port",
             "0"
           ],
-          "name": "report"
+          "kind": "server",
+          "name": "report",
+          "ready_timeout_s": 10
         },
         {
           "command": [
@@ -534,6 +566,7 @@
             "export",
             "{run.dir}"
           ],
+          "kind": "document",
           "name": "export"
         }
       ],
@@ -542,10 +575,7 @@
     {
       "cost": {
         "basis": "measured",
-        "may_spend": true,
-        "needs_env": [
-          "ANTHROPIC_API_KEY"
-        ]
+        "may_spend": true
       },
       "duration": {
         "max_s": 900.0,
@@ -693,6 +723,17 @@
         "type": "object"
       },
       "purpose": "The image contains what was asked for and nothing it should not.",
+      "readiness": {
+        "requirements": [
+          {
+            "kind": "credential",
+            "name": "ANTHROPIC_API_KEY",
+            "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with.",
+            "state": "present"
+          }
+        ],
+        "state": "ready"
+      },
       "renders": [
         {
           "command": [
@@ -703,7 +744,9 @@
             "--port",
             "0"
           ],
-          "name": "report"
+          "kind": "server",
+          "name": "report",
+          "ready_timeout_s": 10
         },
         {
           "command": [
@@ -712,6 +755,7 @@
             "export",
             "{run.dir}"
           ],
+          "kind": "document",
           "name": "export"
         }
       ],
@@ -720,10 +764,7 @@
     {
       "cost": {
         "basis": "measured",
-        "may_spend": true,
-        "needs_env": [
-          "ANTHROPIC_API_KEY"
-        ]
+        "may_spend": true
       },
       "duration": {
         "max_s": 900.0,
@@ -871,6 +912,17 @@
         "type": "object"
       },
       "purpose": "A product shot keeps the exact product shown in the references.",
+      "readiness": {
+        "requirements": [
+          {
+            "kind": "credential",
+            "name": "ANTHROPIC_API_KEY",
+            "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with.",
+            "state": "present"
+          }
+        ],
+        "state": "ready"
+      },
       "renders": [
         {
           "command": [
@@ -881,7 +933,9 @@
             "--port",
             "0"
           ],
-          "name": "report"
+          "kind": "server",
+          "name": "report",
+          "ready_timeout_s": 10
         },
         {
           "command": [
@@ -890,181 +944,14 @@
             "export",
             "{run.dir}"
           ],
+          "kind": "document",
           "name": "export"
         }
       ],
       "title": "Product fidelity"
-    },
-    {
-      "cost": {
-        "may_spend": false,
-        "needs_env": []
-      },
-      "duration": {
-        "max_s": 30.0,
-        "typical_s": 1.0
-      },
-      "images": [
-        {
-          "required": true,
-          "role": "candidate",
-          "slot": "candidate"
-        },
-        {
-          "required": false,
-          "role": "source",
-          "slot": "source"
-        },
-        {
-          "required": false,
-          "role": "reference",
-          "slot": "references"
-        }
-      ],
-      "locations": [],
-      "name": "estimate",
-      "outputs": {
-        "images": [],
-        "locations": []
-      },
-      "params_schema": {
-        "$defs": {
-          "Kind": {
-            "description": "What an obligation does in aggregation.",
-            "enum": [
-              "must_hold",
-              "must_not",
-              "allowed",
-              "observe"
-            ],
-            "type": "string"
-          }
-        },
-        "additionalProperties": false,
-        "properties": {
-          "brief": {
-            "description": "What was asked for, in words.",
-            "type": "string"
-          },
-          "max_spend_usd": {
-            "description": "Lowers the configured per-call cap; never raises it.",
-            "exclusiveMinimum": 0,
-            "type": "number"
-          },
-          "requirements": {
-            "description": "Job requirements, as `[[job.requirements]]` in a job file; ids `RQ<n>`.",
-            "items": {
-              "additionalProperties": false,
-              "description": "One obligation as written in a rules file or a job's `[[job.requirements]]`.",
-              "properties": {
-                "condition": {
-                  "default": null,
-                  "description": "Exemptions only: the condition under which the exemption applies.",
-                  "type": [
-                    "string",
-                    "null"
-                  ]
-                },
-                "disabled": {
-                  "default": false,
-                  "description": "Drops an obligation of this id from the merge.",
-                  "type": "boolean"
-                },
-                "evidence": {
-                  "default": null,
-                  "description": "Image roles or ids consulted to judge it; omitted means every source and reference.",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": [
-                    "array",
-                    "null"
-                  ]
-                },
-                "evidence_kinds": {
-                  "default": null,
-                  "description": "Tool evidence kinds whose regions bear on this; omitted means the set's default.",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": [
-                    "array",
-                    "null"
-                  ]
-                },
-                "hidden_ok": {
-                  "default": false,
-                  "description": "Mandatory kinds only: `hidden` is recorded instead of unsure.",
-                  "type": "boolean"
-                },
-                "id": {
-                  "type": "string"
-                },
-                "kind": {
-                  "$ref": "#/$defs/Kind"
-                },
-                "matters": {
-                  "default": null,
-                  "description": "Controls uncertainty only. Defaults to true for mandatory kinds; ignored for other kinds.",
-                  "type": [
-                    "boolean",
-                    "null"
-                  ]
-                },
-                "scope": {
-                  "default": null,
-                  "description": "Image roles or ids whose correctness this judges; omitted means `candidate`.",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": [
-                    "array",
-                    "null"
-                  ]
-                },
-                "text": {
-                  "default": "",
-                  "type": "string"
-                },
-                "waives": {
-                  "default": [],
-                  "description": "Exemptions only: the mandatory obligation ids this may waive (may be empty).",
-                  "items": {
-                    "type": "string"
-                  },
-                  "type": "array"
-                }
-              },
-              "required": [
-                "id",
-                "kind"
-              ],
-              "title": "Obligation",
-              "type": "object"
-            },
-            "type": "array"
-          },
-          "use_case": {
-            "enum": [
-              "source-fidelity",
-              "reference-consistency",
-              "reality-checks",
-              "brief-compliance",
-              "product-fidelity"
-            ]
-          }
-        },
-        "required": [
-          "use_case"
-        ],
-        "type": "object"
-      },
-      "purpose": "The worst-case cost of one check of a use case, against the per-call cap.",
-      "renders": [],
-      "title": "Estimate"
     }
   ],
-  "contract": "0.2.0",
+  "contract": "0.3.0",
   "limits": {
     "inline_bytes": 67108864
   },

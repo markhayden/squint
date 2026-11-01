@@ -22,6 +22,7 @@ use squint_core::contract;
 use squint_core::ledger::{CapLedger, Ledger};
 use squint_core::tool::ToolRegistry;
 use table_manners::Description;
+use table_manners::images::ImageSlot;
 use tokio::sync::Semaphore;
 
 use crate::{EXIT_USAGE, VERSION};
@@ -208,7 +209,7 @@ struct Inner {
 }
 
 impl Server {
-    /// The tools this server answers: `describe` and the description's actions it serves.
+    /// The tools this server answers: `describe`, `estimate` and the description's actions.
     fn tools(&self) -> Vec<Tool> {
         let mut tools = vec![Tool::new(
             "describe",
@@ -219,13 +220,30 @@ impl Server {
                 ("additionalProperties".to_string(), json!(false)),
             ])),
         )];
+        let use_cases: Vec<String> = self
+            .inner
+            .description
+            .actions
+            .iter()
+            .map(|a| a.name.replace('_', "-"))
+            .collect();
+        let (params, slots) =
+            contract::estimate_arguments(&use_cases.iter().map(String::as_str).collect::<Vec<_>>());
         for action in &self.inner.description.actions {
             tools.push(Tool::new(
                 action.name.clone(),
                 action.purpose.clone(),
-                Arc::new(input_schema(action)),
+                Arc::new(input_schema(
+                    &action.params_schema,
+                    action.images.as_deref().unwrap_or_default(),
+                )),
             ));
         }
+        tools.push(Tool::new(
+            "estimate",
+            "The worst-case cost of one check of a use case, against the per-call cap.",
+            Arc::new(input_schema(&params, &slots)),
+        ));
         tools
     }
 
@@ -329,6 +347,8 @@ impl Server {
             let refusal = table_manners::Refusal {
                 reason: table_manners::RefusalReason::ClientRunIdReused,
                 run: run.clone(),
+                requirements: None,
+                error: None,
             };
             return Err(ErrorData::invalid_params(
                 format!("client_run_id {client_run_id:?} was already used in this session"),
@@ -827,9 +847,9 @@ fn new_run_dir(out_dir: &Path, action: &str, started_ms: u64) -> std::io::Result
     }
 }
 
-/// An action's MCP input schema: its parameters, its image slots as images in (`references` a
-/// list of them), and the locator and image-block choices.
-fn input_schema(action: &table_manners::Action) -> Map<String, Value> {
+/// A tool's MCP input schema: its parameters, its image slots as images in (`references` a list
+/// of them), and the locator and image-block choices.
+fn input_schema(params_schema: &Value, slots: &[ImageSlot]) -> Map<String, Value> {
     let image_in = json!({
         "type": "object",
         "description": "An image by absolute path or inline bytes, with an optional expected reference (table-manners 10.1).",
@@ -843,15 +863,15 @@ fn input_schema(action: &table_manners::Action) -> Map<String, Value> {
             "expect": { "type": "object" }
         }
     });
-    let mut properties = action.params_schema["properties"]
+    let mut properties = params_schema["properties"]
         .as_object()
         .cloned()
         .unwrap_or_default();
-    let mut required: Vec<Value> = action.params_schema["required"]
+    let mut required: Vec<Value> = params_schema["required"]
         .as_array()
         .cloned()
         .unwrap_or_default();
-    for slot in action.images.iter().flatten() {
+    for slot in slots {
         let schema = if slot.slot == "references" {
             json!({ "type": "array", "items": image_in })
         } else {
@@ -876,7 +896,7 @@ fn input_schema(action: &table_manners::Action) -> Map<String, Value> {
         ("required".to_string(), Value::Array(required)),
         ("additionalProperties".to_string(), json!(false)),
         // The definitions the parameters refer to, kept at this schema's root (squint issue #2).
-        ("$defs".to_string(), action.params_schema["$defs"].clone()),
+        ("$defs".to_string(), params_schema["$defs"].clone()),
     ])
 }
 

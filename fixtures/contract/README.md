@@ -5,7 +5,8 @@ github.com/markhayden/table-manners), copied unchanged. `digests.json` records e
 `file_sha256`, so the copy checks itself; `crates/squint-core/tests/it/image_reference.rs`
 reproduces every `pixel_sha256` through squint's own decode path (task 7.2).
 
-`squint/`: squint's conformance fixtures (tasks 7.10, 8.6), at contract v0.2: the description
+`squint/`: squint's conformance fixtures (tasks 7.10, 8.6, 9.1), at contract v0.3.0 (the
+unpublished `v0.3` branch until its release): the description
 and one `run.json` per status from the command line (`crates/squint-core/tests/it/contract_fixtures.rs`),
 and what only a running server produces (`crates/squint-cli/tests/it/contract_fixtures_served.rs`):
 a served run with its session and correlation ids and unresolved spend, an estimate, the runs

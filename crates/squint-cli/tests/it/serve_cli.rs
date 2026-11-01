@@ -80,6 +80,7 @@ fn describe_is_a_tool_and_equals_the_command() {
             "--config",
             "examples/source-fidelity.toml",
         ])
+        .env_remove("ANTHROPIC_API_KEY")
         .env("SQUINT_ANTHROPIC_ACCOUNT", "org-serve")
         .output()
         .unwrap();

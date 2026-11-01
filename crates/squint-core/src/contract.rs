@@ -14,7 +14,8 @@ use table_manners::images::{
 };
 use table_manners::{
     Action, CONTRACT_VERSION, Cache, Cost, DescribedTool, Description, Duration, ErrorCode,
-    ErrorInfo, Profile, Render, Run, RunResult, Spend, SpendBasis, Status, Tool,
+    ErrorInfo, Profile, Readiness, ReadinessState, Render, RenderKind, Requirement,
+    RequirementKind, RequirementState, Run, RunResult, Spend, SpendBasis, Status, Tool,
 };
 
 use crate::aggregate::Confidence;
@@ -511,28 +512,76 @@ pub fn rfc3339(unix_ms: u64) -> String {
 /// The longest gap between progress notifications on a live run (table-manners 4.1).
 pub const PROGRESS_INTERVAL_S: u32 = 10;
 
-/// What a check runs on, as far as the description must say (table-manners 3: cost).
+/// What a check runs on, as far as the description must say (table-manners 3: cost and
+/// readiness).
 #[derive(Debug, Clone, PartialEq)]
 pub enum Executor {
-    /// A provider that may charge: the credential variable its profile reads (its name, never
-    /// its value; from the catalog, which this crate does not read).
-    Paid { needs_env: Vec<String> },
+    /// A provider that may charge, with the credential its profile reads, when the catalog names
+    /// one (from the catalog, which this crate does not read).
+    Paid { credential: Option<CredentialEnv> },
     /// A provider that can never charge and reads no credential (the scripted fake).
     Free,
 }
 
+/// A credential variable by name, and whether it is set: a local lookup, never its value.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CredentialEnv {
+    /// The variable the profile reads (`ANTHROPIC_API_KEY`, …).
+    pub name: String,
+    /// Whether it is set to something other than blanks.
+    pub present: bool,
+}
+
+/// An action's readiness (table-manners 3.1) from what the executor knows: a paid provider needs
+/// its profile's credential, `present` or `missing` by name; the scripted fake needs nothing.
+fn readiness(executor: &Executor) -> Readiness {
+    let requirements: Vec<Requirement> = match executor {
+        Executor::Paid {
+            credential: Some(credential),
+        } => vec![Requirement {
+            kind: RequirementKind::Credential,
+            name: credential.name.clone(),
+            state: if credential.present {
+                RequirementState::Present
+            } else {
+                RequirementState::Missing
+            },
+            setup: Some(format!(
+                "Set {} in the environment squint is started with.",
+                credential.name
+            )),
+        }],
+        Executor::Paid { credential: None } | Executor::Free => Vec::new(),
+    };
+    let blocked = requirements.iter().any(|r| {
+        matches!(
+            r.state,
+            RequirementState::Missing | RequirementState::Invalid
+        )
+    });
+    Readiness {
+        state: if blocked {
+            ReadinessState::NeedsSetup
+        } else {
+            ReadinessState::Ready
+        },
+        requirements,
+    }
+}
+
 /// squint's description document (table-manners 3 and 11.2): one action per use case a check can
-/// run (the one `[rules]` names, else every shipped base), taking the images its rules require,
-/// plus `estimate`; every disposition and confidence
+/// run (the one `[rules]` names, else every shipped base), taking the images its rules require
+/// (`estimate` is reserved and never an action); every disposition and confidence
 /// word a finding can carry; the inline limit from the decode bound. `executor` says what a check
-/// will run on, so the declared cost is the truth of this configuration (squint issue #2).
+/// will run on, so the declared cost and readiness are the truth of this configuration (squint
+/// issue #2).
 pub fn description(
     config: &Config,
     version: &str,
     executor: &Executor,
 ) -> crate::Result<Description> {
-    let use_cases = use_cases(config)?;
-    let mut actions: Vec<Action> = use_cases
+    let readiness = readiness(executor);
+    let actions: Vec<Action> = use_cases(config)?
         .iter()
         .map(|(base, requires_roles)| {
             let base = base.as_str();
@@ -554,17 +603,16 @@ pub fn description(
                     locations: vec![LocationOutput::Found],
                 }),
                 cost: match executor {
-                    Executor::Paid { needs_env } => Cost {
+                    Executor::Paid { .. } => Cost {
                         may_spend: true,
                         basis: Some(SpendBasis::Measured),
-                        needs_env: needs_env.clone(),
                     },
                     Executor::Free => Cost {
                         may_spend: false,
                         basis: None,
-                        needs_env: Vec::new(),
                     },
                 },
+                readiness: readiness.clone(),
                 duration: Duration {
                     typical_s: 60.0,
                     max_s: 900.0,
@@ -572,12 +620,16 @@ pub fn description(
                 renders: vec![
                     Render {
                         name: "report".into(),
+                        kind: RenderKind::Server,
+                        ready_timeout_s: Some(10),
                         command: ["squint", "report", "view", "{run.dir}", "--port", "0"]
                             .map(String::from)
                             .to_vec(),
                     },
                     Render {
                         name: "export".into(),
+                        kind: RenderKind::Document,
+                        ready_timeout_s: None,
                         command: ["squint", "report", "export", "{run.dir}"]
                             .map(String::from)
                             .to_vec(),
@@ -586,37 +638,6 @@ pub fn description(
             }
         })
         .collect();
-    actions.push(Action {
-        name: "estimate".into(),
-        title: "Estimate".into(),
-        purpose: "The worst-case cost of one check of a use case, against the per-call cap.".into(),
-        params_schema: params_schema(Some(
-            &use_cases
-                .iter()
-                .map(|(base, _)| base.as_str())
-                .collect::<Vec<_>>(),
-        )),
-        images: Some(vec![
-            slot("candidate", "candidate", true),
-            slot("source", "source", false),
-            slot("references", "reference", false),
-        ]),
-        locations: Some(Vec::new()),
-        outputs: Some(Outputs {
-            images: Vec::new(),
-            locations: Vec::new(),
-        }),
-        cost: Cost {
-            may_spend: false,
-            basis: None,
-            needs_env: Vec::new(),
-        },
-        duration: Duration {
-            typical_s: 1.0,
-            max_s: 30.0,
-        },
-        renders: Vec::new(),
-    });
     let mut extensions = std::collections::BTreeMap::new();
     extensions.insert(
         "x-squint".into(),
@@ -726,7 +747,22 @@ fn slot(slot: &str, role: &str, required: bool) -> ImageSlot {
         slot: slot.into(),
         role: role.into(),
         required,
+        many: false,
     }
+}
+
+/// The served `estimate` tool's arguments while it keeps its v0.2 shape (until M9 task 9.4 makes
+/// it the reserved `{action, arguments}` tool): a check's parameters plus which use case, and
+/// every image slot optional but the candidate.
+pub fn estimate_arguments(use_cases: &[&str]) -> (serde_json::Value, Vec<ImageSlot>) {
+    (
+        params_schema(Some(use_cases)),
+        vec![
+            slot("candidate", "candidate", true),
+            slot("source", "source", false),
+            slot("references", "reference", false),
+        ],
+    )
 }
 
 /// `source-fidelity` reads as "Source fidelity".

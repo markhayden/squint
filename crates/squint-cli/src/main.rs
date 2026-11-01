@@ -576,29 +576,34 @@ fn select_provider(args: &CheckArgs, config: &mut Config) -> Result<Box<dyn Prov
     provider_for(config, &opts)
 }
 
-/// The provider for a config: the catalog's adapter over a live client, a recording or, in a
-/// testkit build, a script. A live credential is added to the config's secrets.
-/// What a check under `config` runs on, for the description's cost (squint issue #2): the
-/// scripted provider (`--provider-script`, or the fake profile, which runs only with one) can
-/// never charge; any catalog profile may, and names its credential variable.
+/// What a check under `config` runs on, for the description's cost and readiness (squint issue
+/// #2, table-manners 3.1): the scripted provider (`--provider-script`, or the fake profile, which
+/// runs only with one) can never charge and needs no credential; any catalog profile may charge,
+/// and names its credential variable, `present` or `missing` by a local lookup.
 fn executor(config: &Config, scripted: bool) -> squint_core::contract::Executor {
-    use squint_core::contract::Executor;
+    use squint_core::contract::{CredentialEnv, Executor};
     use squint_providers::catalog::{Catalog, FAKE_PROFILE};
     if scripted || config.provider.profile == FAKE_PROFILE {
         return Executor::Free;
     }
-    // The variable's name comes from the catalog's profile; its value is never read here.
-    let needs_env = Catalog::shipped()
+    // The variable's name comes from the catalog's profile. Set means set to something other
+    // than blanks, as the provider's credential lookup reads it; the value is never kept or shown.
+    let credential = Catalog::shipped()
         .ok()
         .and_then(|c| {
             c.profile(&config.provider.profile)
                 .map(|p| p.auth.env.clone())
         })
-        .into_iter()
-        .collect();
-    Executor::Paid { needs_env }
+        .map(|name| CredentialEnv {
+            present: std::env::var_os(&name)
+                .is_some_and(|v| !v.to_string_lossy().trim().is_empty()),
+            name,
+        });
+    Executor::Paid { credential }
 }
 
+/// The provider for a config: the catalog's adapter over a live client, a recording or, in a
+/// testkit build, a script. A live credential is added to the config's secrets.
 fn provider_for(
     config: &mut Config,
     opts: &ProviderOptions<'_>,

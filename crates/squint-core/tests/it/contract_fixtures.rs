@@ -110,7 +110,10 @@ fn description() -> Value {
             &config,
             "0.0.0",
             &squint_core::contract::Executor::Paid {
-                needs_env: vec!["ANTHROPIC_API_KEY".to_string()],
+                credential: Some(squint_core::contract::CredentialEnv {
+                    name: "ANTHROPIC_API_KEY".to_string(),
+                    present: true,
+                }),
             },
         )
         .unwrap(),
