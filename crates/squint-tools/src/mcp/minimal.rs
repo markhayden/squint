@@ -70,7 +70,7 @@ fn wrong_protocol_version_is_refused_as_resolve() {
     )
     .err()
     .unwrap();
-    assert_eq!(err.class(), "resolve");
+    assert_eq!(err.class(), "resolve", "{err}");
     assert!(err.to_string().contains("2025-11-25"), "{err}");
 }
 
@@ -83,7 +83,7 @@ fn missing_tools_capability_is_refused_as_resolve() {
     )
     .err()
     .unwrap();
-    assert_eq!(err.class(), "resolve");
+    assert_eq!(err.class(), "resolve", "{err}");
     assert!(err.to_string().contains("tools"), "{err}");
 }
 

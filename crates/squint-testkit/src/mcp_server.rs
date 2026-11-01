@@ -1,6 +1,7 @@
-//! Locates the fake MCP server binary (`squint-testkit-mcp`), building it with Cargo on first use
-//! and reading the executable's absolute path from Cargo's JSON output, so no test depends on
-//! `PATH` or a previous build.
+//! Locates the fake MCP server binary (`squint-testkit-mcp`): the prebuilt one named by
+//! `SQUINT_TESTKIT_MCP` (as `just test` builds it once, before tests that run one process each),
+//! else built with Cargo on first use, its absolute path read from Cargo's JSON output, so no test
+//! depends on `PATH` or a previous build.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -14,6 +15,11 @@ pub fn path() -> PathBuf {
 }
 
 fn build() -> PathBuf {
+    if let Some(prebuilt) = std::env::var_os("SQUINT_TESTKIT_MCP").map(PathBuf::from)
+        && prebuilt.is_file()
+    {
+        return prebuilt;
+    }
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let manifest = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let output = Command::new(cargo)
