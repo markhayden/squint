@@ -60,8 +60,8 @@ breaks the cycle between the two crates.
   smoke. The stage is removed on exit; `REGISTRY_STAGE_DIR` may name it, and must then be new or
   empty.
 - `just smoke <binary>` (`scripts/offline-smoke.sh`) is that smoke on any built binary:
-  `--version`, `tools list`, `rules show`, and a `check` without a credential that must stop with
-  `auth:` and exit 64 before anything leaves the machine.
+  `--version`, `tools list`, `rules show`, and a `check` without a credential that must stop
+  `not ready`, naming `ANTHROPIC_API_KEY`, and exit 64 before anything leaves the machine.
 
 The `package` workflow runs all three on every push. `squint --version` prints the short commit;
 a packaged crate has no repository, so the build script reads the commit `cargo package` records

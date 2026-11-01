@@ -412,7 +412,8 @@ fn a_call_that_never_left_costs_nothing() {
     assert_eq!(refused.spend.unresolved_usd, 0.0);
 }
 
-/// An authentication rejection is an answer that refuses before any work: zero, not unresolved.
+/// An authentication rejection is an answer that refuses before any work: zero, not unresolved;
+/// its code is `credential`, never retryable (task 9.6).
 #[test]
 fn an_auth_rejection_costs_nothing() {
     let (_, r) = scripted(
@@ -421,6 +422,8 @@ fn an_auth_rejection_costs_nothing() {
         None,
     );
     assert_eq!(r.status, Status::Error);
+    let e = r.error.unwrap();
+    assert_eq!((e.code, e.retryable), (ErrorCode::Credential, false));
     assert_eq!((r.spend.usd, r.spend.unresolved_usd), (0.0, 0.0));
 }
 

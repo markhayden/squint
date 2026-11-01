@@ -320,7 +320,8 @@ fn retry_of_a_429_is_journaled_and_counted_as_an_attempt() {
 fn retry_is_refused_for_a_400_which_is_a_provider_error() {
     let r = run_case("bad-request", "bad-request.json", &[]);
     assert_eq!(r.outcome.exit_code, 3);
-    assert_eq!(r.run()["error"]["class"], "provider");
+    // Not retryable either (task 9.6): the provider rejected the request as sent.
+    assert_eq!(r.run()["error"]["class"], "provider_rejected");
     assert!(!r.events().iter().any(|e| e == "retry"));
     assert_eq!(
         r.provider.remaining(),

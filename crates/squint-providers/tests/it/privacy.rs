@@ -62,14 +62,14 @@ fn privacy_consent_is_bound_to_the_profile() {
 }
 
 #[test]
-fn privacy_missing_credential_is_an_auth_error_and_the_value_never_prints() {
+fn privacy_missing_credential_is_a_usage_error_and_the_value_never_prints() {
     let catalog = Catalog::shipped().unwrap();
     let profile = catalog.profile("openai").unwrap();
     let err = credential(profile, &|_| None).unwrap_err();
-    assert_eq!(err.class(), "auth");
+    assert_eq!(err.class(), "resolve");
     assert!(err.to_string().contains("OPENAI_API_KEY"), "{err}");
     let err = credential(profile, &|_| Some("   ".into())).unwrap_err();
-    assert_eq!(err.class(), "auth");
+    assert_eq!(err.class(), "resolve");
     let c = credential(profile, &|name| {
         (name == "OPENAI_API_KEY").then(|| "sk-test-7781".to_string())
     })

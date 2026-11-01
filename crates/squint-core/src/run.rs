@@ -1341,9 +1341,7 @@ async fn send_turn(
     // A settled answer tells the session's readiness about the credential and the model.
     let answer = match &sent {
         Ok(_) => Some(crate::readiness::Answer::Accepted),
-        Err(Error::Transport(t)) if matches!(t.status, Some(401 | 403)) => {
-            Some(crate::readiness::Answer::Rejected)
-        }
+        Err(Error::Credential(_)) => Some(crate::readiness::Answer::Rejected),
         Err(_) => None,
     };
     if let (Some(answer), Some(answered)) = (answer, &services.answered) {
@@ -1358,6 +1356,8 @@ async fn send_turn(
             let unresolved = match &e {
                 Error::Cancelled(_) => !sleeper.sleeping(),
                 Error::Transport(t) => t.unresolved(),
+                // A rejected credential is an answer that refused before any work (2.3).
+                Error::Credential(_) => false,
                 // A retry the envelope refused was never sent; the attempt before it is charged.
                 Error::Budget(_) => false,
                 _ => true,

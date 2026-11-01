@@ -100,7 +100,7 @@ case "$1" in
   --version) echo "squint 0.0.0 (stub)" ;;
   tools) ;;
   rules) echo "${STUB_RULES-SF1 must_hold candidate}" ;;
-  check) echo "auth: set ANTHROPIC_API_KEY" >&2; exit "${STUB_CHECK_EXIT-64}" ;;
+  check) echo "squint: not ready: ANTHROPIC_API_KEY missing (Set ANTHROPIC_API_KEY.)" >&2; exit "${STUB_CHECK_EXIT-64}" ;;
   report)
     # `report export <dir>`: write a page carrying the bundle under the cache and print its path.
     if [ "$2" = export ]; then

@@ -11,7 +11,7 @@ use std::process::Command;
 use std::time::{Duration, Instant};
 
 use serde_json::json;
-use squint_testkit::mcp_client::Client;
+use squint_testkit::mcp_client::{Client, Failure};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -199,8 +199,9 @@ fn credential_and_model(c: &mut Client) -> (serde_json::Value, serde_json::Value
 
 /// Readiness follows this session's provider answers (table-manners 3.1, task 9.3): a fresh
 /// server shows a set key `present`; after a scripted success the next `describe` shows it and
-/// the model `valid`; after a scripted 401, the key `invalid` and the model still `valid`. The
-/// script is read at each check, so rewriting it between checks scripts the session.
+/// the model `valid`; after a scripted 401, the key `invalid` and the model still `valid`, and
+/// the next check is refused `not_ready` (task 9.6). The script is read at each check, so
+/// rewriting it between checks scripts the session.
 #[test]
 fn readiness_follows_the_sessions_provider_answers() {
     let dir = out("answers");
@@ -246,8 +247,16 @@ fn readiness_follows_the_sessions_provider_answers() {
         r#"[{"error": {"status": 401, "message": "invalid x-api-key"}}]"#,
     )
     .unwrap();
-    let rejected = c.call("source_fidelity", pair()).unwrap();
-    assert_eq!(rejected.structured.unwrap()["status"], "error");
+    let rejected = c
+        .call("source_fidelity", pair())
+        .unwrap()
+        .structured
+        .unwrap();
+    // A 401 during a run is `credential`, never retryable, costing nothing (task 9.6).
+    assert_eq!(rejected["status"], "error");
+    assert_eq!(rejected["error"]["code"], "credential");
+    assert_eq!(rejected["error"]["retryable"], false);
+    assert_eq!(rejected["spend"]["usd"], 0.0);
     assert_eq!(
         credential_and_model(&mut c),
         (json!("invalid"), json!("valid"))
@@ -255,6 +264,24 @@ fn readiness_follows_the_sessions_provider_answers() {
     let d = c.call("describe", json!({})).unwrap().structured.unwrap();
     assert_eq!(d["actions"][0]["readiness"]["state"], "needs_setup");
     assert!(!d.to_string().contains("sk-session-answers-not-a-key"));
+    // The next check needs the key the provider rejected: refused `not_ready` before any run.
+    let runs_before = std::fs::read_dir(dir.join("runs")).unwrap().count();
+    match c.call("source_fidelity", pair()) {
+        Err(Failure::Rpc { code, data, .. }) => {
+            assert_eq!(code, -32602);
+            let data = data.unwrap();
+            valid("urn:table-manners:core:refusal", &data);
+            assert_eq!(data["reason"], "not_ready");
+            assert_eq!(data["requirements"][0]["kind"], "credential");
+            assert_eq!(data["requirements"][0]["state"], "invalid");
+            assert_eq!(data["requirements"].as_array().unwrap().len(), 1);
+        }
+        other => panic!("expected a not_ready refusal, got {other:?}"),
+    }
+    assert_eq!(
+        std::fs::read_dir(dir.join("runs")).unwrap().count(),
+        runs_before
+    );
 
     // A new server is a new session: it starts from `present` again.
     drop(c);

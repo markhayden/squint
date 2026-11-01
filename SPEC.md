@@ -699,7 +699,8 @@ if it is replayable under the adapter's rules; a non-replayable turn is journale
      **Aggregate**. **Mixed** with other calls: answer every call with a provider-native error
      result, then the repair.
    - **Non-replayable** (truncated or incomplete, a refusal, or text with no call): the repair.
-   - **Provider error** after retries, or a timeout: `error: provider`.
+   - **Provider error** after retries, or a timeout: `error: provider`; a status no retry takes
+     (a 400, 404, 422): `error: provider_rejected`; a 401 or 403: `error: credential`.
 5. **Final turn.** When `tool_turns` or `tool_calls` are exhausted, send one request with the
    same frozen tool definitions, the full checklist, and an appended instruction that only
    `submit_verdict` will be executed and the model must submit now (see "Final turn mechanics").
@@ -745,8 +746,10 @@ refusal and a call-less text, for each form.
 
 Transport-level only: connection errors, timeouts before any byte, HTTP 408, 409, 429 and 5xx.
 Exponential backoff with full jitter from 1 s, capped at 30 s, honouring `retry-after` when
-present, at most `budget.retries` attempts after the first. A 4xx other than those is
-`error: provider` immediately. Each attempt is a billable attempt in the ledger.
+present, at most `budget.retries` attempts after the first. A 401 or 403 is `error: credential`
+immediately, and costs nothing (the provider refused before any work); any other 4xx is
+`error: provider_rejected` immediately, which no identical retry mends. Each attempt is a
+billable attempt in the ledger.
 
 ### Final turn mechanics
 
@@ -933,7 +936,8 @@ an ADR: `bedrock` (Messages API with SigV4), `vertex` (Google-managed Claude, mo
 "Secrets only from the environment" holds for the first release. Later schemes extend the sources
 to the provider's standard credential chain and, for OAuth, to a protected local token file; each
 is documented in `docs/provider-data.md`. No scheme is ever substituted for another silently; a
-missing credential is `error: auth`.
+missing credential never reaches a run: the call is refused `not_ready` (on the command line,
+exit 64) naming the variable, and a provider's 401 or 403 during a run is `error: credential`.
 
 ### Model catalog
 
@@ -1448,7 +1452,13 @@ with them.
   loads it still starts, needs no output directory and writes nothing: `describe` and the
   resources answer, and a check or `estimate` is refused before any run as JSON-RPC `-32602` with
   `{"reason": "not_ready", "run": null, "requirements": [the config]}`, which releases its
-  `client_run_id`. squint's own self-description (`rules`, `tools list`, `catalog`)
+  `client_run_id`. Any call is refused the same way, before roots, the permit or any directory,
+  when a requirement it needs (`readiness::Inspection::unmet`) is `missing` or `invalid` now,
+  this session's provider answers included, naming only those: a check needs the configuration,
+  the credential, the model and, when one of its tools runs it, the segmenter file; an `estimate`
+  needs the configuration alone. `squint check` makes the same inspection after resolving and
+  exits 64 with the same requirements before any run directory (a dry run needs only the
+  configuration, a replay no credential). squint's own self-description (`rules`, `tools list`, `catalog`)
   stays on the command line and is referenced from the description's `x-squint`. An `invalid` or
   `error` outcome is a result with `isError` and the header; JSON-RPC errors are only for failures
   before a run exists. Each image out carries its reference and the locator the call asked for
@@ -1473,8 +1483,8 @@ with them.
   `_meta["table-manners/client_run_id"]` (`^[A-Za-z0-9._:-]{1,128}$`): claimed for the session
   when the request is accepted, written into the run's directory when it is made, and a reuse is
   `-32602` with the earlier request's run (null while it has none). A request that ends in a
-  JSON-RPC error with no run (arguments refused, a failed `roots/list`, a server error) releases
-  its id, so the corrected request may use it; one that got a run, or was cancelled before
+  JSON-RPC error with no run (arguments refused, a `not_ready` refusal, a failed `roots/list`, a
+  server error) releases its id, so the corrected request may use it; one that got a run, or was cancelled before
   allocation, keeps it for the session (4.4). The server keeps one small entry per kept id for
   the session's life, unbounded: fine over stdio with one trusted host, to bound before any
   networked transport. `notifications/cancelled` stops the
@@ -1503,9 +1513,12 @@ with them.
   body (verdict, exit code, whether two runs agreed, the report's path). The result's `action` is
   the use case's as `describe` names it (`source_fidelity`), from the command line as from MCP. A
   failed image is `completed` with verdict `fail`. squint's error classes map to the contract in one table
-  (`contract::status_of`): `resolve` and `auth` are `invalid` with code `usage`; `input` and
-  `image_limit` are `invalid` with code `input`; a provider or model-output failure is a
-  retryable `error` with code `provider`; `tool` is `tool_process`; `budget`, `io` and anything
+  (`contract::status_of`): `resolve` is `invalid` with code `usage`; `input` and
+  `image_limit` are `invalid` with code `input`; `credential` (a provider's 401 or 403 during the
+  run, never retried, costing nothing) is an `error` with code `credential`, never retryable; a
+  provider or model-output failure is a retryable `error` with code `provider`, except
+  `provider_rejected` (a status the retries never take: a 400, 404, 422), the same code, not
+  retryable; `tool` is `tool_process`; `budget`, `io` and anything
   else (`internal`) are not retryable; `cancelled` is its own status.
 - **`squint describe --json [--config <file>]`**: the contract's description document with
   `profiles: ["images"]`, with or without a configuration (Config: where it is; it always exits
@@ -1536,7 +1549,8 @@ with them.
   requirement. The command describes a fresh session. A server computes `describe` per call
   from its start-up inspection and the provider answers its session has had (`Services` reports
   each: a response makes the credential and the model `valid`, a 401 or 403 makes the credential
-  `invalid`); a new server starts from `present` again. Then the expected duration, the inline
+  `invalid`, so the next check that needs it is refused `not_ready`); a new server starts from
+  `present` again. Then the expected duration, the inline
   limit (the decode bound, the default one with no configuration) and the resources. Every
   `params_schema` and MCP `inputSchema` is a schema of its own: the definitions it refers to sit
   at its root. Argument errors on every command exit 64.

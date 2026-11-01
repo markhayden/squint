@@ -178,10 +178,13 @@ fn check_refuses_an_account_that_does_not_consent_to_the_profile() {
     assert!(!err.contains("org-55512"), "{err}");
 }
 
-/// Task 2.4 at the binary: a live profile with no credential in the environment stops with the
-/// auth error and the usage exit code before anything is sent, and the variable's name is named.
+/// Task 2.4 at the binary, since task 9.6 the readiness refusal: a live profile with no
+/// credential in the environment stops with the usage exit code before anything is sent or any
+/// run directory exists, naming the variable as a server's `not_ready` refusal does.
 #[test]
-fn check_without_a_credential_is_an_auth_error_with_exit_64() {
+fn check_without_a_credential_is_not_ready_with_exit_64() {
+    let out = std::env::temp_dir().join(format!("squint-no-key-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&out);
     let o = Command::new(env!("CARGO_BIN_EXE_squint"))
         .current_dir(repo_root())
         .env("SQUINT_ANTHROPIC_ACCOUNT", "org-example")
@@ -197,17 +200,15 @@ fn check_without_a_credential_is_an_auth_error_with_exit_64() {
             "--source",
             "fixtures/images/source-64x48.png",
             "--out",
-            std::env::temp_dir()
-                .join(format!("squint-no-key-{}", std::process::id()))
-                .to_str()
-                .unwrap(),
+            out.to_str().unwrap(),
         ])
         .output()
         .unwrap();
     let err = String::from_utf8_lossy(&o.stderr);
     assert_eq!(o.status.code(), Some(64), "{err}");
     assert!(
-        err.contains("auth:") && err.contains("ANTHROPIC_API_KEY"),
+        err.contains("not ready: ANTHROPIC_API_KEY missing"),
         "{err}"
     );
+    assert!(!out.exists(), "no run directory");
 }

@@ -2,7 +2,7 @@
 //! `client_run_id` claimed when its request is accepted and refused when reused, and the run's
 //! reference on every progress notification from allocation and in every listing. Task 9.7: a
 //! request that ends in a JSON-RPC error with no run releases its id; one cancelled before
-//! allocation keeps it.
+//! allocation keeps it. Task 9.6: a `not_ready` refusal is one of those.
 #![cfg(feature = "testkit")]
 #![allow(clippy::unwrap_used)]
 
@@ -381,4 +381,71 @@ fn progress_carries_the_run_reference_from_allocation() {
     assert_eq!(running["id"], reference["id"]);
     assert_eq!(running["client_run_id"], "host-7");
     c.cancel(id).unwrap();
+}
+
+/// Task 9.6 (table-manners 3.1): with the profile's key unset, a check is refused before any run
+/// as `-32602` `not_ready`, naming only what it needs that is missing (the credential, not the
+/// configuration or the model); nothing is written, not even the output directory, and its id is
+/// released: the same id is refused for readiness again rather than as a reuse, and is accepted
+/// by the next request that is not refused, an estimate, which does not need the key.
+#[test]
+fn a_check_without_its_key_is_refused_not_ready_and_releases_its_id() {
+    let dir = out("not-ready");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_squint"));
+    command
+        .current_dir(repo_root())
+        .args([
+            "serve",
+            "--config",
+            "fixtures/config/minimal.toml",
+            "--set",
+            "provider.profile=anthropic",
+            "--set",
+            "provider.model=claude-haiku-5-5",
+            "--provider-script",
+            "fixtures/scripts/held.json",
+            "--out",
+        ])
+        .arg(&dir)
+        .env_remove("ANTHROPIC_API_KEY");
+    let mut c = Client::start(&mut command).unwrap();
+    c.roots = vec![format!(
+        "file://{}",
+        repo_root().join("fixtures/images").display()
+    )];
+    let before = session(&mut c);
+    for _ in 0..2 {
+        let (code, data) =
+            refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: "needs-key-1" })));
+        assert_eq!(code, -32602);
+        valid("urn:table-manners:core:refusal", &data);
+        assert_eq!(data["reason"], "not_ready", "{data}");
+        assert_eq!(data["run"], serde_json::Value::Null);
+        assert_eq!(
+            data["requirements"],
+            json!([{
+                "kind": "credential",
+                "name": "ANTHROPIC_API_KEY",
+                "state": "missing",
+                "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with."
+            }])
+        );
+    }
+    let runs: serde_json::Value =
+        serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+    assert_eq!(runs["runs"], json!([]), "a refusal makes no run");
+    assert!(!dir.exists(), "a refusal writes nothing");
+    let after = session(&mut c);
+    assert_eq!(
+        (&after["spent_usd"], &after["reserved_usd"]),
+        (&before["spent_usd"], &before["reserved_usd"]),
+        "a refusal spends and reserves nothing"
+    );
+    // A call that does not need the key runs, under the released id.
+    let mut call = pair();
+    call["use_case"] = json!("source-fidelity");
+    let estimated = c
+        .call_with_meta("estimate", call, json!({ CLIENT: "needs-key-1" }))
+        .unwrap();
+    assert!(!estimated.is_error, "{estimated:?}");
 }

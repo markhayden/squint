@@ -93,12 +93,14 @@ impl fmt::Display for Credential {
     }
 }
 
-/// The profile's credential from the environment; missing or empty is `error: auth`.
+/// The profile's credential from the environment. Missing or empty is a configuration error
+/// (`resolve`, the contract's `usage`): a call that needs a missing key is refused `not_ready`
+/// before it gets here (table-manners 3.1), so this guards only callers that skipped readiness.
 pub fn credential(profile: &Profile, env: &dyn Fn(&str) -> Option<String>) -> Result<Credential> {
     match &profile.auth.scheme[..] {
         "api-key-header" | "bearer" => {}
         other => {
-            return Err(Error::Auth(format!(
+            return Err(Error::Config(format!(
                 "auth scheme {other:?} is not available in this release"
             )));
         }
@@ -109,7 +111,7 @@ pub fn credential(profile: &Profile, env: &dyn Fn(&str) -> Option<String>) -> Re
             env: name.clone(),
             value: v.trim().to_string(),
         }),
-        _ => Err(Error::Auth(format!(
+        _ => Err(Error::Config(format!(
             "set {name} to the API key for this profile; squint reads credentials from the environment only"
         ))),
     }

@@ -1,6 +1,7 @@
 //! Transport retries (SPEC "Retries"): connection errors, timeouts before any byte, HTTP 408, 409,
 //! 429 and 5xx are retried with exponential backoff and full jitter from 1 s, capped at 30 s,
-//! honouring `retry-after`, at most `budget.retries` times after the first attempt. Any other
+//! honouring `retry-after`, at most `budget.retries` times after the first attempt. A 401 or 403
+//! is `error: credential` at once (table-manners 2.2: the provider rejected the key); any other
 //! failure is `error: provider` at once. Adapters never retry; the state machine owns it.
 
 use std::fmt;
@@ -29,7 +30,12 @@ impl TransportError {
     /// (table-manners 2.3): it was sent and the answer, if any, reported no usage. A call that
     /// never left, and an authentication rejection (refused before any work), cost nothing.
     pub fn unresolved(&self) -> bool {
-        self.sent && !matches!(self.status, Some(401 | 403))
+        self.sent && !self.rejected_credential()
+    }
+
+    /// Whether the provider rejected the credential (HTTP 401 or 403).
+    pub fn rejected_credential(&self) -> bool {
+        matches!(self.status, Some(401 | 403))
     }
 
     /// Whether the spec allows a retry of this failure.
@@ -114,7 +120,8 @@ pub struct Sent {
 }
 
 /// Sends a request, retrying transport failures. `on_retry` runs before each wait so the journal
-/// holds the attempt even if the process dies while sleeping.
+/// holds the attempt even if the process dies while sleeping. A rejected credential ends it as
+/// [`Error::Credential`], never retried.
 pub async fn send_with_retries<'a>(
     provider: &'a dyn Provider,
     request: TurnRequest<'a>,
@@ -132,6 +139,11 @@ pub async fn send_with_retries<'a>(
                     response,
                     attempts: attempt + 1,
                 });
+            }
+            Err(Error::Transport(t)) if t.rejected_credential() => {
+                return Err(Error::Credential(format!(
+                    "the provider rejected the credential: {t}"
+                )));
             }
             Err(Error::Transport(t)) if t.retryable() && attempt < retries => {
                 attempt += 1;
@@ -278,6 +290,38 @@ mod tests {
         let (result, slept, seen) = run(vec![transport(Some(400), None), ok()], 3);
         assert!(matches!(result, Err(Error::Transport(t)) if t.status == Some(400)));
         assert!(slept.is_empty() && seen.is_empty());
+    }
+
+    #[test]
+    fn a_rejected_credential_is_never_retried_and_is_its_own_class() {
+        for status in [401, 403] {
+            let (result, slept, seen) = run(vec![transport(Some(status), None), ok()], 3);
+            let Err(e) = result else {
+                panic!("{status}: a rejection is an error")
+            };
+            assert_eq!(e.class(), "credential", "{status}");
+            assert!(e.to_string().contains(&format!("HTTP {status}")), "{e}");
+            assert!(slept.is_empty() && seen.is_empty(), "{status}: no retry");
+        }
+    }
+
+    #[test]
+    fn a_transport_failure_is_retryable_only_when_the_spec_retries_it() {
+        let class = |status| {
+            Error::Transport(TransportError {
+                status,
+                retry_after: None,
+                message: String::new(),
+                sent: true,
+            })
+            .class()
+        };
+        for s in [Some(503), Some(529), Some(429), None] {
+            assert_eq!(class(s), "provider", "{s:?}");
+        }
+        for s in [400, 404, 422] {
+            assert_eq!(class(Some(s)), "provider_rejected", "{s}");
+        }
     }
 
     #[test]

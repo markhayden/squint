@@ -27,7 +27,8 @@ variable of the configured profile (`present` or `missing` by name; its value is
 printed), the configured model, and the segmenter file when `regions` or `classes` is enabled
 (`present` once fetched, at its recorded size). Over MCP, `describe` also reflects this session's
 provider answers: after an accepted request the credential and model are `valid`, after a 401 or
-403 the credential is `invalid` (restart squint with a working key). A check on the scripted fake
+403 the credential is `invalid` and every later check is refused `not_ready` (restart squint
+with a working key). A check on the scripted fake
 needs only the configuration. The renders are `report`
 (`squint report view {run.dir} --port 0 --frame-ancestor {frame_ancestor}`, kind `server`, ready
 within ten seconds: its only stdout the URL, exit 0 when its stdin closes or on SIGTERM) and
@@ -57,7 +58,14 @@ protocol on stdout. The configuration is found as for `describe` and read once, 
 take up a change, restart the server (a new session). A server with no configuration that loads
 still starts and answers `describe` and its resources, writes nothing, and refuses a check or an
 `estimate` with `-32602`, `{"reason": "not_ready", "run": null, "requirements": [...]}` naming
-the configuration. Tools: `describe`, `estimate`, and one per use case. A use-case call is one
+the configuration. The same refusal stops any call that needs a requirement that is `missing` or
+`invalid`, before any run (no directory, no spend, its `client_run_id` released), and names only
+those: a check needs the configuration (a model the catalog lacks makes it `invalid`), the
+profile's credential (unset, or rejected by the provider earlier in this session), the model,
+and the segmenter file when `regions` or `classes` is enabled; an `estimate` needs only the
+configuration, so it still answers with the key unset. `squint check` exits 64 before any run
+directory with the same requirements on stderr (a `--dry-run` needs only the configuration, a
+`--replay` no credential). Tools: `describe`, `estimate`, and one per use case. A use-case call is one
 ordinary decision (its directory, journal, report and `run.json`).
 
 - **Images** by absolute `path` or `inline` bytes, each with an optional `expect` reference whose
@@ -73,8 +81,8 @@ ordinary decision (its directory, journal, report and `run.json`).
 - **Correlation**: send `_meta["table-manners/client_run_id"]` with a call to find its run after a
   lost connection; an id is good once per server session (a reuse is `-32602`, reason
   `client_run_id_reused`, naming the earlier run). A request refused with a JSON-RPC error before
-  any run (arguments the server rejects, a failed `roots/list`) releases its id: fix the request
-  and send it again under the same id.
+  any run (arguments the server rejects, a `not_ready` refusal, a failed `roots/list`) releases
+  its id: fix the request and send it again under the same id.
 - **Cancellation**: `notifications/cancelled` stops the provider call; the run's `run.json` says
   `cancelled` with spend to date, and the request gets no response. A call cancelled before its
   run is allocated (queued, or while its arguments are resolved) makes no run; its
@@ -98,9 +106,11 @@ exit code, whether two runs agreed, the report's path). A `fail` verdict is `com
 
 | squint error class | status | code | retryable |
 |---|---|---|---|
-| `resolve`, `auth` | invalid | `usage` | no |
+| `resolve` | invalid | `usage` | no |
 | `input`, `image_limit` | invalid | `input` | no |
-| `provider`, `submission_invalid`, `no_submission`, `model_output` | error | `provider` | yes |
+| `credential` (a provider's 401 or 403 during the run; never retried, costs nothing) | error | `credential` | no |
+| `provider` (a 5xx, 429 or timeout after the retries ran out), `submission_invalid`, `no_submission`, `model_output` | error | `provider` | yes |
+| `provider_rejected` (any other status the provider refused the request with: a 400, 404, 422) | error | `provider` | no |
 | `tool` | error | `tool_process` | no |
 | `budget` | error | `budget` | no |
 | `io` | error | `io` | no |
