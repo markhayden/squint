@@ -29,7 +29,11 @@ printed), the configured model, and the segmenter file when `regions` or `classe
 provider answers: after an accepted request the credential and model are `valid`, after a 401 or
 403 the credential is `invalid` (restart squint with a working key). A check on the scripted fake
 needs only the configuration. The renders are `report`
-(`report view`, kind `server`) and `export` (`report export`, kind `document`). The same document
+(`squint report view {run.dir} --port 0 --frame-ancestor {frame_ancestor}`, kind `server`, ready
+within ten seconds: its only stdout the URL, exit 0 when its stdin closes or on SIGTERM) and
+`export` (`squint report export {run.dir}`, kind `document`: one self-contained page outside the
+run directory, its absolute path the only stdout); neither modifies the run directory
+(`docs/viewer.md`). The same document
 is the `describe` tool over MCP.
 
 ## Estimate

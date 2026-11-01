@@ -72,8 +72,28 @@ done
 
 # offline-smoke: a binary that answers every command but exits 3 instead of 64 on the missing
 # credential must fail, one that prints no SF1 from `rules show` must fail, one whose
-# `report view` serves nothing must fail, and one whose `report export` writes no bundle must fail.
+# `report view` serves nothing, prints more than its URL or dies on SIGTERM must fail, and one
+# whose `report export` writes no bundle must fail.
 probe="$(mktemp -d)"
+cat > "$probe/viewer.py" <<'PY'
+# `report view <dir> --port 0 --frame-ancestor <origin>` as the binary does it: the URL alone on
+# stdout, the frame-ancestors policy on every response, exit 0 on SIGTERM.
+import functools, http.server, os, signal, sys
+directory, origin = sys.argv[1], sys.argv[2]
+class Handler(http.server.SimpleHTTPRequestHandler):
+    def end_headers(self):
+        self.send_header("Content-Security-Policy", "frame-ancestors " + origin)
+        super().end_headers()
+    def log_message(self, *args):
+        pass
+server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), functools.partial(Handler, directory=directory))
+if os.environ.get("STUB_VIEW") != "dies":
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+if os.environ.get("STUB_VIEW") == "chatty":
+    print("viewing", directory, flush=True)
+print(f"http://127.0.0.1:{server.server_address[1]}/", flush=True)
+server.serve_forever()
+PY
 cat > "$probe/squint" <<'STUB'
 #!/usr/bin/env bash
 case "$1" in
@@ -82,16 +102,19 @@ case "$1" in
   rules) echo "${STUB_RULES-SF1 must_hold candidate}" ;;
   check) echo "auth: set ANTHROPIC_API_KEY" >&2; exit "${STUB_CHECK_EXIT-64}" ;;
   report)
-    # `report export <dir> --out <page>`: write a page carrying the bundle, as the binary does.
+    # `report export <dir>`: write a page carrying the bundle under the cache and print its path.
     if [ "$2" = export ]; then
-      [ "${STUB_EXPORT-bundle}" = bundle ] && echo 'globalThis.SQUINT_BUNDLE = {};' > "$5"
+      page="$XDG_CACHE_HOME/squint/reports/$(basename "$3").html"
+      mkdir -p "$(dirname "$page")"
+      if [ "${STUB_EXPORT-bundle}" = bundle ]; then echo 'globalThis.SQUINT_BUNDLE = {};' > "$page"; else : > "$page"; fi
+      echo "$page"
       exit 0
     fi
-    # `report view <dir> --port 0`: serve the directory on loopback and print a URL line, as the
-    # binary does; python's server prints its own URL in the same shape.
-    [ "${STUB_VIEW-serve}" = serve ] || exit 0
-    echo '<title>squint report</title>' > "$3/index.html"
-    exec python3 -I -u -m http.server --bind 127.0.0.1 --directory "$3" 0 ;;
+    [ "${STUB_VIEW-serve}" = none ] && exit 0
+    # Served from a copy: a render never writes into the run directory.
+    served="$(dirname "$0")/served"; mkdir -p "$served"; cp "$3/report.json" "$served/"
+    echo '<title>squint report</title>' > "$served/index.html"
+    exec python3 -I -u "$(dirname "$0")/viewer.py" "$served" "$7" ;;
 esac
 STUB
 chmod +x "$probe/squint"
@@ -106,6 +129,12 @@ else echo "FAIL: offline-smoke accepted a rules show without SF1: $out" >&2; fai
 out="$(STUB_VIEW=none scripts/offline-smoke.sh "$probe/squint" 2>&1 || true)"
 if grep -q 'printed no URL' <<< "$out"; then pass=$((pass+1));
 else echo "FAIL: offline-smoke accepted a report view that serves nothing: $out" >&2; fail=$((fail+1)); fi
+out="$(STUB_VIEW=chatty scripts/offline-smoke.sh "$probe/squint" 2>&1 || true)"
+if grep -q 'printed more than its URL' <<< "$out"; then pass=$((pass+1));
+else echo "FAIL: offline-smoke accepted a report view that prints more than its URL: $out" >&2; fail=$((fail+1)); fi
+out="$(STUB_VIEW=dies scripts/offline-smoke.sh "$probe/squint" 2>&1 || true)"
+if grep -q 'on SIGTERM: expected exit 0' <<< "$out"; then pass=$((pass+1));
+else echo "FAIL: offline-smoke accepted a report view that dies on SIGTERM: $out" >&2; fail=$((fail+1)); fi
 out="$(STUB_EXPORT=none scripts/offline-smoke.sh "$probe/squint" 2>&1 || true)"
 if grep -q 'wrote no self-contained page' <<< "$out"; then pass=$((pass+1));
 else echo "FAIL: offline-smoke accepted a report export that wrote no bundle: $out" >&2; fail=$((fail+1)); fi

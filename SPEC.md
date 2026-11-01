@@ -653,6 +653,11 @@ time; terminal status.
 The static HTML viewer loads a run directory, shows every image the model saw, every tool result,
 every location overlaid in raw coordinates through the frame registry, and the aggregation
 table. It has no build step and no network access, and declares which `report_version`s it reads.
+It is the run's two renders (table-manners 3.2): `squint report view` serves it on loopback,
+printing only its URL, framed by at most the one origin `--frame-ancestor` names, until its stdin
+closes or SIGTERM or SIGINT arrives (exit 0); `squint report export` writes it as one
+self-contained file outside the run directory (`$XDG_CACHE_HOME/squint/reports/<run id>.html`
+unless `--out`) and prints only that file's absolute path. Neither modifies the run directory.
 
 ## Run state machine
 
@@ -1514,7 +1519,8 @@ with them.
   `images.in` lists once per image in the order given), with the brief, requirements and a lower spend cap as parameters
   (`estimate` is a reserved tool, never an action); every disposition and confidence word a
   finding can carry (`vocabulary`), the renders (`report view` of kind `server` with a ten-second
-  `ready_timeout_s`, `report export` of kind `document`), the cost notice (a check on the
+  `ready_timeout_s`, `report export` of kind `document`, each with `command[0]` `squint` and the
+  placeholders `{run.dir}` and `{frame_ancestor}` only as whole arguments), the cost notice (a check on the
   scripted fake, under the `fake` profile or `--provider-script`, declares `may_spend: false`;
   with no configuration that loads, a check may spend) and each action's `readiness`
   (`readiness::Inspection`, the same for every action since they share a provider and tools),
@@ -1585,7 +1591,8 @@ uv run --frozen --offline --no-sync ruff check . && uv run --frozen --offline --
 squint tools setup --config squint.toml     # provisions bundles and artifacts (network allowed here)
 squint check --config squint.toml --candidate out.png --ref "pip=refs/pip.jpg" --brief "…"
 squint check --config squint.toml --job job.toml
-squint report view ./squint-out/<run-id>
+squint report view ./squint-out/<run-id>    # prints only its URL; Ctrl-C or end of stdin stops it
+squint report export ./squint-out/<run-id>  # one self-contained page in ~/.cache/squint/reports/
 squint report rebuild ./squint-out/<run-id>
 squint report prune --older-than 30d
 squint tools list --config squint.toml      # manifests as the model will see them
