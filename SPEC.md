@@ -1226,7 +1226,7 @@ account = "anthropic:org-xxxx"
 dir = "./squint-out"
 
 [serve]                       # squint serve only (table-manners 4.5, 10.1)
-concurrency = 1               # calls at once; serial by default
+concurrency = 1               # checks at once; serial by default
 session_budget_usd = 20.0     # across every call one server process serves; default ten checks at the default cap
 roots = ["/srv/images"]       # image paths must sit inside these as well as the client's MCP roots; empty: the client's alone
 ```
@@ -1430,8 +1430,9 @@ section says what squint does with them.
   stays on the command line and is referenced from the description's `x-squint`. An `invalid` or
   `error` outcome is a result with `isError` and the header; JSON-RPC errors are only for failures
   before a run exists. Each image out carries its reference and the locator the call asked for
-  (path, inline, resource URI); image blocks only when asked. Calls are serial by default
-  (`[serve] concurrency`). Spend: the per-call cap from config, which a call (`max_spend_usd`; on
+  (path, inline, resource URI); image blocks only when asked. Checks are serial by default
+  (`[serve] concurrency`); `describe`, `estimate` and resource reads never wait behind one. A
+  check waiting for its turn beats like a running one, and cancelling it there leaves no run. Spend: the per-call cap from config, which a call (`max_spend_usd`; on
   the command line `--max-spend-usd`) may lower and never raise, and a per-session budget
   (`[serve] session_budget_usd`) across the server's lifetime, a ledger every decision reserves
   against before its first request. Paths: when the client offers roots, squint asks for them on

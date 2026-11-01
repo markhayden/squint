@@ -760,14 +760,8 @@ impl ServerHandler for Server {
         } else {
             None
         };
-        let permit = self
-            .inner
-            .permits
-            .clone()
-            .acquire_owned()
-            .await
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let cancel = Arc::new(squint_core::run::Cancel::new());
+        // Progress starts before any wait, so a call queued for the permit beats too.
         let (observer, progress) = match context.meta.get_progress_token().filter(|_| is_check) {
             Some(token) => {
                 let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
@@ -779,6 +773,32 @@ impl ServerHandler for Server {
                 (Some(observer), Some(task))
             }
             None => (None, None),
+        };
+        // Only a check takes the execution permit: `describe` and `estimate` spend nothing and
+        // stay responsive while a check runs (table-manners C4 review 9). The wait itself is
+        // cancellable, and a call cancelled before it holds the permit gets no run (review 10).
+        let permit = if is_check {
+            let acquired = tokio::select! {
+                acquired = self.inner.permits.clone().acquire_owned() => Some(acquired),
+                () = context.ct.cancelled() => None,
+            };
+            match acquired {
+                Some(Ok(permit)) if !context.ct.is_cancelled() => Some(permit),
+                Some(Err(e)) => return Err(ErrorData::internal_error(e.to_string(), None)),
+                _ => {
+                    drop(observer);
+                    if let Some(progress) = progress {
+                        let _ = progress.await;
+                    }
+                    // rmcp sends nothing for a cancelled request; this never reaches the client.
+                    return Err(ErrorData::internal_error(
+                        "cancelled before a run was allocated",
+                        None,
+                    ));
+                }
+            }
+        } else {
+            None
         };
         let hooks = Hooks {
             cancel: cancel.clone(),
