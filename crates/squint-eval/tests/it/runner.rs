@@ -4,7 +4,7 @@
 //! repetition, and prompts across arms differ only in the Tools section.
 #![allow(clippy::unwrap_used)]
 
-mod common;
+use super::common;
 
 use std::path::Path;
 

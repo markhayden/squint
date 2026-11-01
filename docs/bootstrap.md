@@ -11,7 +11,8 @@ just check                                      # what every commit must pass
 `just check` runs `cargo fmt --all -- --check`, Clippy with `-D warnings` and the tests through
 `cargo nextest run` (installed by `just bootstrap`; it runs test binaries in parallel), each over the
 workspace with `--features squint-cli/testkit` and then over `squint-cli` alone without it (the only
-crate with a feature), `cargo deny check licenses bans sources` (advisories need the network and run in
+crate with a feature), each crate's integration tests being one binary (`tests/it/main.rs`, a module per
+file: a new test file needs its `mod` line there), `cargo deny check licenses bans sources` (advisories need the network and run in
 CI as `just deny-advisories`), `scripts/check-crate-graph.sh`, `scripts/check-packaging.sh`
 (every asset a crate embeds sits inside that crate and in the file list `cargo package` ships),
 `scripts/check-attribution.sh` (no agent attribution in any commit message or tracked file),

@@ -1502,7 +1502,7 @@ nothing; yes installs into `~/.local/bin` and runs that path; installer failure 
 nothing; off a terminal exits 69; a release build exits 69 with no offer; extra arguments exit 64.
 
 **Dependencies.** 7.1; wafflehouse H1. **Files.** `crates/squint-cli/src/playground.rs`,
-`crates/squint-cli/tests/playground_cli.rs`. **Size.** S.
+`crates/squint-cli/tests/it/playground_cli.rs`. **Size.** S.
 
 ### Task 7.10: Conformance fixtures
 
