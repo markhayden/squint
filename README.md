@@ -101,11 +101,11 @@ What has been measured so far, every number with its interval under
   already detected all ten planted failures. The tool took back the one false reject and lifted
   localisation to 10 of 10, neither of which the frozen gate scores. The sets need to be harder
   before a detection gate can separate tools.
-- **Second gate (M6).** The same comparison on a harder sealed set of 25 items in five new
+- **Second gate.** The same comparison on a harder sealed set of 25 items in five new
   scenes, counted as a second attempt: **rejected** again. Both arms caught all 15 planted
   failures (16 once the owner corrected one label), and the tool changed no verdict. Removals a
-  generator can plant cleanly are at ceiling for this model; what a tool must do to earn a place
-  is an open owner decision.
+  generator can plant cleanly are at ceiling for this model. `regions` stays an optional tool;
+  whether it helps a cheaper model is tracked in issue #3.
 
 squint is one tool in a chain an agent drives (generate, check with squint, mask with
 [rascal](https://github.com/markhayden/rascal), paint, check again), so it presents the same

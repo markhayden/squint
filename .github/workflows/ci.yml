@@ -114,7 +114,8 @@ jobs:
         run: scripts/sets-dry-run.sh
       - if: steps.pack.outputs.present == 'true'
         name: The Rust client against the real pack (tasks 5.1 and 5.4a)
-        run: cargo test -p squint-tools --test it -- --ignored python_pack:: && cargo test -p squint-cli --test it -- --ignored python_pack_manifests::
+        run: |
+          cargo test -p squint-tools --test it -- --ignored python_pack:: && cargo test -p squint-cli --test it -- --ignored python_pack_manifests::
       - if: steps.pack.outputs.present == 'true'
         name: Build the provisioning bundle
         run: scripts/build-bundle.sh
@@ -145,4 +146,5 @@ jobs:
             cargo test --offline -p squint-tools --test it -- --ignored provisioning::
       - if: steps.pack.outputs.present == 'true' && env.ACT
         name: Install and launch the pack (no namespace under act)
-        run: env UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never cargo test --offline -p squint-tools --test it -- --ignored provisioning::
+        run: |
+          env UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never cargo test --offline -p squint-tools --test it -- --ignored provisioning::

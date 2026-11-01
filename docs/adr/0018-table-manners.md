@@ -129,7 +129,8 @@ conformance work, and the contract's cross-tool acceptance test is its definitio
 
 - The deferrals "server mode" and `squint tools serve` in PLAN.md are replaced by milestone M7
   (conformance). M7's tasks are written after contract v0.1 is tagged, because they bind to the
-  schema and field names the tag fixes. M6 stays blocked on the owner's `regions` decision.
+  schema and field names the tag fixes. M6 stays blocked on the owner's `regions` decision
+  (2026-11-01: M6 left the plan; the `regions` retest is issue #3).
 - The server side uses `rmcp` pinned as `rascal serve` pins it (`=3.8.0`), with the features it
   needs for a server; progress, cancellation and resources are what the in-house client (ADR
   0015) never had to provide. Two MCP implementations in one binary is debt: M7 decides, with
