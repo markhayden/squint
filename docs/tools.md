@@ -194,10 +194,10 @@ carries three tools: `echo_region`, the transport proof, which places the given 
 as a region and returns the box cut from the named frame (or the image's raw frame) as its one
 image; and `regions` and `classes` below.
 `just python-check` lints and tests the pack offline; `just pack-test` also drives the real
-server from the Rust client (`crates/squint-tools/tests/python_pack.rs`: an image and an
+server from the Rust client (`crates/squint-tools/tests/it/python_pack.rs`: an image and an
 aligned frame by path in, a valid envelope with one image block out) and puts every manifest the
 pack lists through the three adapters' wire transformations beside `submit_verdict`
-(`crates/squint-cli/tests/python_pack_manifests.rs`).
+(`crates/squint-cli/tests/it/python_pack_manifests.rs`).
 
 **`regions`** (`regions.py`, task 5.4a) is the first real tool: where an aligned pair differs, as
 high-recall pointers. It takes two frames in one grid, `frame` (usually the aligned candidate) and
@@ -261,7 +261,7 @@ goldens, skipping with the fetch command when they are absent. `squint tools set
 `fetch` after the sync in task 5.2.
 
 `just provisioning-test` builds the bundle and runs the ignored tests in
-`crates/squint-tools/tests/provisioning.rs`: a clean-directory install whose executable
+`crates/squint-tools/tests/it/provisioning.rs`: a clean-directory install whose executable
 reports the version the lock pins and lists `echo_region`, `regions` and `classes`, an
 `echo_region` call through MCP with its image block, a tampered bundle refused, and a setup that
 fetches the segmenter and goldens from the export's directory into a models cache and refuses a

@@ -1,0 +1,40 @@
+//! Every integration test of this crate, as modules of one test binary: one binary links and is
+//! launched once, where a binary per file would link and start once each.
+
+mod arm_prompts;
+mod budget_cli;
+mod cache_cli;
+mod cancel_cli;
+mod catalog_cli;
+mod cli;
+mod config_cli;
+mod decision_cli;
+mod describe_cli;
+mod dry_run_cli;
+mod estimate_cli;
+mod eval_cli;
+mod eval_run_cli;
+mod examples_cli;
+mod exit_codes;
+mod final_turn_cli;
+mod images_cli;
+mod isolation;
+mod mcp_cli;
+mod playground_cli;
+mod python_pack_manifests;
+mod repair_cli;
+mod report_cli;
+mod rules_cli;
+mod serve_check_cli;
+mod serve_cli;
+mod serve_progress_cli;
+mod sets_cli;
+mod shared_pack_cli;
+mod submission_cli;
+mod tool_turns_cli;
+mod tools_cli;
+mod usage_cli;
+mod viewer_geometry;
+mod viewer_serve;
+mod viewer_timeline;
+mod walking_slice;

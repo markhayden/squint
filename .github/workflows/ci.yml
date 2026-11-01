@@ -114,13 +114,13 @@ jobs:
         run: scripts/sets-dry-run.sh
       - if: steps.pack.outputs.present == 'true'
         name: The Rust client against the real pack (tasks 5.1 and 5.4a)
-        run: cargo test -p squint-tools --test python_pack -- --ignored && cargo test -p squint-cli --test python_pack_manifests -- --ignored
+        run: cargo test -p squint-tools --test it -- --ignored python_pack:: && cargo test -p squint-cli --test it -- --ignored python_pack_manifests::
       - if: steps.pack.outputs.present == 'true'
         name: Build the provisioning bundle
         run: scripts/build-bundle.sh
       - if: steps.pack.outputs.present == 'true'
         name: Build the provisioning test with the network
-        run: cargo test -p squint-tools --test provisioning --no-run
+        run: cargo test -p squint-tools --test it --no-run
       # The install inside the namespace runs `uv sync --frozen` with no network, so the bundle's
       # locked dependencies (numpy, Pillow, onnxruntime) must already be in the uv cache: one sync
       # of a copy of the bundle with the network fills it. A copy, because the bundle itself must
@@ -142,7 +142,7 @@ jobs:
           sudo unshare -n -- sudo -u "$USER" env PATH="$PATH" HOME="$HOME" \
             UV_CACHE_DIR="$UV_CACHE_DIR" UV_PYTHON="$UV_PYTHON" \
             UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never CARGO_TERM_COLOR=always \
-            cargo test --offline -p squint-tools --test provisioning -- --ignored
+            cargo test --offline -p squint-tools --test it -- --ignored provisioning::
       - if: steps.pack.outputs.present == 'true' && env.ACT
         name: Install and launch the pack (no namespace under act)
-        run: env UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never cargo test --offline -p squint-tools --test provisioning -- --ignored
+        run: env UV_OFFLINE=1 UV_PYTHON_DOWNLOADS=never cargo test --offline -p squint-tools --test it -- --ignored provisioning::

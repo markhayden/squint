@@ -87,8 +87,8 @@ python-check:
 
 # The Rust client against the real Python pack (needs uv and the synced environment above).
 pack-test: python-check
-    cargo test -p squint-tools --test python_pack -- --ignored
-    cargo test -p squint-cli --test python_pack_manifests -- --ignored
+    cargo test -p squint-tools --test it -- --ignored python_pack::
+    cargo test -p squint-cli --test it -- --ignored python_pack_manifests::
 
 # The set-building toolkit (scripts/sets): lint, format check, tests, and the offline dry run
 # checked by the harness (needs uv; network on the first `uv sync`).
@@ -102,7 +102,7 @@ bundle:
 
 # Install the built bundle into a clean directory and call the pack through MCP (needs uv).
 provisioning-test: bundle
-    cargo test -p squint-tools --test provisioning -- --ignored
+    cargo test -p squint-tools --test it -- --ignored provisioning::
 
 # No agent attribution in any commit message or tracked file.
 attribution:
