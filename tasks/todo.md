@@ -169,6 +169,6 @@ tag.
 - [x] 8.2 The session (2026-11-01): UUID v4 at `serve` start, `squint://session` from an atomic ledger snapshot, the association written into each run's directory at allocation so `run.json` and running entries carry `session_id`; CLI runs null; `estimate` drops `session_budget_left_usd`
 - [x] 8.3 Correlation and the run reference (2026-11-01): `client_run_id` validated and claimed on acceptance (before the permit wait, held when cancelled there), a reuse `-32602` with the refusal and the earlier run; the association in the run's directory at allocation; `_meta["table-manners/run"]` on every notification from allocation, the URI out of the message
 - [x] 8.4 Unresolved spend (2026-11-01): `TransportError::sent`; a call that never left and an auth rejection cost nothing, one sent with no usage or cancelled in flight counts its bound as unresolved, a cancel between attempts charges nothing more (the ledger had charged it twice); `unresolved_usd` in the report, `run.json` and the session
-- [ ] 8.5 Runs by page
+- [x] 8.5 Runs by page (2026-11-01): `squint://runs{?cursor}`, fifty newest first by (started, id), only the page's run files opened, an opaque base64url cursor, `next_cursor` null on the last page
 - [ ] 8.6 Fixtures to rascal, docs; `=0.2.0` from crates.io once published
 - [ ] Checkpoint M8 → tag `m8`

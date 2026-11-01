@@ -54,6 +54,29 @@ pub struct ServeArgs {
     pub provider_script: Option<PathBuf>,
 }
 
+/// Runs per page of `squint://runs`.
+const RUNS_PAGE: usize = 50;
+
+/// A page's cursor: the last run's (started, id), base64url without padding, so it goes into a
+/// URI query as is (table-manners 4.3).
+fn encode_cursor(ms: u64, id: &str) -> String {
+    squint_core::image::base64_encode(format!("{ms}:{id}").as_bytes())
+        .trim_end_matches('=')
+        .replace('+', "-")
+        .replace('/', "_")
+}
+
+/// The position a cursor names, or none for one squint did not make.
+fn decode_cursor(cursor: &str) -> Option<(u64, String)> {
+    let mut standard = cursor.replace('-', "+").replace('_', "/");
+    while !standard.len().is_multiple_of(4) {
+        standard.push('=');
+    }
+    let text = String::from_utf8(squint_core::image::base64_decode(&standard).ok()?).ok()?;
+    let (ms, id) = text.split_once(':')?;
+    Some((ms.parse().ok()?, id.to_string()))
+}
+
 /// The request `_meta` key a client's correlation id travels under (table-manners 4.4).
 const CLIENT_RUN_META: &str = "table-manners/client_run_id";
 /// The notification `_meta` key a run's reference travels under (table-manners 4.3).
@@ -429,7 +452,11 @@ impl Server {
             return serde_json::to_string_pretty(&self.session()).ok();
         }
         if uri == "squint://runs" {
-            return serde_json::to_string_pretty(&self.runs()).ok();
+            return serde_json::to_string_pretty(&self.runs(None)).ok();
+        }
+        if let Some(cursor) = uri.strip_prefix("squint://runs?cursor=") {
+            let after = decode_cursor(cursor)?;
+            return serde_json::to_string_pretty(&self.runs(Some(&after))).ok();
         }
         let (id, what) = uri.strip_prefix("squint://run/")?.split_once('/')?;
         let valid = !id.is_empty()
@@ -462,66 +489,73 @@ impl Server {
         }
     }
 
-    /// Every run directory under the output directory, newest first: a finished one by its
-    /// `run.json`, one still going as `running` (table-manners 4.3).
-    fn runs(&self) -> table_manners::RunsList {
-        let mut runs: Vec<(u64, table_manners::RunSummary)> =
-            std::fs::read_dir(&self.inner.out_dir)
-                .into_iter()
-                .flatten()
-                .flatten()
-                .filter_map(|entry| {
-                    let id = entry.file_name().to_string_lossy().into_owned();
-                    // `<action>-<unix ms>-<pid>[-n]`: the milliseconds order the list.
-                    let ms: u64 = id.split('-').find_map(|part| part.parse().ok())?;
-                    let dir = entry.path();
-                    let summary = match std::fs::read_to_string(dir.join(contract::RUN_FILE))
-                        .ok()
-                        .and_then(|t| serde_json::from_str::<table_manners::RunResult>(&t).ok())
-                    {
-                        Some(r) => table_manners::RunSummary {
-                            id: id.clone(),
-                            action: r.action,
-                            status: match r.status {
-                                table_manners::Status::Completed => {
-                                    table_manners::RunState::Completed
-                                }
-                                table_manners::Status::Cancelled => {
-                                    table_manners::RunState::Cancelled
-                                }
-                                table_manners::Status::Error => table_manners::RunState::Error,
-                                table_manners::Status::Invalid => table_manners::RunState::Invalid,
-                            },
-                            started: r.started,
-                            resource: r.run.resource,
-                            session_id: r.run.session_id,
-                            client_run_id: r.run.client_run_id,
+    /// One page of the runs under the output directory (table-manners 4.3): newest first by
+    /// (started, id), at most [`RUNS_PAGE`], after `after` when a cursor names one. Directory
+    /// names carry the start time, so only the page's runs are opened: a finished one by its
+    /// `run.json`, one still going as `running`.
+    fn runs(&self, after: Option<&(u64, String)>) -> table_manners::RunsList {
+        let mut all: Vec<(u64, String, PathBuf)> = std::fs::read_dir(&self.inner.out_dir)
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter_map(|entry| {
+                let id = entry.file_name().to_string_lossy().into_owned();
+                // `<action>-<unix ms>-<pid>[-n]`: the milliseconds order the list.
+                let ms: u64 = id.split('-').find_map(|part| part.parse().ok())?;
+                Some((ms, id, entry.path()))
+            })
+            .filter(|(ms, id, _)| after.is_none_or(|(a_ms, a_id)| (*ms, id) < (*a_ms, a_id)))
+            .collect();
+        all.sort_by(|a, b| (b.0, &b.1).cmp(&(a.0, &a.1)));
+        let more = all.len() > RUNS_PAGE;
+        all.truncate(RUNS_PAGE);
+        let next_cursor = more
+            .then(|| all.last().map(|(ms, id, _)| encode_cursor(*ms, id)))
+            .flatten();
+        let runs = all
+            .into_iter()
+            .map(|(ms, id, dir)| {
+                match std::fs::read_to_string(dir.join(contract::RUN_FILE))
+                    .ok()
+                    .and_then(|t| serde_json::from_str::<table_manners::RunResult>(&t).ok())
+                {
+                    Some(r) => table_manners::RunSummary {
+                        id: id.clone(),
+                        action: r.action,
+                        status: match r.status {
+                            table_manners::Status::Completed => table_manners::RunState::Completed,
+                            table_manners::Status::Cancelled => table_manners::RunState::Cancelled,
+                            table_manners::Status::Error => table_manners::RunState::Error,
+                            table_manners::Status::Invalid => table_manners::RunState::Invalid,
                         },
-                        None => {
-                            let association = contract::Association::read(&dir);
-                            table_manners::RunSummary {
-                                action: running_action(&dir, &id),
-                                status: table_manners::RunState::Running,
-                                started: contract::rfc3339(ms),
-                                resource: format!("squint://run/{id}/{}", contract::RUN_FILE),
-                                id: id.clone(),
-                                session_id: association.session_id,
-                                client_run_id: association.client_run_id,
-                            }
+                        started: r.started,
+                        resource: r.run.resource,
+                        session_id: r.run.session_id,
+                        client_run_id: r.run.client_run_id,
+                    },
+                    None => {
+                        let association = contract::Association::read(&dir);
+                        table_manners::RunSummary {
+                            action: running_action(&dir, &id),
+                            status: table_manners::RunState::Running,
+                            started: contract::rfc3339(ms),
+                            resource: format!("squint://run/{id}/{}", contract::RUN_FILE),
+                            id: id.clone(),
+                            session_id: association.session_id,
+                            client_run_id: association.client_run_id,
                         }
-                    };
-                    Some((ms, summary))
-                })
-                .collect();
-        runs.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| b.1.id.cmp(&a.1.id)));
+                    }
+                }
+            })
+            .collect();
         table_manners::RunsList {
             contract: table_manners::CONTRACT_VERSION.into(),
             tool: table_manners::Tool {
                 name: "squint".into(),
                 version: VERSION.into(),
             },
-            runs: runs.into_iter().map(|(_, r)| r).collect(),
-            next_cursor: None,
+            runs,
+            next_cursor,
         }
     }
 
@@ -1034,6 +1068,7 @@ impl ServerHandler for Server {
         _context: RequestContext<RoleServer>,
     ) -> Result<ListResourceTemplatesResult, ErrorData> {
         let templates = [
+            ("squint://runs{?cursor}", "runs page", "application/json"),
             ("squint://run/{id}/run.json", "run", "application/json"),
             (
                 "squint://run/{id}/report.json",

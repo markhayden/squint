@@ -29,6 +29,7 @@ mod serve_check_cli;
 mod serve_cli;
 mod serve_correlation_cli;
 mod serve_progress_cli;
+mod serve_runs_cli;
 mod serve_session_cli;
 mod sets_cli;
 mod shared_pack_cli;

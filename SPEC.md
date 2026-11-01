@@ -1454,7 +1454,9 @@ section says what squint does with them.
   provider call; `run.json` and the run resource then hold status `cancelled` with spend to date,
   and no result is returned. An identical retry within the cache policy is answered from the
   decision cache and says so.
-- **Runs as resources**: `squint://runs` (recent runs newest first, `running` included),
+- **Runs as resources**: `squint://runs` (the newest page of runs, newest first by start time and
+  id, `running` included; `squint://runs?cursor=<next_cursor>` the next, fifty to a page, the
+  cursor opaque base64url; a run started during a walk is seen by reading page one again),
   `squint://run/<id>/run.json`, `…/report.json` and `…/journal` for every decision the server ran,
   readable after a timeout or a dropped connection; every run has a journal, an empty one when it
   made no decision (an `estimate`, a call refused before its first run).
