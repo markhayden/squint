@@ -27,9 +27,12 @@ clippy:
 
 # nextest runs the test binaries in parallel (cargo test runs them one after another). There are
 # no doctests to lose.
+# The fake MCP server is built once first: nextest runs every test as its own process, and a
+# build per process would race to replace the binary under the tests running it.
 test:
-    cargo nextest run --workspace --features squint-cli/testkit
-    cargo nextest run -p squint-cli
+    cargo build -p squint-testkit --bin squint-testkit-mcp
+    SQUINT_TESTKIT_MCP="$PWD/target/debug/squint-testkit-mcp" cargo nextest run --workspace --features squint-cli/testkit
+    SQUINT_TESTKIT_MCP="$PWD/target/debug/squint-testkit-mcp" cargo nextest run -p squint-cli
 
 # Licences, bans and sources work offline; advisories need the network and run in CI (`just deny-advisories`).
 deny:
