@@ -8,6 +8,7 @@ mod cancel_cli;
 mod catalog_cli;
 mod cli;
 mod config_cli;
+mod contract_fixtures_served;
 mod decision_cli;
 mod describe_cli;
 mod dry_run_cli;

@@ -167,13 +167,20 @@ fn the_conformance_fixtures_are_what_squint_emits() {
     files.sort();
     assert_eq!(
         files,
+        // The served documents are squint-cli's to generate (contract_fixtures_served.rs).
         [
             "describe.json",
+            "refusal-earlier-run.json",
+            "refusal-no-run.json",
             "run-cancelled.json",
             "run-completed.json",
             "run-error.json",
             "run-fail.json",
-            "run-invalid.json"
+            "run-invalid.json",
+            "run-served-cancelled-unresolved.json",
+            "run-served-estimate.json",
+            "runs.json",
+            "session.json",
         ],
         "a fixture squint no longer produces"
     );
