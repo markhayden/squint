@@ -57,7 +57,7 @@ tag.
 - [x] Checkpoint M2 → merged to `main` and tagged `m2` on 2026-10-27 after the owner's go-ahead (docs/reviews/m2-checkpoint.md); the push is the owner's
 - [x] From the M2 review (owner 2026-10-27: "do whatever you need to do"): the envelope plans each request once plus a per-run retry reserve of `retries ×` the largest bound, and a retry the balance cannot cover is refused with `error: budget`; the defaults now fit every shipped model and the examples are back on them
 - [ ] 4.1 follow-up (planned as F1): a run whose tool images can carry the history past `many_image_threshold` fails preflight mid-run with `error: image_limit` after money is spent; at resolve, either prepare at `many_image_max_dimension_px` when the worst case can pass the threshold (and record it in `prep_version`) or refuse before the first call
-- [ ] Recorded from the M2 review, not fixed (the excerpts planned as F5): transport-error excerpts (up to 2 KB of a provider's error body) reach the journal and stderr without the redaction pass (the credential is never in a response body, so nothing has leaked; route them through the redaction list when the journal gains a redaction step); the `dist` installer in the `package` workflow is fetched by `curl | sh` without a checksum, as the generated release workflow does
+- [ ] Recorded from the M2 review, not fixed: the transport-error excerpts are fixed by F5 (redacted before the journal, `run.json` and stderr); the `dist` installer in the `package` workflow is fetched by `curl | sh` without a checksum, as the generated release workflow does
 
 ## M3 Evaluation sets and baseline
 - [x] 3.1 Set manifests, check, fetch, seal
@@ -208,5 +208,5 @@ PLAN.md "Follow-ups (before or beside M9)". Each on its own `fu/<name>` branch.
 - [ ] F2 Image arguments say what they take (image id or raw frame), pinned by a test (the `align` follow-up) — parallel with M9
 - [ ] F3 One retry of a provider 400 that names no cause — after 9.6
 - [ ] F4 The segmenter pack fails at `initialize` when its model file is missing, so the run ends at resolve (M5 review) — parallel with M9
-- [ ] F5 Provider error excerpts redacted before the journal, `run.json` and stderr (M2 review) — before M9, or after 9.6
+- [x] F5 Provider error excerpts redacted before the journal, `run.json` and stderr (M2 review) — before M9, or after 9.6
 - [ ] F6 CI runs nextest without fail-fast (profile `ci`), both test passes as separate steps — parallel with M9, first

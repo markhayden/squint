@@ -224,7 +224,7 @@ pub async fn check(
             // Whatever failed, the decision's directory ends with its own result (table-manners
             // 4.3, 7.3): rebuilt from the journals when there are any, else the header alone.
             if !dir.join(crate::contract::RUN_FILE).exists() {
-                let result = match Report::rebuild(&dir) {
+                let mut result = match Report::rebuild(&dir) {
                     Ok(report) => {
                         let mut result = crate::contract::run_result(&report, &dir, started_ms);
                         let (status, code) = crate::contract::status_of(e.class());
@@ -249,6 +249,10 @@ pub async fn check(
                         serde_json::Map::new(),
                     ),
                 };
+                // The reason is the error's text, redacted as the journal's messages are.
+                if let Some(error) = &mut result.error {
+                    error.reason = crate::artifacts::redact(&error.reason, &config.secrets);
+                }
                 let _ = crate::contract::write_run_result(&dir, &result);
             }
             Err(e)
@@ -485,10 +489,11 @@ async fn run_once(
     match result {
         Ok(verdict) => journal.append(&Event::Verdict(events::VerdictReached { verdict })),
         Err(e) => {
-            // A cancellation ends the journal in `cancelled` with the state reached.
+            // A cancellation ends the journal in `cancelled` with the state reached. The message
+            // is redacted like every stored body: a provider's error excerpt may echo a secret.
             let terminal = events::Terminal {
                 class: e.class().into(),
-                message: e.to_string(),
+                message: state.artifacts.redact(&e.to_string()),
                 state: journal.last_event().map(str::to_string),
             };
             journal.append(&if matches!(e, Error::Cancelled(_)) {
@@ -1304,7 +1309,7 @@ async fn send_turn(
             attempt: a.attempt,
             status: a.status,
             delay_ms: a.delay.as_millis() as u64,
-            error: a.message.clone(),
+            error: state.artifacts.redact(&a.message),
             charged_usd: charge,
         }))?;
         if !account.covers(bound_usd) {
@@ -1376,7 +1381,7 @@ async fn send_turn(
                     turn,
                     attempts: 1 + retries_made,
                     class: e.class().into(),
-                    error: e.to_string(),
+                    error: state.artifacts.redact(&e.to_string()),
                     charged_usd: charge,
                 }))?;
             }

@@ -358,7 +358,10 @@ fn check(args: &CheckArgs) -> i32 {
                         .unwrap_or_default()
                         .trim_matches('"')
                 ),
-                (None, Some(e)) => eprintln!("error: {}", redacted(e, &config)),
+                (None, Some(e)) => eprintln!(
+                    "error: {}",
+                    squint_core::artifacts::redact(e, &config.secrets)
+                ),
                 (None, None) => eprintln!("error: run ended without a verdict or an error"),
             }
             if o.cache.is_hit() {
@@ -379,7 +382,10 @@ fn check(args: &CheckArgs) -> i32 {
             }
         }
         Err(e) => {
-            eprintln!("squint: {}", redacted(&e.to_string(), &config));
+            eprintln!(
+                "squint: {}",
+                squint_core::artifacts::redact(&e.to_string(), &config.secrets)
+            );
             // A signal that landed before the decision was allocated still exits as signalled.
             match signalled.load(std::sync::atomic::Ordering::SeqCst) {
                 0 => squint_core::run::EXIT_ERROR,
@@ -474,17 +480,6 @@ async fn cancel_on_signal(
     };
     signalled.store(code, std::sync::atomic::Ordering::SeqCst);
     cancel.cancel();
-}
-
-/// Error text never carries an expanded secret.
-fn redacted(text: &str, config: &Config) -> String {
-    let mut out = text.to_string();
-    for s in &config.secrets {
-        if !s.is_empty() {
-            out = out.replace(s, "[redacted]");
-        }
-    }
-    out
 }
 
 /// `squint estimate`: the envelope `check` would reserve, priced from the catalog (or, in a

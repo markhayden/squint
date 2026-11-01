@@ -631,6 +631,11 @@ written and fsynced before the event is appended. Artifacts in `artifacts/` by c
 - every image sent to the model, exactly as sent, and every image a tool returned;
 - every structured tool result in full.
 
+Error messages the journal records (`retry`, `attempt_failed`, `error`, `cancelled`), a
+provider's error excerpt (up to 2 KB of its error body) among them, pass the same redaction as
+the bodies, raw and JSON-escaped, so neither `report.json`, `run.json` nor the command line's
+stderr carries an expanded secret.
+
 SIGINT or SIGTERM during a run appends `cancelled` with the state reached and exits 130 or 143
 ("External interface").
 
