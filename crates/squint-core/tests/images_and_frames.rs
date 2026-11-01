@@ -68,8 +68,9 @@ fn oversized_pixel_count_is_refused_before_decode() {
     )
     .unwrap_err();
     match err {
-        Error::Image(m) => assert!(m.contains("60000000") && m.contains("50000000"), "{m}"),
-        other => panic!("expected an image error, got {other}"),
+        // Over a limit is the caller's input (table-manners 2.2), not a usage error.
+        Error::ImageLimit(m) => assert!(m.contains("60000000") && m.contains("50000000"), "{m}"),
+        other => panic!("expected an image limit error, got {other}"),
     }
 }
 
@@ -85,7 +86,7 @@ fn oversized_byte_count_is_refused_before_decode() {
         &tiny,
     )
     .unwrap_err();
-    assert!(matches!(err, Error::Image(m) if m.contains("bytes")));
+    assert!(matches!(err, Error::ImageLimit(m) if m.contains("bytes")));
 }
 
 /// Only a regular file is read, and never past the byte bound (review I1): a FIFO or a device is

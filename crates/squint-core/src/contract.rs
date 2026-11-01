@@ -399,11 +399,20 @@ fn word<T: serde::Serialize>(value: &T) -> String {
 }
 
 /// What this decision ran on: the images' digests, the job, the resolved rules, the redacted
-/// config, the provider, the tools and the prompt and harness versions.
+/// config, the provider, the tools and the prompt and harness versions. How an image arrived (a
+/// path or inline bytes) is left out: its digest already says what it was.
 fn input_identity(report: &Report, images: &[CanonicalImage]) -> String {
+    let mut job = serde_json::to_value(&report.job).unwrap_or_default();
+    if let Some(list) = job["images"].as_array_mut() {
+        for image in list {
+            if let Some(fields) = image.as_object_mut() {
+                fields.remove("source");
+            }
+        }
+    }
     let identity = serde_json::json!({
         "images": images.iter().map(|i| (&i.id, &i.sha256)).collect::<Vec<_>>(),
-        "job": report.job,
+        "job": job,
         "rules": report.rules,
         "config": report.config,
         "provider": report.provider,
@@ -882,5 +891,66 @@ pub fn action_result(
         }),
         notes: Vec::new(),
         body,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Error;
+
+    /// The contract status and code each error must become (table-manners 2.2). The match is
+    /// exhaustive, so a new error variant does not compile until its mapping is decided here.
+    fn expected(e: &Error) -> (Status, Option<(ErrorCode, bool)>) {
+        match e {
+            Error::Cancelled(_) => (Status::Cancelled, None),
+            Error::Input(_) | Error::ImageLimit(_) => {
+                (Status::Invalid, Some((ErrorCode::Input, false)))
+            }
+            Error::Config(_)
+            | Error::Job(_)
+            | Error::Image(_)
+            | Error::Toml(_)
+            | Error::Auth(_) => (Status::Invalid, Some((ErrorCode::Usage, false))),
+            Error::Provider(_)
+            | Error::Transport(_)
+            | Error::Submission(_)
+            | Error::NoSubmission(_)
+            | Error::ModelOutput(_) => (Status::Error, Some((ErrorCode::Provider, true))),
+            Error::Tool(_) => (Status::Error, Some((ErrorCode::ToolProcess, false))),
+            Error::Budget(_) => (Status::Error, Some((ErrorCode::Budget, false))),
+            Error::Io(_) | Error::Json(_) => (Status::Error, Some((ErrorCode::Io, false))),
+        }
+    }
+
+    #[test]
+    fn every_error_maps_to_its_contract_status_and_code() {
+        let s = || "x".to_string();
+        let errors = [
+            Error::Cancelled(s()),
+            Error::Input(s()),
+            Error::ImageLimit(s()),
+            Error::Config(s()),
+            Error::Job(s()),
+            Error::Image(s()),
+            Error::Toml(toml::from_str::<toml::Value>("=").unwrap_err()),
+            Error::Auth(s()),
+            Error::Provider(s()),
+            Error::Transport(crate::retry::TransportError {
+                status: Some(503),
+                retry_after: None,
+                message: s(),
+            }),
+            Error::Submission(s()),
+            Error::NoSubmission(s()),
+            Error::ModelOutput(s()),
+            Error::Tool(s()),
+            Error::Budget(s()),
+            Error::Io(std::io::Error::other("x")),
+            Error::Json(serde_json::from_str::<serde_json::Value>("{").unwrap_err()),
+        ];
+        for e in &errors {
+            assert_eq!(status_of(e.class()), expected(e), "{e}");
+        }
     }
 }

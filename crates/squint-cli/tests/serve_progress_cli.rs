@@ -120,6 +120,14 @@ fn a_waiting_call_beats_and_a_cancel_leaves_a_cancelled_run_and_no_result() {
         }
         assert!(started.elapsed() < Duration::from_secs(20), "no heartbeat");
     }
+    // The next beat comes within the declared interval (table-manners 4.1: 10 s).
+    let beat = Instant::now();
+    c.next_notification().unwrap();
+    assert!(
+        beat.elapsed() <= Duration::from_secs(10),
+        "a {:?} gap between heartbeats",
+        beat.elapsed()
+    );
     increasing(&progress(&c, "tok-2"));
     // While it waits, the run is listed as running under its action, as `describe` names it.
     let runs: serde_json::Value =

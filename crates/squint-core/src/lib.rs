@@ -45,8 +45,8 @@ pub enum Error {
     /// A credential the configured auth scheme needs is missing.
     #[error("auth: {0}")]
     Auth(String),
-    /// A request would exceed a provider's image limits (count, size, bytes); never downscaled
-    /// silently.
+    /// An image exceeds a limit: the decode bound, or a provider's image limits (count, size,
+    /// bytes); never downscaled silently. The caller's input (table-manners `input`).
     #[error("image_limit: {0}")]
     ImageLimit(String),
     /// The provider answered in a way the harness cannot continue from. Never retried.

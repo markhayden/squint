@@ -161,7 +161,7 @@ pub fn canonical_png(id: &str, pixels: &DynamicImage) -> Result<Prepared> {
 pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<CanonicalImage> {
     let bytes = read_bytes(spec, base, bounds.max_bytes)?;
     if bytes.len() as u64 > bounds.max_bytes {
-        return Err(Error::Image(format!(
+        return Err(Error::ImageLimit(format!(
             "{}: {} bytes exceeds the decode bound of {} bytes",
             spec.id,
             bytes.len(),
@@ -185,7 +185,7 @@ pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<Cano
     }
     let pixels = u64::from(w) * u64::from(h);
     if pixels > bounds.max_pixels {
-        return Err(Error::Image(format!(
+        return Err(Error::ImageLimit(format!(
             "{}: {w}x{h} = {pixels} pixels exceeds the decode bound of {} pixels",
             spec.id, bounds.max_pixels
         )));
@@ -274,7 +274,7 @@ fn read_bytes(spec: &ImageSpec, base: &Path, max_bytes: u64) -> Result<Vec<u8>> 
                 )));
             }
             if meta.len() > max_bytes {
-                return Err(Error::Image(format!(
+                return Err(Error::ImageLimit(format!(
                     "{}: {} bytes exceeds the decode bound of {max_bytes} bytes",
                     spec.id,
                     meta.len()
@@ -299,7 +299,7 @@ fn read_bytes(spec: &ImageSpec, base: &Path, max_bytes: u64) -> Result<Vec<u8>> 
         ImageSource::Base64 { base64, .. } => {
             let decoded_at_least = (base64.trim().len() as u64 / 4) * 3;
             if decoded_at_least.saturating_sub(2) > max_bytes {
-                return Err(Error::Image(format!(
+                return Err(Error::ImageLimit(format!(
                     "{}: about {decoded_at_least} bytes exceeds the decode bound of {max_bytes} bytes",
                     spec.id
                 )));

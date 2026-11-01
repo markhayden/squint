@@ -158,5 +158,5 @@ tag.
   - [x] serve honours `[rules]` and resolves rule paths as the CLI does (I6); a rules file that cannot be read makes `describe` and `serve` exit 64
   - [x] client roots parsed as `file:` URLs: an empty or `localhost` host, percent-decoded (I5)
   - [x] `straddles_wrap` never on a bounded image; a running run listed under its action (coverage 3, 4)
-  - [ ] vacuous tests made to bite: cancelled spend, heartbeat gaps, path/inline identity; argument errors exit 64 per command; `status_of` exhaustive; `run.json` in the secret scan
+  - [x] vacuous tests made to bite: cancelled spend, heartbeat gaps, path/inline identity; argument errors exit 64 per command; `status_of` exhaustive; `run.json` in the secret scan. Found on the way: a decode bound is `image_limit` (contract `input`, review S1); `input_identity` leaves out how an image arrived (the fixtures' identities changed: refresh table-manners `fixtures/squint/` with v0.2)
   - with C4 (K3): a heartbeat while a call waits for the permit (I4)

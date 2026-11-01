@@ -106,11 +106,11 @@ fn a_check_by_path_and_by_inline_bytes_reaches_the_same_verdict() {
         .unwrap()
         .structured
         .unwrap();
+    // The same bytes are the same inputs, whichever way they came.
     assert_eq!(by_inline["body"]["verdict"], r["body"]["verdict"]);
-    assert_eq!(
-        by_inline["images"]["in"][0]["image"]["file_sha256"],
-        r["images"]["in"][0]["image"]["file_sha256"]
-    );
+    assert_eq!(by_inline["images"]["in"], r["images"]["in"]);
+    assert_eq!(by_inline["locations"], r["locations"]);
+    assert_eq!(by_inline["input_identity"], r["input_identity"]);
 }
 
 #[test]

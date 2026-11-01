@@ -199,11 +199,32 @@ fn a_cancelled_decision_is_cancelled_with_its_spend_to_date() {
     let (_, r) = run("cancelled", "held.json", "pair.toml", &[], Some(&cancel));
     assert_eq!(r.status, Status::Cancelled);
     assert!(r.error.is_none());
-    assert!(r.spend.usd >= 0.0);
+    assert_eq!(r.spend.usd, 0.0, "cancelled before the first request");
 }
 
-/// `run.json` is written to a temporary name and renamed, so a reader never sees half of one and
-/// nothing is left behind.
+/// A decision cancelled after it has spent keeps that spend in its `run.json` (table-manners
+/// 2.3): the first turn is paid for, the cancel lands during a 30 s retry wait, promptly.
+#[test]
+fn a_decision_cancelled_after_spending_keeps_its_spend() {
+    let cancel = run::Cancel::new();
+    let trigger = cancel.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        trigger.cancel();
+    });
+    let started = std::time::Instant::now();
+    let (_, r) = run(
+        "cancelled-spent",
+        "spend-then-slow-retry.json",
+        "pair.toml",
+        &[],
+        Some(&cancel),
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(10));
+    assert_eq!(r.status, Status::Cancelled, "{:?}", r.error);
+    assert!(r.spend.usd > 0.0, "{:?}", r.spend);
+}
+
 /// A decision whose cache cannot take it still succeeded (review I2): the store's failure is a
 /// note on a `completed` run, and the decision's verdict and spend stay in its own `run.json`.
 #[test]
@@ -287,6 +308,8 @@ fn a_reference_is_taken_in_through_the_references_slot() {
     assert_eq!(candidate.slot, "candidate");
 }
 
+/// `run.json` is written to a temporary name and renamed, so a reader never sees half of one and
+/// nothing is left behind.
 #[test]
 fn run_json_is_written_atomically_and_leaves_no_temporary_file() {
     let (o, _) = run("atomic", "held.json", "pair.toml", &[], None);
