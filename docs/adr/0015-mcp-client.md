@@ -38,7 +38,9 @@ stdio.
   malformed frame or the end of the stream fails every pending request and taints. An error
   about a server that ended the conversation (or could not be written to) carries the server's
   last stderr lines; it waits for stderr to close, at most a second, because stderr is read on
-  its own thread and a dying server's last words can arrive after the end of stdout.
+  its own thread and a dying server's last words can arrive after the end of stdout. That
+  thread reads stderr as bytes to the end of the pipe whatever it holds, decoding each line
+  lossily and keeping the last 200 lines of at most 4 KiB each.
 - `tools/list` follows `nextCursor` to the end, refusing a repeated cursor or more than 64 pages.
 - The result is the envelope validated against the tool's `outputSchema`; the content blocks must
   be exactly the image blocks of `images`, in order and media type, and nothing else; `isError`
@@ -66,7 +68,8 @@ stdio.
   notes, and the fake server (`squint-testkit-mcp`) grows a flag for every misbehaviour the
   tests need (`--page-size`, `--loop-cursor`, `--concurrent`, `--extra-measurement`,
   `--text-block`, beside the lifecycle flags of 1.13; later `--late-stderr-ms`, a dying server
-  whose stderr outlives its stdout).
+  whose stderr outlives its stdout, and `--bad-stderr` and `--stderr-flood-kib`, stderr that is
+  not UTF-8).
 - A batch of calls whose tools all declare `concurrent = true` is dispatched together by the run
   (task 4.4a) and ingested in call order, so evidence items keep their order whatever the
   completion order.

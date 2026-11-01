@@ -101,6 +101,59 @@ struct Shared {
 /// Lines of the server's stderr kept.
 const STDERR_LINES: usize = 200;
 
+/// Bytes of one stderr line kept; the rest of a longer line is read and dropped.
+const STDERR_LINE_BYTES: usize = 4096;
+
+/// Marks a stderr line cut at `STDERR_LINE_BYTES`.
+const TRUNCATED: &str = " [truncated]";
+
+/// Reads the server's stderr to the end of the pipe whatever it holds, handing `each` every line
+/// (without its `\n` or `\r\n`) decoded lossily and cut at `STDERR_LINE_BYTES`. It never stops
+/// early: a reader that quit on a bad byte would lose every later line and close the pipe under
+/// a server still writing to it, whose next write then fails with a broken pipe (fatal to many
+/// servers); one that stopped reading but kept the pipe open would leave the server blocked on a
+/// full pipe. Only a read error ends it before the end of the pipe.
+fn read_stderr_lines(mut reader: impl BufRead, mut each: impl FnMut(String)) {
+    let mut line: Vec<u8> = Vec::new();
+    let mut truncated = false;
+    let mut emit = |line: &mut Vec<u8>, truncated: &mut bool| {
+        if line.last() == Some(&b'\r') && !*truncated {
+            line.pop();
+        }
+        let mut text = String::from_utf8_lossy(line).into_owned();
+        if *truncated {
+            text.push_str(TRUNCATED);
+        }
+        each(text);
+        line.clear();
+        *truncated = false;
+    };
+    loop {
+        let buf = match reader.fill_buf() {
+            Ok([]) => break,
+            Ok(buf) => buf,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+            Err(_) => break,
+        };
+        let (chunk, used, ends_line) = match buf.iter().position(|&b| b == b'\n') {
+            Some(i) => (&buf[..i], i + 1, true),
+            None => (buf, buf.len(), false),
+        };
+        let room = STDERR_LINE_BYTES.saturating_sub(line.len());
+        if chunk.len() > room {
+            truncated = true;
+        }
+        line.extend_from_slice(&chunk[..chunk.len().min(room)]);
+        reader.consume(used);
+        if ends_line {
+            emit(&mut line, &mut truncated);
+        }
+    }
+    if !line.is_empty() || truncated {
+        emit(&mut line, &mut truncated);
+    }
+}
+
 /// How long an error about a server that ended the conversation waits for its stderr to close.
 /// The stdout and stderr pipes are read by different threads, so the end of stdout can arrive
 /// before the last lines a dying server wrote to stderr; those lines are often the only
@@ -297,14 +350,14 @@ impl Client {
         });
         let sink = Arc::clone(&shared);
         std::thread::spawn(move || {
-            for line in BufReader::new(stderr_pipe).lines().map_while(|l| l.ok()) {
+            read_stderr_lines(BufReader::new(stderr_pipe), |line| {
                 if let Ok(mut v) = sink.stderr.lock() {
                     if v.len() >= STDERR_LINES {
                         v.remove(0);
                     }
                     v.push(line);
                 }
-            }
+            });
             sink.close_stderr();
         });
 

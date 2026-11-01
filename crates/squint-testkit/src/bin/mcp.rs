@@ -34,6 +34,12 @@ struct Options {
     /// that holds its stderr open, writes `fake mcp: last words` after this many milliseconds and
     /// exits. Stdout ends well before stderr, as it can when a real server dies.
     late_stderr_ms: Option<u64>,
+    /// At start, a stderr line that is not UTF-8, then `fake mcp: after the bad bytes`.
+    bad_stderr: bool,
+    /// Before answering each call, this many KiB of non-UTF-8 on stderr: short lines, then one
+    /// line far longer than any reader keeps. More than a pipe holds, so every byte must be
+    /// drained while the server writes.
+    stderr_flood_kib: usize,
     /// The child of `late_stderr_ms`: wait this many milliseconds, write the last words, exit.
     say_after_ms: Option<u64>,
     /// The process exits after answering this many calls (0: never): a server that dies between
@@ -64,6 +70,8 @@ fn options() -> Options {
         die_on_call: false,
         late_stderr_ms: None,
         say_after_ms: None,
+        bad_stderr: false,
+        stderr_flood_kib: 0,
         exit_after_calls: 0,
         garbage_line: false,
         stray_response: false,
@@ -88,6 +96,10 @@ fn options() -> Options {
             "--text-block" => o.text_block = true,
             "--die-on-call" => o.die_on_call = true,
             "--late-stderr-ms" => o.late_stderr_ms = args.next().and_then(|s| s.parse().ok()),
+            "--bad-stderr" => o.bad_stderr = true,
+            "--stderr-flood-kib" => {
+                o.stderr_flood_kib = args.next().and_then(|s| s.parse().ok()).unwrap_or(0)
+            }
             "--say-after-ms" => o.say_after_ms = args.next().and_then(|s| s.parse().ok()),
             "--exit-after-calls" => {
                 o.exit_after_calls = args.next().and_then(|s| s.parse().ok()).unwrap_or(0)
@@ -172,6 +184,9 @@ impl Server {
     /// `tools/call`: the scripted tool, the state probe, or an unknown tool.
     fn call(&self, id: Option<Value>, params: &Value) {
         let o = &self.options;
+        if o.stderr_flood_kib > 0 {
+            flood_stderr(o.stderr_flood_kib * 1024);
+        }
         let in_flight = self.in_flight.fetch_add(1, Ordering::SeqCst) + 1;
         self.max_in_flight.fetch_max(in_flight, Ordering::SeqCst);
         let calls = self.calls_since_reset.fetch_add(1, Ordering::SeqCst) + 1;
@@ -249,8 +264,29 @@ impl Server {
     }
 }
 
+/// `total` bytes of 0xFF on stderr: half in lines of a hundred bytes, half in one line.
+fn flood_stderr(total: usize) {
+    let mut err = std::io::stderr().lock();
+    let half = total / 2;
+    let mut line = vec![0xFF_u8; 99];
+    line.push(b'\n');
+    for _ in 0..half / line.len() {
+        let _ = err.write_all(&line);
+    }
+    let mut long = vec![0xFF_u8; total - half];
+    long.push(b'\n');
+    let _ = err.write_all(&long);
+    let _ = err.flush();
+}
+
 fn main() {
     let mut o = options();
+    if o.bad_stderr {
+        let mut err = std::io::stderr().lock();
+        let _ = err.write_all(b"fake mcp: \xFF\xFE bad bytes\n");
+        let _ = err.write_all(b"fake mcp: after the bad bytes\n");
+        let _ = err.flush();
+    }
     if let Some(ms) = o.say_after_ms {
         std::thread::sleep(Duration::from_millis(ms));
         eprintln!("fake mcp: last words");

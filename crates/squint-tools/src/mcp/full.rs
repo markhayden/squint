@@ -428,6 +428,86 @@ fn a_stderr_held_open_by_a_child_delays_the_error_by_a_bounded_wait() {
     client.shutdown(Duration::from_millis(300));
 }
 
+/// A stderr line that is not UTF-8 stops nothing: it arrives with its bad bytes replaced, and
+/// the lines after it still reach the error of a call the server died on.
+#[test]
+fn stderr_that_is_not_utf8_loses_no_later_line() {
+    let client = Client::connect(
+        &spawn(&["--bad-stderr", "--die-on-call"]),
+        env(),
+        Instant::now() + Duration::from_secs(10),
+    )
+    .unwrap();
+    let err = client
+        .call(
+            "probe_state",
+            json!({ "_squint": context("run-1") }),
+            Duration::from_secs(5),
+        )
+        .err()
+        .unwrap();
+    let text = err.to_string();
+    assert!(
+        text.contains("fake mcp: \u{FFFD}\u{FFFD} bad bytes | fake mcp: after the bad bytes"),
+        "{text}"
+    );
+    assert!(text.contains("fake mcp: dying on call"), "{text}");
+    client.shutdown(Duration::from_millis(300));
+}
+
+/// More non-UTF-8 stderr than a pipe holds, written before each answer: the reader drains all of
+/// it, so the calls complete and the newest lines are kept, the long one cut at the bound.
+#[test]
+fn a_flood_of_non_utf8_stderr_never_blocks_the_server() {
+    let client = Client::connect(
+        &spawn(&["--stderr-flood-kib", "256"]),
+        env(),
+        Instant::now() + Duration::from_secs(10),
+    )
+    .unwrap();
+    for _ in 0..2 {
+        let e = client
+            .call(
+                "probe_state",
+                json!({ "_squint": context("run-1") }),
+                Duration::from_secs(10),
+            )
+            .unwrap();
+        assert_eq!(e.structured["status"], "ok");
+    }
+    // The answer can overtake the stderr written before it (another pipe, another thread), so
+    // the lines are read once the process is gone and the reader has reached the end.
+    client.shutdown(Duration::from_millis(300));
+    client.shared.drain_stderr(Duration::from_secs(10));
+    let lines = client.stderr_lines();
+    assert_eq!(lines.len(), STDERR_LINES);
+    let long = lines.last().unwrap();
+    assert!(long.ends_with(TRUNCATED), "the long line is cut");
+    assert_eq!(
+        long.chars().filter(|c| *c == '\u{FFFD}').count(),
+        STDERR_LINE_BYTES
+    );
+}
+
+/// The line reader on its own: CRLF and LF endings, an unterminated last line, empty lines,
+/// invalid bytes and a line past the bound, which is cut and then consumed to its end.
+#[test]
+fn stderr_lines_are_split_decoded_and_bounded() {
+    let mut input = b"one\r\n\ntwo \xC3(\n".to_vec();
+    input.extend(std::iter::repeat_n(b'x', STDERR_LINE_BYTES + 10));
+    input.extend(b"\nafter\nlast");
+    let mut lines = Vec::new();
+    // A one-byte buffer makes every line span many reads.
+    read_stderr_lines(std::io::BufReader::with_capacity(1, &input[..]), |l| {
+        lines.push(l)
+    });
+    let long = format!("{}{TRUNCATED}", "x".repeat(STDERR_LINE_BYTES));
+    assert_eq!(
+        lines,
+        ["one", "", "two \u{FFFD}(", long.as_str(), "after", "last"]
+    );
+}
+
 // ---- task 4.4b: failure modes ----------------------------------------------------------------
 
 /// A server that dies mid-call fails the call as `error: tool` and is replaced for the next one.
