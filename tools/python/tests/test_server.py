@@ -344,3 +344,15 @@ def test_an_unknown_tool_is_a_method_error_and_the_cli_reports_version_and_unkno
     assert reply["error"]["code"] == -32602
     assert cli.main(["--version"]) == 0 and capsys.readouterr().out.strip() == __version__
     assert cli.main(["bogus"]) == 2 and "unknown command" in capsys.readouterr().err
+
+
+def test_every_image_and_frame_argument_names_the_image_id_and_the_raw_frame():
+    # A model that knew only one form sent the other and lost a turn to invalid_args (F2); the
+    # Rust side pins the same rule over the manifests the server lists.
+    gaps = []
+    for manifest in tools.MANIFESTS:
+        for arg in manifest["image_args"] + manifest["frame_args"]:
+            description = manifest["model_schema"]["properties"][arg].get("description", "")
+            if "image id" not in description or "raw:" not in description:
+                gaps.append(f"{manifest['name']}.{arg}: {description!r}")
+    assert not gaps

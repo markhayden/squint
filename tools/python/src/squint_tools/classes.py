@@ -40,11 +40,14 @@ MODEL_SCHEMA = {
     "properties": {
         "frame": {
             "type": "string",
-            "description": "The frame the box is on, usually the aligned candidate.",
+            "description": "The frame the box is on, usually the aligned candidate "
+            "(aligned:candidate:t1): a frame id, or an image id (candidate) for its raw frame "
+            "(raw:candidate).",
         },
         "against": {
             "type": "string",
-            "description": "The frame to compare it with, in the same grid: usually raw:source.",
+            "description": "The frame to compare it with, in the same grid, usually the source: "
+            "a frame id (raw:source), or an image id (source) for its raw frame.",
         },
         "bbox": {
             "type": "array",

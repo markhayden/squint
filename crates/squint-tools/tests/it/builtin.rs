@@ -392,6 +392,19 @@ fn builtins_register_in_cheap_first_order_and_declare_no_projection() {
     }
 }
 
+/// Every built-in's image and frame arguments say they take an image id or a raw frame id
+/// (F2): a model that knew only one form sent the other and lost a turn to `invalid_args`.
+#[test]
+fn every_builtin_image_argument_names_the_image_id_and_the_raw_frame() {
+    let tools = builtin::all();
+    assert!(!tools.is_empty());
+    let gaps: Vec<String> = tools
+        .iter()
+        .flat_map(|t| squint_testkit::tool::image_argument_gaps(t.manifest()))
+        .collect();
+    assert!(gaps.is_empty(), "{gaps:#?}");
+}
+
 /// Through the run: the model crops the candidate, then marks a violation on the crop; the
 /// report records the crop frame with its mapping and the item's root location on the candidate.
 #[test]

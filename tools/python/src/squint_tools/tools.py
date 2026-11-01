@@ -26,7 +26,11 @@ ECHO_REGION_MODEL_SCHEMA = {
     "additionalProperties": False,
     "required": ["image", "bbox"],
     "properties": {
-        "image": {"type": "string", "description": "The image id to place the region on."},
+        "image": {
+            "type": "string",
+            "description": "The image to place the region on: its image id (candidate) or its raw "
+            "frame id (raw:candidate).",
+        },
         "bbox": {
             "type": "array",
             "items": {"type": "number"},
@@ -36,7 +40,9 @@ ECHO_REGION_MODEL_SCHEMA = {
         },
         "frame": {
             "type": "string",
-            "description": "A frame to cut the box from and return; the image's raw frame when absent.",
+            "description": "A frame to cut the box from and return: a frame id (raw:candidate, or "
+            "a crop a tool returned), or an image id (candidate) for its raw frame; the image's raw "
+            "frame when absent.",
         },
     },
 }

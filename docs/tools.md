@@ -144,7 +144,10 @@ A built-in is a Rust type implementing `squint_core::tool::Tool` in
    output means; declares the cost tier; lists which arguments take image ids (`image_args`) and
    frame ids (`frame_args`), so the harness resolves them and injects the pixels (an image
    argument also takes the image's raw frame id, `raw:candidate` for `candidate`, since that is
-   how the prompt names the picture); bounds what the
+   how the prompt names the picture, and a frame argument takes a bare image id as its raw frame;
+   each such argument's description names both forms, an image id and a `raw:` frame id, which
+   `squint_testkit::tool::image_argument_gaps` checks over every built-in and pack manifest);
+   bounds what the
    tool may return (`returns`); names the frames it makes (`frames_out`) and the projections it
    supports (`projections`); and gives the model schema (what the provider sees, closed, with a
    description per argument), the input schema (the model schema plus `_squint`) and the output

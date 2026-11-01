@@ -17,7 +17,7 @@ additionalProperties = false
 required = ["frame", "long_edge"]
 [tool.model_schema.properties.frame]
 type = "string"
-description = "The frame to scale down."
+description = "The frame to scale down: a frame id (raw:candidate, or a crop a tool returned), or an image id (candidate) for its raw frame."
 [tool.model_schema.properties.long_edge]
 type = "integer"
 minimum = 64

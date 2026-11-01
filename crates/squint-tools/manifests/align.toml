@@ -19,10 +19,10 @@ additionalProperties = false
 required = ["image", "against"]
 [tool.model_schema.properties.image]
 type = "string"
-description = "The image to register, usually the candidate: its image id (candidate) or its raw frame (raw:candidate)."
+description = "The image to register, usually the candidate: its image id (candidate) or its raw frame id (raw:candidate)."
 [tool.model_schema.properties.against]
 type = "string"
-description = "The image to register onto, usually the source, as an image id or its raw frame; the aligned frame shares its grid."
+description = "The image to register onto, usually the source: its image id (source) or its raw frame id (raw:source); the aligned frame shares its grid."
 
 [tool.input_schema]
 type = "object"

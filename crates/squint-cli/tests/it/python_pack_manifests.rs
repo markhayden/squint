@@ -1,6 +1,6 @@
 //! Task 5.4a: every manifest the Python pack lists passes the three adapters' wire
 //! transformations beside `submit_verdict`, so a run with the pack enabled can be resolved for
-//! any shipped profile. Needs `uv` and a synced `tools/python` environment, so it runs with
+//! any shipped profile, and every image and frame argument names both forms it takes (F2). Needs `uv` and a synced `tools/python` environment, so it runs with
 //! `--ignored`; CI's python job runs it.
 #![allow(clippy::unwrap_used)]
 
@@ -57,6 +57,13 @@ fn every_pack_manifest_passes_every_adapters_wire_transformation() {
     assert_eq!(regions.requires, ["align"]);
     assert_eq!(regions.frame_args, ["frame", "against"]);
     assert_eq!(regions.accepts_hints, ["regions"]);
+    // Every image and frame argument says it takes an image id or a raw frame id (F2).
+    let gaps: Vec<String> = pack
+        .manifests()
+        .iter()
+        .flat_map(squint_testkit::tool::image_argument_gaps)
+        .collect();
+    assert!(gaps.is_empty(), "{gaps:#?}");
 
     let mut defs: Vec<ToolDefinition> = pack
         .manifests()
