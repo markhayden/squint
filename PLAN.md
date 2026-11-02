@@ -2376,6 +2376,15 @@ above has a case; a member named `../x` or `/etc/x` is refused before anything i
 
 ### Task 10.5b: `squint call --bundle <path>`
 
+**As built** (2026-11-01): a bundle refused before any step (outside every `--allow-dir`, or
+refused by the reader) is refused with its reason on stderr, `invalid (input): …`, exit 64, and
+no run, since no action is known to write one under; the path refusal uses the path rule's words
+and says nothing about the file. The check of each step's `inputs` against its invocation's image
+arguments, left over from 10.5a, is in the reader (`squint_core::bundle`), which also gives each
+step's arguments with the locators (`Bundle::arguments`). When every step of several completes,
+the replay exits with the last step's code (a completed `fail` does not stop it). squint has no
+operations, so 4.9's binding of a later step to an earlier step's output by port does not arise.
+
 **Description.** `squint call --bundle <path> [--config …] [--allow-dir …]…` replays a bundle
 (4.8, 4.9). The bundle path follows the path rule (an `--allow-dir` must hold it). The reader
 (10.5a) checks it whole; squint then copies each input member into a directory of its own

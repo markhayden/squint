@@ -112,7 +112,7 @@ squint is one tool in a chain an agent drives (generate, check with squint, mask
 external interface as its siblings, defined by the shared contract
 [table-manners](https://github.com/markhayden/table-manners): `squint serve` (MCP over stdio),
 `squint describe --json`, `squint estimate --json`, `squint call <action> --arguments <file>` (any
-action from exactly its MCP arguments), and a `run.json` in every decision directory (ADR
+action from exactly its MCP arguments; `--bundle <path>` replays an invocation bundle), and a `run.json` in every decision directory (ADR
 0018, milestones M7 to M10). It conforms to table-manners v0.4.0 (built against the contract's
 unpublished `v0.4` branch until its release): it describes itself and serves with no
 configuration, each action saying what it still needs (`readiness`); an estimate is a control

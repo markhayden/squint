@@ -13,19 +13,23 @@
 //! The manifest is checked as soon as it is read, before any other member: against the
 //! contract's `invocation-bundle.json`, then against what squint replays (every step contract
 //! `0.4.0` and tool `squint`; no `artifacts`, `unportable` or `reference_only` entry, since squint
-//! takes no native inputs and `squint call` has no way to supply a left-out one). Every later
-//! member must be listed by it, and every listed member present, its bytes hashing to the
-//! `file_sha256` of the image it carries. Each refusal is an `input` error naming the member or
-//! the step, never a member's bytes.
+//! takes no native inputs and `squint call` has no way to supply a left-out one; each step's
+//! `inputs` exactly the image arguments of its `invocation`, by slot). Every later member must be
+//! listed by it, and every listed member present, its bytes hashing to the `file_sha256` of the
+//! image it carries. Each refusal is an `input` error naming the member or the step, never a
+//! member's bytes.
 
 use std::collections::BTreeMap;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{BufReader, ErrorKind, Read};
 use std::path::Path;
 use std::sync::OnceLock;
 
+use serde_json::{Map, Value};
 use sha2::{Digest, Sha256};
-use table_manners::{CONTRACT_VERSION, InvocationBundle};
+use table_manners::images::ImageReference;
+use table_manners::{BundleStep, CONTRACT_VERSION, InvocationBundle};
 
 use crate::image::hex;
 use crate::{Error, Result};
@@ -57,6 +61,18 @@ pub struct Bundle {
     /// SHA-256 of `invocation.json`'s bytes, lowercase hex: names the bundle's contents.
     pub manifest_sha256: String,
     members: BTreeMap<String, Vec<u8>>,
+    /// Per step, each image argument of its invocation (a JSON pointer into `arguments`) and the
+    /// member that carries it.
+    located: Vec<Vec<Located>>,
+}
+
+/// An image argument of a step's invocation and its member.
+#[derive(Debug, Clone)]
+struct Located {
+    /// The argument as a JSON pointer into `invocation.arguments` (`/references/1`).
+    pointer: String,
+    /// Its member, `inputs/<file_sha256>.<ext>`.
+    member: String,
 }
 
 impl Bundle {
@@ -286,6 +302,29 @@ impl Bundle {
             .iter()
             .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
     }
+
+    /// Step `step`'s `invocation.arguments` with a `path` locator beside each image's recorded
+    /// `expect`: its member's file under `inputs`, where the replay put the `inputs/` members
+    /// (4.8: the arguments, with a locator added to each image, are the call). `None` for a step
+    /// the bundle does not have.
+    pub fn arguments(&self, step: usize, inputs: &Path) -> Option<Map<String, Value>> {
+        let invocation = &self.manifest.steps.get(step)?.invocation;
+        let mut arguments = Value::Object(invocation.arguments.clone());
+        for located in self.located.get(step)? {
+            let file = located
+                .member
+                .strip_prefix("inputs/")
+                .unwrap_or(&located.member);
+            let path = inputs.join(file);
+            if let Some(Value::Object(image)) = arguments.pointer_mut(&located.pointer) {
+                image.insert("path".into(), Value::String(path.to_string_lossy().into()));
+            }
+        }
+        match arguments {
+            Value::Object(map) => Some(map),
+            _ => None,
+        }
+    }
 }
 
 /// What both forms share once a member's name and size are known: the bounds, the manifest, the
@@ -294,8 +333,8 @@ impl Bundle {
 struct Collector {
     count: usize,
     total: u64,
-    /// The manifest once read, with the SHA-256 of its bytes.
-    manifest: Option<(InvocationBundle, String)>,
+    /// The manifest once read, with the SHA-256 of its bytes and each step's located images.
+    manifest: Option<(InvocationBundle, String, Vec<Vec<Located>>)>,
     /// Each member the manifest lists, with the SHA-256 its bytes must have.
     listed: BTreeMap<String, String>,
     members: BTreeMap<String, Vec<u8>>,
@@ -338,8 +377,8 @@ impl Collector {
     fn accept(&mut self, name: &str, bytes: Vec<u8>) -> Result<()> {
         if name == MANIFEST {
             let sha = hex(&Sha256::digest(&bytes));
-            let (manifest, listed) = manifest(&bytes)?;
-            self.manifest = Some((manifest, sha));
+            let (manifest, listed, located) = manifest(&bytes)?;
+            self.manifest = Some((manifest, sha, located));
             self.listed = listed;
             return Ok(());
         }
@@ -356,7 +395,7 @@ impl Collector {
     }
 
     fn finish(self) -> Result<Bundle> {
-        let Some((manifest, manifest_sha256)) = self.manifest else {
+        let Some((manifest, manifest_sha256, located)) = self.manifest else {
             return Err(refuse(format!("no {MANIFEST}")));
         };
         if let Some(missing) = self.listed.keys().find(|n| !self.members.contains_key(*n)) {
@@ -369,12 +408,21 @@ impl Collector {
             manifest,
             manifest_sha256,
             members: self.members,
+            located,
         })
     }
 }
 
+/// What [`manifest`] makes of `invocation.json`: the manifest, each listed member with the SHA-256
+/// its bytes must have, and each step's located images.
+type Checked = (
+    InvocationBundle,
+    BTreeMap<String, String>,
+    Vec<Vec<Located>>,
+);
+
 /// Parses and checks the manifest; returns it with each listed member and its expected SHA-256.
-fn manifest(bytes: &[u8]) -> Result<(InvocationBundle, BTreeMap<String, String>)> {
+fn manifest(bytes: &[u8]) -> Result<Checked> {
     let value: serde_json::Value = serde_json::from_slice(bytes)
         .map_err(|e| refuse(format!("{MANIFEST} is not JSON: {e}")))?;
     let validator = schema()
@@ -404,6 +452,7 @@ fn manifest(bytes: &[u8]) -> Result<(InvocationBundle, BTreeMap<String, String>)
         ))
     })?;
     let mut listed = BTreeMap::new();
+    let mut located = Vec::new();
     for (i, step) in manifest.steps.iter().enumerate() {
         if step.contract != CONTRACT_VERSION {
             return Err(refuse(format!(
@@ -451,8 +500,113 @@ fn manifest(bytes: &[u8]) -> Result<(InvocationBundle, BTreeMap<String, String>)
             }
             listed.insert(input.member.clone(), input.image.file_sha256.clone());
         }
+        located.push(locate(i, step)?);
     }
-    Ok((manifest, listed))
+    Ok((manifest, listed, located))
+}
+
+/// The image arguments of a squint action, as its `params_schema` names them: `candidate` and
+/// `source` each one image, `references` a list of them.
+const IMAGE_SLOTS: [&str; 3] = ["candidate", "source", "references"];
+
+/// Matches step `i`'s `inputs` to the image arguments of its `invocation` (4.9: "each image a step
+/// took, by slot"): every image argument is `{"expect": <reference>}` with no locator (4.8) and
+/// has exactly one input of its slot (in order, for `references`) whose reference is its
+/// `expect`; every input is by `slot`, never `port` (squint is an images tool), and none is left
+/// over. Returns each image argument's pointer with its member.
+fn locate(i: usize, step: &BundleStep) -> Result<Vec<Located>> {
+    let arguments = &step.invocation.arguments;
+    // Each image argument: its slot, its pointer, how a refusal names it, and its value.
+    let mut wanted: Vec<(&str, String, String, &Value)> = Vec::new();
+    for slot in ["candidate", "source"] {
+        if let Some(value) = arguments.get(slot) {
+            wanted.push((slot, format!("/{slot}"), slot.to_string(), value));
+        }
+    }
+    match arguments.get("references") {
+        None => {}
+        Some(Value::Array(references)) => {
+            for (k, value) in references.iter().enumerate() {
+                wanted.push((
+                    "references",
+                    format!("/references/{k}"),
+                    format!("references[{k}]"),
+                    value,
+                ));
+            }
+        }
+        Some(_) => {
+            return Err(refuse(format!(
+                "steps[{i}]: the invocation's references is not a list of images"
+            )));
+        }
+    }
+    let mut by_slot: BTreeMap<&str, VecDeque<usize>> = BTreeMap::new();
+    for (j, input) in step.inputs.iter().enumerate() {
+        let slot = match (&input.slot, &input.port) {
+            (Some(slot), None) if IMAGE_SLOTS.contains(&slot.as_str()) => slot.as_str(),
+            (Some(slot), None) => {
+                return Err(refuse(format!(
+                    "steps[{i}].inputs[{j}] is for slot {slot:?}, which no squint action takes"
+                )));
+            }
+            _ => {
+                return Err(refuse(format!(
+                    "steps[{i}].inputs[{j}] names a port; squint takes images by slot"
+                )));
+            }
+        };
+        by_slot.entry(slot).or_default().push_back(j);
+    }
+    let mut located = Vec::new();
+    for (slot, pointer, name, value) in wanted {
+        let Value::Object(image) = value else {
+            return Err(refuse(format!(
+                "steps[{i}]: the invocation's {name} is not an image argument"
+            )));
+        };
+        if let Some(locator) = ["path", "inline"]
+            .into_iter()
+            .find(|k| image.contains_key(*k))
+        {
+            return Err(refuse(format!(
+                "steps[{i}]: the invocation's {name} carries a locator (`{locator}`); an \
+                 invocation's images carry none"
+            )));
+        }
+        let expect = image
+            .get("expect")
+            .and_then(|e| serde_json::from_value::<ImageReference>(e.clone()).ok())
+            .ok_or_else(|| {
+                refuse(format!(
+                    "steps[{i}]: the invocation's {name} has no expect image reference"
+                ))
+            })?;
+        let Some(j) = by_slot.get_mut(slot).and_then(VecDeque::pop_front) else {
+            return Err(refuse(format!(
+                "steps[{i}]: the invocation's {name} has no input in the bundle"
+            )));
+        };
+        let input = &step.inputs[j];
+        if input.image != expect {
+            return Err(refuse(format!(
+                "steps[{i}].inputs[{j}] is not the image the invocation's {name} expects"
+            )));
+        }
+        located.push(Located {
+            pointer,
+            member: input.member.clone(),
+        });
+    }
+    if let Some((slot, j)) = by_slot
+        .iter()
+        .find_map(|(slot, left)| left.front().map(|j| (slot, j)))
+    {
+        return Err(refuse(format!(
+            "steps[{i}].inputs[{j}] ({slot}) is no image argument of the invocation"
+        )));
+    }
+    Ok(located)
 }
 
 /// The contract's bundle schema, its references served from the crate's embedded schemas; built

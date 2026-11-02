@@ -430,6 +430,11 @@ fn more_members_than_the_bound_are_refused() {
                         "member": format!("inputs/{}.bin", sha(f)) })
             })
             .collect();
+        let references: Vec<Value> = inputs
+            .iter()
+            .map(|i| json!({ "expect": i["image"] }))
+            .collect();
+        m["steps"][0]["invocation"]["arguments"] = json!({ "references": references });
         m["steps"][0]["inputs"] = json!(inputs);
     });
     let others: Vec<(String, Vec<u8>)> = files
@@ -452,6 +457,11 @@ fn more_members_than_the_bound_are_refused() {
                         "member": format!("inputs/{}.bin", sha(f)) })
             })
             .collect();
+        let references: Vec<Value> = inputs
+            .iter()
+            .map(|i| json!({ "expect": i["image"] }))
+            .collect();
+        m["steps"][0]["invocation"]["arguments"] = json!({ "references": references });
         m["steps"][0]["inputs"] = json!(inputs);
     });
     Bundle::from_archive(writer::canonical(&manifest, &others[1..]).as_slice()).unwrap();
@@ -634,6 +644,118 @@ fn a_step_squint_does_not_replay_is_refused_naming_it() {
     });
     let (e, _) = refused(&writer::canonical(&manifest, &members));
     assert!(e.contains("steps[1] is a call to rascal"), "{e}");
+}
+
+/// Each step's `inputs` are exactly the image arguments of its `invocation` (4.9), by slot and,
+/// for `references`, in order; an input that is not, an argument with no input, an input no
+/// argument takes and an invocation image with a locator are each refused from the manifest
+/// alone, naming the step and the argument.
+#[test]
+fn inputs_that_are_not_the_invocations_images_are_refused() {
+    type Edit = Box<dyn FnOnce(&mut Value)>;
+    let cases: Vec<(Edit, &str)> = vec![
+        (
+            Box::new(|m| m["steps"][0]["inputs"][0]["image"]["width"] = json!(5)),
+            "steps[0].inputs[0] is not the image the invocation's candidate expects",
+        ),
+        (
+            Box::new(|m| {
+                let source = m["steps"][0]["inputs"][1].clone();
+                m["steps"][0]["inputs"][1] = m["steps"][0]["inputs"][0].clone();
+                m["steps"][0]["inputs"][1]["slot"] = json!("source");
+                m["steps"][0]["inputs"][0] = source;
+                m["steps"][0]["inputs"][0]["slot"] = json!("candidate");
+            }),
+            "steps[0].inputs[0] is not the image the invocation's candidate expects",
+        ),
+        (
+            Box::new(|m| {
+                m["steps"][0]["invocation"]["arguments"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("source");
+            }),
+            "steps[0].inputs[1] (source) is no image argument of the invocation",
+        ),
+        (
+            Box::new(|m| {
+                let source = m["steps"][0]["invocation"]["arguments"]["source"].clone();
+                m["steps"][0]["invocation"]["arguments"]["references"] = json!([source]);
+            }),
+            "steps[0]: the invocation's references[0] has no input in the bundle",
+        ),
+        (
+            Box::new(|m| {
+                m["steps"][0]["invocation"]["arguments"]["candidate"]["path"] = json!("/x.png");
+            }),
+            "steps[0]: the invocation's candidate carries a locator (`path`)",
+        ),
+        (
+            Box::new(|m| {
+                m["steps"][0]["invocation"]["arguments"]["source"] = json!({ "inline": "AAAA" });
+            }),
+            "steps[0]: the invocation's source carries a locator (`inline`)",
+        ),
+        (
+            Box::new(|m| m["steps"][0]["invocation"]["arguments"]["references"] = json!("x")),
+            "steps[0]: the invocation's references is not a list of images",
+        ),
+        (
+            Box::new(|m| m["steps"][0]["inputs"][1]["slot"] = json!("mask")),
+            "steps[0].inputs[1] is for slot \"mask\", which no squint action takes",
+        ),
+    ];
+    for (edit, want) in cases {
+        let (manifest, members) = sample_with(edit);
+        let (e, read) = refused(&writer::canonical(&manifest, &members));
+        assert!(e.contains(want), "want {want:?}: {e}");
+        assert_eq!(read, 512 + manifest.len().div_ceil(512) * 512, "{want}");
+    }
+    // An argument whose input the manifest leaves out, its member gone with it.
+    let (manifest, members) = sample_with(|m| {
+        m["steps"][0]["inputs"].as_array_mut().unwrap().remove(1);
+    });
+    let (source, _) = &members[1];
+    let fewer: Vec<_> = members
+        .iter()
+        .filter(|(n, _)| n != source)
+        .cloned()
+        .collect();
+    let (e, _) = refused(&writer::canonical(&manifest, &fewer));
+    assert!(
+        e.contains("steps[0]: the invocation's source has no input in the bundle"),
+        "{e}"
+    );
+}
+
+/// The replay's arguments are the invocation's with a `path` beside each image's `expect`,
+/// pointing at its member's file under the directory given, and nothing else changed.
+#[test]
+fn the_replay_arguments_add_a_path_to_each_image() {
+    let (candidate, source, extra) = (png(1), png(2), png(3));
+    let mut run = run_with(&candidate, &source);
+    let mut reference = run["invocation"]["arguments"]["source"].clone();
+    reference["expect"]["file_sha256"] = json!(sha(&extra));
+    run["invocation"]["arguments"]["references"] = json!([
+        reference,
+        run["invocation"]["arguments"]["candidate"].clone()
+    ]);
+    let (step, members) = writer::step_from_run(&run, &[&candidate, &source, &extra]);
+    let manifest = writer::manifest(vec![step]);
+    let bundle = Bundle::from_archive(writer::canonical(&manifest, &members).as_slice()).unwrap();
+    let dir = Path::new("/replay/inputs");
+    let arguments = bundle.arguments(0, dir).unwrap();
+    let mut want = run["invocation"]["arguments"].clone();
+    for (pointer, bytes) in [
+        ("/candidate", &candidate),
+        ("/source", &source),
+        ("/references/0", &extra),
+        ("/references/1", &candidate),
+    ] {
+        want.pointer_mut(pointer).unwrap()["path"] = json!(dir.join(format!("{}.png", sha(bytes))));
+    }
+    assert_eq!(Value::Object(arguments), want);
+    assert!(bundle.arguments(1, dir).is_none());
 }
 
 #[test]

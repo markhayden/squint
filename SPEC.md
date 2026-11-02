@@ -1541,6 +1541,33 @@ names and schemas are the contract's; this section says what squint does with th
   each image's `expect`, are the file for `squint call <invocation.action>`, and the run records
   the same invocation and the same input identity. `squint check` with a job file stays a
   person's own command line, outside the path rule.
+- **`squint call --bundle <path>`** (table-manners 4.8, 4.9) replays an invocation bundle, the
+  archive or its unpacked directory, through the same code (`call.rs`), with the same `--config`,
+  `--allow-dir`, `--out` and `--set`, and no action or `--arguments`. The bundle path follows the
+  path rule: it must lie inside an `--allow-dir` (narrowed by `[serve] allow_dirs`). The reader
+  (`squint_core::bundle::Bundle`) then checks it whole: the manifest against
+  `invocation-bundle.json`; every step contract `0.4.0` and tool `squint` (a step of any other
+  tool is refused: a host replays a mixed bundle itself); no `artifacts` or `unportable` entry
+  (squint takes no native inputs); no `reference_only` entry (`call` has no way to supply a
+  left-out input); each step's `inputs` exactly the image arguments of its invocation (each
+  `candidate`, `source` and `references[k]` an `{"expect": …}` with no locator, matched by slot,
+  in order for `references`, to one input with that reference, and no input left over); every
+  member listed and present, each input's bytes hashing to its `file_sha256`. A bundle refused at
+  any of these is refused before any step: the reason (`invalid (input): …`, naming the member or
+  the step, never a file's contents; for the path, in the path rule's words, saying nothing about
+  the file) on stderr, nothing on stdout, no run (no action is known to write one under), no
+  provider call, exit 64. Otherwise squint copies the input members into a directory of its own,
+  `$XDG_CACHE_HOME/squint/bundles/<sha256 of invocation.json>/inputs/` (written only by squint,
+  reused by a later replay of the same bundle; this is 4.9's "under an allowed directory", which
+  squint chose and the caller need not allow), and calls each step in order with its
+  `invocation.arguments` plus a `path` beside each image's `expect`, each step a command-line run
+  with its own run directory and `run.json`. One step prints its result and exits as a call does;
+  several print one result per line (compact JSON) and stop at the first step whose result is not
+  `completed` (or that is refused before a run), exiting with that step's code, else with the last
+  step's (a completed `fail` is completed: the replay goes on). squint has no operations, so no
+  step names an earlier step's output and 4.9's binding by port does not arise. A live model's
+  verdict is not promised to repeat, only the call; offline, the scripted provider replays it.
+  Replay writes only under the runs directory and the cache.
 - **Estimates** (table-manners 4.5): a control, never a run: no directory, journal, runs entry or
   `run.json`, no permit, no `client_run_id` claimed, no provider call. The `estimate` tool takes
   `{"action": <an action's name>, "arguments": <exactly the call's arguments, images included>}`
@@ -1740,6 +1767,7 @@ squint estimate --json --config squint.toml --job job.toml [--max-spend-usd 0.10
 squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check; above it, exit 64
 squint serve [--config squint.toml] [--out runs/] [--allow-dir /abs/dir]…   # MCP over stdio, protocol 2025-11-25 (table-manners 5); starts with no config
 squint call source_fidelity --arguments args.json [--config squint.toml] [--allow-dir /abs/dir]… [--out runs/]   # any action from exactly its MCP arguments (table-manners 4.8); the result on stdout
+squint call --bundle /abs/dir/bundle.tar --allow-dir /abs/dir [--config squint.toml] [--out runs/]   # replay an invocation bundle (table-manners 4.9); one result per step
 squint sets check evalsets/
 squint sets fetch --set reference-consistency/pets-v1
 squint sets seal --set <set> --attest "…"    # writes seal.toml; a blind set's labels move out (--labels-out)

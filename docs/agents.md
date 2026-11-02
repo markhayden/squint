@@ -154,6 +154,23 @@ To run a recorded call again, take a result's `invocation`, add a locator (`"pat
 call <invocation.action>`: the new run records the same invocation and input identity, and the
 `expect` makes sure the files are the ones first used.
 
+```
+squint call --bundle /abs/bundles/check.tar --allow-dir /abs/bundles [--config squint.toml] [--out runs/]
+```
+
+Replays an invocation bundle (table-manners 4.9), the `.tar` archive or its unpacked directory,
+with the original files gone. The bundle must lie inside an `--allow-dir`. squint checks it whole
+before anything runs and refuses, exit 64 with the reason on stderr and no run: a bundle outside
+the allowed directories, a damaged or tampered member, a step another tool made (a host replays a
+mixed bundle itself), an input left out on purpose (`reference_only`: there is no way to supply
+it yet), and a step whose inputs are not the images its invocation names. It then copies the
+inputs into its own cache (`$XDG_CACHE_HOME/squint/bundles/<sha256 of invocation.json>/inputs/`)
+and runs each step as `squint call` with its invocation's arguments pointed there. One step
+prints its result and exits as a call does. Several print one result per line and stop at the
+first step that does not complete, exiting with its code (else with the last step's). The call
+repeats exactly; a live model's verdict may not, so replays that must match use the scripted
+provider. squint has no operations, so no step takes an earlier step's output.
+
 ## run.json
 
 Every decision directory ends with `run.json`, written atomically, from the command line and from

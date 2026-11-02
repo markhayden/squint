@@ -1161,7 +1161,7 @@ pub(crate) fn allowed_dirs(
 
 /// The words every refused caller path gets, whether or not the file exists, so a refusal says
 /// nothing about it (table-manners 5.2).
-const OUTSIDE: &str = "a path outside the directories this session allows";
+pub(crate) const OUTSIDE: &str = "a path outside the directories this session allows";
 
 /// Every image path of `job` inside one of the session's allowed directories (table-manners 5.2;
 /// a served check and `squint call` alike, in the same words),

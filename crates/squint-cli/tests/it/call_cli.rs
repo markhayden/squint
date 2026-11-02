@@ -524,3 +524,458 @@ fn sigterm_cancels_a_call_with_143() {
 fn sigint_cancels_a_call_with_130() {
     killed_with("INT", 130);
 }
+
+// Task 10.5b: `squint call --bundle <path>` (table-manners 4.8, 4.9).
+
+/// The fixture images as bytes: candidate, source.
+fn pair_bytes() -> (Vec<u8>, Vec<u8>) {
+    (
+        std::fs::read(images().join("candidate-64x48.png")).unwrap(),
+        std::fs::read(images().join("source-64x48.png")).unwrap(),
+    )
+}
+
+/// Serves each call in `calls` in one session on the scripted provider (`held.json`), the images
+/// copied into `base/original`, the only `--allow-dir`, and runs written to `base/served`; returns
+/// each result.
+fn served_runs(base: &Path, calls: &[(&str, Value)]) -> Vec<Value> {
+    let original = base.join("original");
+    std::fs::create_dir_all(&original).unwrap();
+    for name in ["candidate-64x48.png", "source-64x48.png"] {
+        std::fs::copy(images().join(name), original.join(name)).unwrap();
+    }
+    let mut server = Command::new(env!("CARGO_BIN_EXE_squint"));
+    server
+        .current_dir(repo_root())
+        .args([
+            "serve",
+            "--config",
+            MINIMAL,
+            "--provider-script",
+            "fixtures/scripts/held.json",
+            "--out",
+        ])
+        .arg(base.join("served"))
+        .arg("--allow-dir")
+        .arg(&original);
+    let mut client = Client::start(&mut server).unwrap();
+    calls
+        .iter()
+        .map(|(action, arguments)| {
+            let mut arguments = arguments.clone();
+            for pointer in ["/candidate", "/source", "/references/0", "/references/1"] {
+                if let Some(Value::Object(image)) = arguments.pointer_mut(pointer) {
+                    let name = Path::new(image["path"].as_str().unwrap())
+                        .file_name()
+                        .unwrap()
+                        .to_owned();
+                    image.insert("path".into(), json!(original.join(name)));
+                }
+            }
+            client.call(action, arguments).unwrap().structured.unwrap()
+        })
+        .collect()
+}
+
+/// A bundle of one step per result, its manifest and members (the testkit writer).
+fn bundle_of(results: &[Value]) -> (Vec<u8>, Vec<(String, Vec<u8>)>) {
+    let (candidate, source) = pair_bytes();
+    let mut steps = Vec::new();
+    let mut members = Vec::new();
+    for r in results {
+        let (step, m) = squint_testkit::bundle::step_from_run(r, &[&candidate, &source]);
+        steps.push(step);
+        members.extend(m);
+    }
+    (squint_testkit::bundle::manifest(steps), members)
+}
+
+/// `squint call --bundle <bundle>` from `cwd`, every path absolute: the minimal config, `script`,
+/// runs under `base/runs`, squint's cache at `base/cache`; `extra` follows.
+fn replay_from(base: &Path, cwd: &Path, bundle: &Path, script: &str, extra: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_squint"))
+        .current_dir(cwd)
+        .env("XDG_CACHE_HOME", base.join("cache"))
+        .args(["call", "--bundle"])
+        .arg(bundle)
+        .arg("--config")
+        .arg(repo_root().join(MINIMAL))
+        .arg("--provider-script")
+        .arg(repo_root().join(script))
+        .arg("--out")
+        .arg(base.join("runs"))
+        .args(extra)
+        .output()
+        .unwrap()
+}
+
+/// Every file under `dir`, relative, sorted.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<PathBuf>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else {
+                out.push(path.strip_prefix(root).unwrap().to_path_buf());
+            }
+        }
+    }
+    let mut out = Vec::new();
+    walk(dir, dir, &mut out);
+    out.sort();
+    out
+}
+
+/// The replay of 4.9: a bundle written from a served check, moved to a fresh directory with the
+/// original run directory and input files deleted, replays offline on the scripted provider from
+/// another working directory, as the archive and as the unpacked directory, and records the same
+/// invocation, input identity and decision. It writes only under its runs root and squint's
+/// cache (the inputs under `bundles/<sha256 of invocation.json>/inputs/`), never beside the bundle
+/// or in the working directory, and a second replay reuses the placed inputs.
+#[test]
+fn a_bundle_replays_offline_with_the_original_gone() {
+    let base = scratch("bundle-replay");
+    let served = served_runs(
+        &base,
+        &[(
+            "source_fidelity",
+            json!({
+                "candidate": image("candidate-64x48.png"),
+                "source": image("source-64x48.png"),
+                "brief": "Keep the structure.",
+                "max_spend_usd": 0.5,
+            }),
+        )],
+    )
+    .remove(0);
+    assert_eq!(served["status"], "completed", "{served}");
+    let (manifest, members) = bundle_of(std::slice::from_ref(&served));
+    let moved = base.join("moved");
+    std::fs::create_dir_all(&moved).unwrap();
+    let archive = moved.join("bundle.tar");
+    std::fs::write(
+        &archive,
+        squint_testkit::bundle::canonical(&manifest, &members),
+    )
+    .unwrap();
+    let unpacked = moved.join("unpacked");
+    squint_testkit::bundle::write_dir(&unpacked, &manifest, &members);
+    std::fs::remove_dir_all(base.join("original")).unwrap();
+    std::fs::remove_dir_all(base.join("served")).unwrap();
+    let elsewhere = base.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    let before = files_under(&moved);
+    let manifest_sha = squint_core::bundle::Bundle::read(&archive)
+        .unwrap()
+        .manifest_sha256;
+
+    for (n, bundle) in [&archive, &unpacked, &archive].into_iter().enumerate() {
+        let o = replay_from(
+            &base,
+            &elsewhere,
+            bundle,
+            "fixtures/scripts/held.json",
+            &["--allow-dir", moved.to_str().unwrap()],
+        );
+        assert_eq!(
+            o.status.code(),
+            Some(0),
+            "{n}: {}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+        let r = stdout_json(&o);
+        valid(RESULT, &r);
+        assert_eq!(r["status"], "completed", "{n}");
+        assert_eq!(r["invocation"], served["invocation"], "{n}");
+        assert_eq!(r["input_identity"], served["input_identity"], "{n}");
+        assert_eq!(r["body"]["verdict"], served["body"]["verdict"], "{n}");
+        assert_eq!(r["images"]["in"], served["images"]["in"], "{n}");
+        assert!(r["run"]["session_id"].is_null(), "{n}: a command-line run");
+        let dir = PathBuf::from(r["run"]["dir"].as_str().unwrap());
+        assert!(dir.starts_with(base.join("runs")), "{n}: {dir:?}");
+        assert_eq!(run_dirs(&base.join("runs")).len(), n + 1, "{n}");
+    }
+    assert!(files_under(&elsewhere).is_empty(), "the working directory");
+    assert_eq!(files_under(&moved), before, "beside the bundle");
+    let mut top: Vec<String> = std::fs::read_dir(&base)
+        .unwrap()
+        .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    top.sort();
+    assert_eq!(top, ["cache", "elsewhere", "moved", "runs"]);
+    let mut placed: Vec<PathBuf> = members
+        .iter()
+        .map(|(name, _)| PathBuf::from(format!("squint/bundles/{manifest_sha}/{name}")))
+        .collect();
+    placed.sort();
+    assert_eq!(files_under(&base.join("cache")), placed);
+}
+
+/// What `call --bundle` refuses before any step, each exit 64 with the reason on stderr, nothing
+/// on stdout, no run, no provider call and nothing placed in the cache: a bundle outside every
+/// `--allow-dir` (and any bundle with none), a step another tool made, an input left out
+/// (`reference_only`), an input member whose bytes are not its `file_sha256` (archive and
+/// directory), and inputs that are not the images the invocation names.
+#[cfg(unix)]
+#[test]
+fn a_bundle_squint_cannot_replay_is_refused_before_any_step() {
+    let base = scratch("bundle-refused");
+    let served = served_runs(&base, &[("source_fidelity", pair())]).remove(0);
+    let (manifest, members) = bundle_of(std::slice::from_ref(&served));
+    let edited = |edit: &dyn Fn(&mut Value)| {
+        let mut doc: Value = serde_json::from_slice(&manifest).unwrap();
+        edit(&mut doc);
+        serde_json::to_vec_pretty(&doc).unwrap()
+    };
+    let allowed = base.join("allowed");
+    let outside = base.join("outside");
+    std::fs::create_dir_all(&allowed).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let write = |dir: &Path, name: &str, manifest: &[u8], members: &[(String, Vec<u8>)]| {
+        let path = dir.join(name);
+        std::fs::write(&path, squint_testkit::bundle::canonical(manifest, members)).unwrap();
+        path
+    };
+    let good = write(&allowed, "good.tar", &manifest, &members);
+    let escaping = allowed.join("escaping.tar");
+    std::os::unix::fs::symlink(write(&outside, "out.tar", &manifest, &members), &escaping).unwrap();
+    let mut tampered = members.clone();
+    let last = tampered[0].1.len() - 1;
+    tampered[0].1[last] ^= 1;
+    let tampered_dir = allowed.join("tampered-dir");
+    squint_testkit::bundle::write_dir(&tampered_dir, &manifest, &tampered);
+    let swapped = edited(&|m| {
+        let inputs = m["steps"][0]["inputs"].as_array_mut().unwrap();
+        inputs.swap(0, 1);
+        inputs[0]["slot"] = json!("candidate");
+        inputs[1]["slot"] = json!("source");
+    });
+    let allow = allowed.to_str().unwrap();
+    let cases: Vec<(&str, PathBuf, Vec<&str>, &str)> = vec![
+        (
+            "outside",
+            write(&outside, "o.tar", &manifest, &members),
+            vec!["--allow-dir", allow],
+            "is a path outside the directories this session allows",
+        ),
+        (
+            "symlink-out",
+            escaping,
+            vec!["--allow-dir", allow],
+            "is a path outside the directories this session allows",
+        ),
+        (
+            "missing",
+            allowed.join("no-such.tar"),
+            vec!["--allow-dir", allow],
+            "is a path outside the directories this session allows",
+        ),
+        (
+            "no-allow-dir",
+            good.clone(),
+            vec![],
+            "is a path outside the directories this session allows",
+        ),
+        (
+            "other-tool",
+            write(
+                &allowed,
+                "rascal.tar",
+                &edited(&|m| m["steps"][0]["tool"]["name"] = json!("rascal")),
+                &members,
+            ),
+            vec!["--allow-dir", allow],
+            "steps[0] is a call to rascal; squint replays only its own steps",
+        ),
+        (
+            "reference-only",
+            write(
+                &allowed,
+                "left-out.tar",
+                &edited(&|m| {
+                    m["steps"][0]["reference_only"] =
+                        json!([{ "slot": "references", "why": "the person left it out" }]);
+                }),
+                &members,
+            ),
+            vec!["--allow-dir", allow],
+            "steps[0] left references out (reference_only)",
+        ),
+        (
+            "tampered-archive",
+            write(&allowed, "tampered.tar", &manifest, &tampered),
+            vec!["--allow-dir", allow],
+            "not the file_sha256 it is listed with",
+        ),
+        (
+            "tampered-dir",
+            tampered_dir,
+            vec!["--allow-dir", allow],
+            "not the file_sha256 it is listed with",
+        ),
+        (
+            "inputs-not-the-invocation",
+            write(&allowed, "swapped.tar", &swapped, &members),
+            vec!["--allow-dir", allow],
+            "steps[0].inputs[0] is not the image the invocation's candidate expects",
+        ),
+    ];
+    let elsewhere = base.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    for (tag, bundle, extra, want) in cases {
+        let case = base.join(tag);
+        std::fs::create_dir_all(&case).unwrap();
+        let o = replay_from(
+            &case,
+            &elsewhere,
+            &bundle,
+            "fixtures/scripts/held.json",
+            &extra,
+        );
+        let stderr = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(64), "{tag}: {stderr}");
+        assert!(stderr.contains(want), "{tag}: want {want:?} in {stderr}");
+        assert!(stderr.contains("invalid (input)"), "{tag}: {stderr}");
+        assert!(o.stdout.is_empty(), "{tag}: no result");
+        assert!(run_dirs(&case.join("runs")).is_empty(), "{tag}: no run");
+        assert!(!case.join("cache").exists(), "{tag}: nothing placed");
+    }
+    // The refusal of a path says nothing about the file: the same words for one that exists
+    // outside and one that does not.
+    let words = |bundle: &Path| {
+        let case = base.join("words");
+        let o = replay_from(
+            &case,
+            &elsewhere,
+            bundle,
+            "fixtures/scripts/held.json",
+            &["--allow-dir", allow],
+        );
+        String::from_utf8_lossy(&o.stderr).replace(bundle.to_str().unwrap(), "<bundle>")
+    };
+    assert_eq!(
+        words(&outside.join("o.tar")),
+        words(&outside.join("absent.tar"))
+    );
+    // `--bundle` takes no action and no `--arguments`.
+    for extra in [
+        vec!["source_fidelity"],
+        vec!["--arguments", "fixtures/does-not-exist.json"],
+    ] {
+        let o = Command::new(env!("CARGO_BIN_EXE_squint"))
+            .current_dir(repo_root())
+            .args(["call", "--bundle"])
+            .arg(&good)
+            .args(extra)
+            .output()
+            .unwrap();
+        assert_eq!(o.status.code(), Some(64));
+        assert!(o.stdout.is_empty());
+    }
+}
+
+/// A bundle of several steps prints one result per line, in order, each step a run of its own;
+/// it stops at the first step that does not complete and exits with that step's code. A step that
+/// completes with a failing verdict is still completed: the replay goes on, and when every step
+/// completes it exits with the last step's code.
+#[test]
+fn several_steps_print_a_line_each_and_stop_at_the_first_that_does_not_complete() {
+    let base = scratch("bundle-steps");
+    let served = served_runs(
+        &base,
+        &[
+            ("source_fidelity", pair()),
+            (
+                "reference_consistency",
+                json!({
+                    "candidate": image("candidate-64x48.png"),
+                    "references": [image("source-64x48.png"), image("candidate-64x48.png")],
+                }),
+            ),
+        ],
+    );
+    let (check, refs) = (&served[0], &served[1]);
+    assert_eq!(check["status"], "completed", "{check}");
+    assert_eq!(refs["status"], "error", "{refs}");
+    let unknown = {
+        let mut r = check.clone();
+        r["invocation"]["action"] = json!("no_such_check");
+        r
+    };
+    let allowed = base.join("allowed");
+    std::fs::create_dir_all(&allowed).unwrap();
+    let elsewhere = base.join("elsewhere");
+    std::fs::create_dir_all(&elsewhere).unwrap();
+    // (tag, steps, script, exit code, the invocation of each line printed)
+    type Case<'a> = (&'a str, Vec<&'a Value>, &'a str, i32, Vec<&'a Value>);
+    let cases: Vec<Case> = vec![
+        (
+            "all-pass",
+            vec![check, check],
+            "fixtures/scripts/held.json",
+            0,
+            vec![check, check],
+        ),
+        (
+            "all-fail",
+            vec![check, check],
+            "fixtures/scripts/violation.json",
+            1,
+            vec![check, check],
+        ),
+        (
+            "stops-at-error",
+            vec![check, refs, check],
+            "fixtures/scripts/held.json",
+            3,
+            vec![check, refs],
+        ),
+        (
+            "stops-at-unknown-action",
+            vec![check, &unknown, check],
+            "fixtures/scripts/held.json",
+            64,
+            vec![check],
+        ),
+    ];
+    for (tag, steps, script, code, printed) in cases {
+        let steps: Vec<Value> = steps.into_iter().cloned().collect();
+        let (manifest, members) = bundle_of(&steps);
+        let bundle = allowed.join(format!("{tag}.tar"));
+        std::fs::write(
+            &bundle,
+            squint_testkit::bundle::canonical(&manifest, &members),
+        )
+        .unwrap();
+        let case = base.join(tag);
+        let o = replay_from(
+            &case,
+            &elsewhere,
+            &bundle,
+            script,
+            &["--allow-dir", allowed.to_str().unwrap()],
+        );
+        let stderr = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(code), "{tag}: {stderr}");
+        let stdout = String::from_utf8(o.stdout).unwrap();
+        let lines: Vec<Value> = stdout
+            .lines()
+            .map(|l| serde_json::from_str(l).unwrap_or_else(|e| panic!("{tag}: {e}: {l}")))
+            .collect();
+        assert_eq!(lines.len(), printed.len(), "{tag}: {stdout}");
+        for (line, want) in lines.iter().zip(&printed) {
+            valid(RESULT, line);
+            assert_eq!(line["invocation"], want["invocation"], "{tag}");
+            assert_eq!(line["input_identity"], want["input_identity"], "{tag}");
+        }
+        assert_eq!(
+            run_dirs(&case.join("runs")).len(),
+            printed.len(),
+            "{tag}: one run per step that ran"
+        );
+    }
+}

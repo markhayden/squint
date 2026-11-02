@@ -407,6 +407,17 @@ fn check(args: &CheckArgs) -> i32 {
     }
 }
 
+/// squint's cache directory: `$XDG_CACHE_HOME` when it is absolute, else `~/.cache` (report
+/// renders under `squint/reports/`, a bundle replay's inputs under `squint/bundles/`).
+fn cache_home() -> Result<PathBuf, String> {
+    match std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from) {
+        Some(x) if x.is_absolute() => Ok(x),
+        _ => std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join(".cache"))
+            .ok_or_else(|| "neither XDG_CACHE_HOME nor HOME is set".to_string()),
+    }
+}
+
 /// The resolve-time checks of a command-line run (`check`, `call`) against the catalog (profile,
 /// model, controls, image size, allowances) and the consent binding, before any tool pack starts.
 /// The scripted pair passes in testkit builds, and in a dry run, where nothing is sent.

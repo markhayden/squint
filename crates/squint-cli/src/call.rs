@@ -3,12 +3,18 @@
 //! the code `serve` uses (`contract::job_from_call`, the path rule's allowed directories, the
 //! refused run), so the command and the server cannot drift. So an `invocation`'s `arguments`,
 //! with a locator added to each image, are the file for `squint call <invocation.action>`.
+//!
+//! `squint call --bundle <path>` (4.8, 4.9, task 10.5b) replays an invocation bundle through the
+//! same code: the bundle path under the path rule, the bundle read and checked whole
+//! (`squint_core::bundle`), its input members copied into a directory of squint's own, and each
+//! step called with its `invocation.arguments` plus a `path` beside each image's `expect`.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicI32, Ordering};
 
 use serde_json::{Map, Value};
+use squint_core::bundle::Bundle;
 use squint_core::config::Config;
 use squint_core::contract;
 use squint_core::readiness::{self, Answers, Needs};
@@ -19,17 +25,28 @@ use crate::{EXIT_USAGE, VERSION};
 #[derive(clap::Args)]
 pub struct CallArgs {
     /// The action to run, as `squint describe --json` names it (`source_fidelity`, …).
-    pub action: String,
+    #[arg(required_unless_present = "bundle", conflicts_with = "bundle")]
+    pub action: Option<String>,
     /// A JSON file holding exactly the arguments an MCP call to the action would send.
-    #[arg(long, value_name = "FILE")]
-    pub arguments: PathBuf,
+    #[arg(
+        long,
+        value_name = "FILE",
+        required_unless_present = "bundle",
+        conflicts_with = "bundle"
+    )]
+    pub arguments: Option<PathBuf>,
+    /// Replay an invocation bundle instead (table-manners 4.9): the archive or its unpacked
+    /// directory, inside an `--allow-dir`. Each step runs as a call of its own; several print one
+    /// result per line and stop at the first that does not complete.
+    #[arg(long, value_name = "PATH")]
+    pub bundle: Option<PathBuf>,
     /// Path to the config file; without it, squint looks for ./squint.toml, then
     /// $XDG_CONFIG_HOME/squint/squint.toml.
     #[arg(long)]
     pub config: Option<PathBuf>,
-    /// A directory image paths in the arguments may be read from: absolute and existing
-    /// (repeatable). `[serve] allow_dirs` may narrow them, never widen; with none, every path is
-    /// refused and images come inline (table-manners 5.2, as for `serve`).
+    /// A directory image paths in the arguments, or the bundle, may be read from: absolute and
+    /// existing (repeatable). `[serve] allow_dirs` may narrow them, never widen; with none, every
+    /// path is refused and images come inline (table-manners 5.2, as for `serve`).
     #[arg(long = "allow-dir", value_name = "ABS_DIR")]
     pub allow_dirs: Vec<PathBuf>,
     /// Output directory for run directories; overrides `[output] dir`.
@@ -44,16 +61,179 @@ pub struct CallArgs {
     pub provider_script: Option<PathBuf>,
 }
 
-/// The call's run: a command-line run (no session, no `client_run_id`) with its run directory
+/// `squint call`: one action from an arguments file, or the steps of a bundle.
+pub fn run(args: &CallArgs) -> i32 {
+    match (&args.bundle, &args.action, &args.arguments) {
+        (Some(bundle), _, _) => replay(args, bundle),
+        (None, Some(action), Some(file)) => match read_arguments(file) {
+            Ok(call) => one(args, action, call, Dirs::Flags, Print::Pretty).code,
+            Err(e) => {
+                eprintln!("squint: {e}");
+                EXIT_USAGE
+            }
+        },
+        _ => {
+            eprintln!("squint: call takes an action and --arguments, or --bundle");
+            EXIT_USAGE
+        }
+    }
+}
+
+/// The directories a call's image paths are read from.
+#[derive(Clone, Copy)]
+enum Dirs<'a> {
+    /// The path rule's (table-manners 5.2): each `--allow-dir`, narrowed by `[serve] allow_dirs`.
+    Flags,
+    /// A replay's own: the directory squint copied the bundle's input members into. squint chose
+    /// it and wrote it, so it needs no `--allow-dir` (the "under an allowed directory" of 4.9).
+    Own(&'a Path),
+}
+
+/// How a result is printed on stdout.
+#[derive(Clone, Copy)]
+enum Print {
+    /// Indented, as one call prints it.
+    Pretty,
+    /// On one line, as each step of a bundle of several prints it.
+    Line,
+}
+
+/// What one call ended with: its exit code, and whether it printed a `completed` result (a
+/// bundle's replay goes on to its next step only then).
+struct Step {
+    code: i32,
+    completed: bool,
+}
+
+impl Step {
+    fn stopped(code: i32) -> Step {
+        Step {
+            code,
+            completed: false,
+        }
+    }
+}
+
+/// Replays the bundle at `path` (table-manners 4.8, 4.9). The bundle path follows the path rule
+/// with the directories `--allow-dir` gives (5.2), and the reader checks it whole (every member
+/// listed and present, every input hashing to its `file_sha256`, every step a squint call at
+/// 0.4.0 whose inputs are its invocation's images, nothing left out or unportable). A bundle
+/// refused there is refused before any step: nothing runs and no run is written (no action is
+/// known to write one under), the reason on stderr, exit 64. The input members are then copied
+/// into `$XDG_CACHE_HOME/squint/bundles/<sha256 of invocation.json>/inputs/`, a directory only
+/// squint writes, and each step is called in order through [`one`] with its arguments pointed
+/// there. A single step prints its result and exits as a call does; several print one result per
+/// line, stop at the first step that does not complete, and exit with that step's code (the last
+/// step's when every step completes). squint has no operations, so no step names an earlier
+/// step's output (4.9's binding by port does not arise): every image is a member of the bundle.
+fn replay(args: &CallArgs, path: &Path) -> i32 {
+    let refused = |reason: String| {
+        eprintln!("squint: invalid (input): {reason}");
+        EXIT_USAGE
+    };
+    let config = match Config::open(args.config.as_deref(), &args.overrides).require() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("squint: {e}");
+            return EXIT_USAGE;
+        }
+    };
+    let allowed = match crate::serve::allowed_dirs(&args.allow_dirs, &config.serve.allow_dirs) {
+        Ok(dirs) => dirs,
+        Err(e) => {
+            eprintln!("squint: {e}");
+            return EXIT_USAGE;
+        }
+    };
+    let real = match path.canonicalize() {
+        Ok(real) if allowed.iter().any(|dir| real.starts_with(dir)) => real,
+        _ => {
+            return refused(format!(
+                "--bundle {} is {}; give its directory with --allow-dir",
+                path.display(),
+                crate::serve::OUTSIDE
+            ));
+        }
+    };
+    let bundle = match Bundle::read(&real) {
+        Ok(b) => b,
+        Err(e) => return refused(e.to_string()),
+    };
+    let inputs = match place_inputs(&bundle) {
+        Ok(dir) => dir,
+        Err(e) => {
+            eprintln!("squint: cannot place the bundle's inputs: {e}");
+            return squint_core::run::EXIT_ERROR;
+        }
+    };
+    let steps = bundle.manifest.steps.len();
+    let print = if steps == 1 {
+        Print::Pretty
+    } else {
+        Print::Line
+    };
+    let mut code = EXIT_USAGE;
+    for (i, step) in bundle.manifest.steps.iter().enumerate() {
+        let action = &step.invocation.action;
+        let Some(call) = bundle.arguments(i, &inputs) else {
+            return refused(format!("steps[{i}] has no arguments"));
+        };
+        if steps > 1 {
+            eprintln!("step {}/{steps}: {action}", i + 1);
+        }
+        let done = one(args, action, call, Dirs::Own(&inputs), print);
+        code = done.code;
+        if !done.completed {
+            break;
+        }
+    }
+    code
+}
+
+/// Copies the bundle's input members into the directory squint keeps for it,
+/// `$XDG_CACHE_HOME/squint/bundles/<sha256 of invocation.json>/inputs/`, and returns that
+/// directory resolved. A file already there with the member's bytes is kept; any other is
+/// replaced by a write to a temporary name and a rename, so a concurrent replay never reads a
+/// half-written input.
+fn place_inputs(bundle: &Bundle) -> Result<PathBuf, String> {
+    let dir = crate::cache_home()?
+        .join("squint")
+        .join("bundles")
+        .join(&bundle.manifest_sha256)
+        .join("inputs");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    for (name, bytes) in bundle.members() {
+        let Some(file) = name.strip_prefix("inputs/") else {
+            continue;
+        };
+        let target = dir.join(file);
+        if std::fs::read(&target).is_ok_and(|held| held == bytes) {
+            continue;
+        }
+        let temporary = dir.join(format!(".{file}.{}.tmp", std::process::id()));
+        std::fs::write(&temporary, bytes).map_err(|e| format!("{}: {e}", temporary.display()))?;
+        std::fs::rename(&temporary, &target).map_err(|e| format!("{}: {e}", target.display()))?;
+    }
+    dir.canonicalize()
+        .map_err(|e| format!("{}: {e}", dir.display()))
+}
+
+/// One call's run: a command-line run (no session, no `client_run_id`) with its run directory
 /// and `run.json` like `check`; the result on stdout; the exit code of table-manners 6. What
 /// stops it before a run (an unknown or reserved action, arguments that are not an object or that
 /// `job_from_call` refuses as usage, no configuration, a `--allow-dir` that does not resolve, an
 /// unmet requirement) is a usage error on stderr, exit 64. A path the rule refuses, or an image in
 /// that is not one, is an `invalid` run, `input`, exit 64, as `serve` answers it.
-pub fn run(args: &CallArgs) -> i32 {
+fn one(
+    args: &CallArgs,
+    action: &str,
+    call: Map<String, Value>,
+    dirs: Dirs<'_>,
+    print: Print,
+) -> Step {
     let usage = |e: String| {
         eprintln!("squint: {e}");
-        EXIT_USAGE
+        Step::stopped(EXIT_USAGE)
     };
     #[cfg(feature = "testkit")]
     let scripted = args.provider_script.is_some();
@@ -66,7 +246,6 @@ pub fn run(args: &CallArgs) -> i32 {
         Ok(d) => d,
         Err(e) => return usage(e.to_string()),
     };
-    let action = args.action.as_str();
     if contract::RESERVED_NAMES.contains(&action) {
         return usage(format!(
             "{action:?} is a name the contract reserves, not an action; squint describe --json \
@@ -83,10 +262,6 @@ pub fn run(args: &CallArgs) -> i32 {
             "no action {action:?}; squint describe --json lists the actions"
         ));
     }
-    let call = match read_arguments(&args.arguments) {
-        Ok(call) => call,
-        Err(e) => return usage(e),
-    };
     let inspection = described.inspection;
     let mut config = match described.file.require() {
         Ok(c) => c,
@@ -95,9 +270,14 @@ pub fn run(args: &CallArgs) -> i32 {
     // The configuration as loaded, before `max_spend_usd` lowers its cap: the estimate's
     // identity, which the invocation records (table-manners 4.8).
     let config_identity = contract::config_identity(&config);
-    let allowed = match crate::serve::allowed_dirs(&args.allow_dirs, &config.serve.allow_dirs) {
-        Ok(dirs) => dirs,
-        Err(e) => return usage(e),
+    let allowed = match dirs {
+        Dirs::Flags => {
+            match crate::serve::allowed_dirs(&args.allow_dirs, &config.serve.allow_dirs) {
+                Ok(dirs) => dirs,
+                Err(e) => return usage(e),
+            }
+        }
+        Dirs::Own(dir) => vec![dir.to_path_buf()],
     };
     if let Err(e) = crate::admitted(&config, false) {
         return usage(e);
@@ -123,7 +303,7 @@ pub fn run(args: &CallArgs) -> i32 {
         .clone()
         .unwrap_or_else(|| config.output.dir.clone());
     // A run refused before its decision was allocated, answered as `serve` answers it.
-    let refused = |e: &squint_core::Error| -> i32 {
+    let refused = |e: &squint_core::Error| -> Step {
         let association = association(action);
         match crate::serve::refused_run(
             &out_dir,
@@ -134,10 +314,10 @@ pub fn run(args: &CallArgs) -> i32 {
             Map::new(),
             |_| {},
         ) {
-            Ok(result) => printed(&result, None),
+            Ok(result) => printed(&result, None, print),
             Err(e) => {
                 eprintln!("squint: {e}");
-                squint_core::run::EXIT_ERROR
+                Step::stopped(squint_core::run::EXIT_ERROR)
             }
         }
     };
@@ -227,7 +407,7 @@ pub fn run(args: &CallArgs) -> i32 {
                     Some(code) if o.decision.verdict.is_none() => code,
                     _ => o.exit_code,
                 };
-                printed(&result, Some(code))
+                printed(&result, Some(code), print)
             }
             Err(e) => usage_or_error(&e),
         },
@@ -235,21 +415,21 @@ pub fn run(args: &CallArgs) -> i32 {
         (Err(e), Some(dir)) if dir.join(contract::RUN_FILE).exists() => match read_result(&dir) {
             Ok(result) => {
                 eprintln!("decision: {}", dir.display());
-                printed(&result, signal())
+                printed(&result, signal(), print)
             }
             Err(_) => usage_or_error(&e.to_string()),
         },
         // Cancelled before the decision was allocated: no run (table-manners 4.2).
         (Err(squint_core::Error::Cancelled(m)), None) => {
             eprintln!("squint: {m}");
-            signal().unwrap_or(EXIT_SIGINT)
+            Step::stopped(signal().unwrap_or(EXIT_SIGINT))
         }
         (Err(e), _) => {
             let redacted = squint_core::artifacts::redact(&e.to_string(), &config.secrets);
             match signal() {
                 Some(code) => {
                     eprintln!("squint: {redacted}");
-                    code
+                    Step::stopped(code)
                 }
                 None => refused(&e),
             }
@@ -288,26 +468,34 @@ fn read_result(dir: &Path) -> Result<table_manners::RunResult, String> {
     serde_json::from_str(&text).map_err(|e| e.to_string())
 }
 
-fn usage_or_error(message: &str) -> i32 {
+fn usage_or_error(message: &str) -> Step {
     eprintln!("squint: {message}");
-    squint_core::run::EXIT_ERROR
+    Step::stopped(squint_core::run::EXIT_ERROR)
 }
 
 /// Prints the result (table-manners 2) on stdout and returns its exit code (6): the decision's
 /// own (`decided`: 0 pass, 1 fail, 2 unsure, 3 error, or the signal's for a cancelled run) when
 /// there is one, else the status's: 64 for `invalid`, 3 for `error`, 130 for `cancelled`.
-fn printed(result: &table_manners::RunResult, decided: Option<i32>) -> i32 {
-    match serde_json::to_string_pretty(result) {
+fn printed(result: &table_manners::RunResult, decided: Option<i32>, print: Print) -> Step {
+    let text = match print {
+        Print::Pretty => serde_json::to_string_pretty(result),
+        Print::Line => serde_json::to_string(result),
+    };
+    match text {
         Ok(text) => println!("{text}"),
         Err(e) => return usage_or_error(&e.to_string()),
     }
     if let Some(e) = &result.error {
         eprintln!("{}: {}", result.action, e.reason);
     }
-    decided.unwrap_or(match result.status {
-        table_manners::Status::Completed => 0,
-        table_manners::Status::Invalid => EXIT_USAGE,
-        table_manners::Status::Error => squint_core::run::EXIT_ERROR,
-        table_manners::Status::Cancelled => EXIT_SIGINT,
-    })
+    let completed = result.status == table_manners::Status::Completed;
+    Step {
+        code: decided.unwrap_or(match result.status {
+            table_manners::Status::Completed => 0,
+            table_manners::Status::Invalid => EXIT_USAGE,
+            table_manners::Status::Error => squint_core::run::EXIT_ERROR,
+            table_manners::Status::Cancelled => EXIT_SIGINT,
+        }),
+        completed,
+    }
 }
