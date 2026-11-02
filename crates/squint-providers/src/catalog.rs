@@ -566,15 +566,47 @@ impl Model {
     }
 }
 
+/// The prices a request's bound is taken at, and why (task 11.4: a cap refusal explains them).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct BoundTier {
+    /// The prompt as bounded: planned text tokens plus every image at its maximum token cost.
+    pub prompt_tokens: u64,
+    /// The model's long-prompt threshold, when it has a long-prompt tier.
+    pub long_prompt_threshold: Option<u64>,
+    /// The prompt is over that threshold, so the long-prompt prices apply.
+    pub long_prompt: bool,
+    pub input_per_million: f64,
+    pub output_per_million: f64,
+}
+
+impl Model {
+    /// The tier a request of this shape is bounded at: the one [`Pricing::bound`] uses.
+    pub fn bound_tier(&self, shape: &RequestShape) -> BoundTier {
+        let prompt_tokens =
+            shape.input_tokens + shape.images * self.images.tokens.max_tokens_per_image();
+        let (input_per_million, output_per_million, _) = self.tier(prompt_tokens);
+        let threshold = self
+            .prices
+            .long_prompt
+            .as_ref()
+            .map(|lp| lp.threshold_tokens);
+        BoundTier {
+            prompt_tokens,
+            long_prompt_threshold: threshold,
+            long_prompt: threshold.is_some_and(|t| prompt_tokens > t),
+            input_per_million,
+            output_per_million,
+        }
+    }
+}
+
 /// Catalog prices as the ledger sees them: text tokens at the model's rates, every image at its
 /// maximum token cost plus any per-image charge.
 impl Pricing for Model {
     fn bound(&self, shape: &RequestShape) -> Result<f64> {
-        let image_tokens = shape.images * self.images.tokens.max_tokens_per_image();
-        let input = shape.input_tokens + image_tokens;
-        let (in_price, out_price, _) = self.tier(input);
-        Ok(input as f64 * in_price / 1e6
-            + shape.output_tokens as f64 * out_price / 1e6
+        let tier = self.bound_tier(shape);
+        Ok(tier.prompt_tokens as f64 * tier.input_per_million / 1e6
+            + shape.output_tokens as f64 * tier.output_per_million / 1e6
             + shape.images as f64 * self.prices.per_image)
     }
 

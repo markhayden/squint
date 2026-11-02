@@ -229,6 +229,16 @@ projection = "flat"           # optional override
 expect = { file_sha256 = "3f9a…", width = 1600, height = 900, projection = "flat", topology = "bounded" }
 ```
 
+On the command line (`check`, `estimate`; task 11.2) `--must-hold "<text>"`, `--must-not
+"<text>"` and `--allow "<text>"` (each repeatable) state requirements without a file. They become
+`[[job.requirements]]` exactly as written in a job file would: `RQ1`, `RQ2`, … numbered over every
+`--must-hold`, then every `--must-not`, then every `--allow`, each kind in the order given; scope
+and evidence left to the defaults (the candidate; every source and reference); `--allow` an
+exemption with `waives = []`. So they render in the prompt and `--dry-run`, carry the provenance
+`job`, and enter the cache key and the report's rules like a file's. They go with the shorthand or
+with `--job`, but a job file that has its own requirements refuses them (exit 64, naming the file):
+one place states a job's requirements, and nothing is merged or renumbered.
+
 An image may carry `expect`, the contract's image reference the caller expects the file to have
 (see "External interface"): its `file_sha256`, width and height are verified before anything else
 runs, and a mismatch, like a mismatched `sha256` pin, is `error: input` with nothing spent; a
@@ -1007,6 +1017,18 @@ settled to actual cost and the difference returned to the envelope; when usage i
 decision the unallocated balance is released. A request whose bound cannot be computed is
 refused.
 
+When the per-call cap refuses a command-line `check` (task 11.4), stderr explains the envelope
+from the decision's report: the requests one run plans by kind (count, output allowance, planned
+input tokens, bound), the retry reserve, the decision runs, the price tier the catalog bounds
+them at and why (a model's long-prompt tier applies to every request whose planned prompt, images
+at their maximum token cost, passes its threshold), that the envelope is a worst-case bound and
+not an expected cost, and the settings that shrink it or raise the cap with their values now
+(`--max-spend-usd` up to `[budget] spend_cap_usd`, `budget.tool_turns`,
+`provider.max_output_tokens`, `budget.repairs`, `budget.repair_output_tokens`, `budget.retries`,
+`budget.decision_runs`). The only spend it shows is real: the settled spend of up to five of the
+newest completed decisions in the same output directory with the same model and use case (cache
+hits left out), and nothing when there are none. No typical cost is estimated.
+
 ### Cache key
 
 Computed after resolve and prepare, over: the canonical resolved job (use case, obligations
@@ -1277,6 +1299,13 @@ report.
 Where it is (`check`, `estimate`, `describe` and `serve`; ADR 0018 amendment): `--config <path>`,
 else `./squint.toml`, else `$XDG_CONFIG_HOME/squint/squint.toml` (`~/.config/squint/squint.toml`
 when that is unset); the first that exists wins, and a given path wins even when it does not.
+`squint init [--provider <profile>] [--model <id>]` (task 11.4) writes that personal file:
+the profile (default `anthropic`) and a model it serves (default a mid-tier one per profile:
+`claude-haiku-5-5`, `gemini-3.8-flash`, `gpt-6.1-terra`), the default cap, `[privacy]
+cloud_calls = true` with `account = "<vendor>:${SQUINT_<VENDOR>_ACCOUNT}"`, and `[output] dir`.
+It holds no secret, refuses to overwrite an existing file (exit 64), refuses a profile or model
+the catalog lacks or a model of another adapter, and names on stderr the variables a run reads
+(the key's and the account's).
 None found is not an error for `describe` or `serve` (table-manners 3.1): the description names
 the configuration as a `missing` requirement at the path the lookup would use (the user file),
 or `invalid` when it does not load (a parse error, an unreadable file, an unset `${VAR}` named
@@ -1757,12 +1786,17 @@ uv run --frozen --offline --no-sync ruff check . && uv run --frozen --offline --
 # The binary
 squint tools setup --config squint.toml     # provisions bundles and artifacts (network allowed here)
 squint check --config squint.toml --candidate out.png --ref "pip=refs/pip.jpg" --brief "…"
-squint check --config squint.toml --job job.toml
+squint check --use-case reference-consistency --candidate out.png --ref "pip=refs/pip.jpg" --must-hold "…" --must-not "…" --allow "…"   # requirements RQ1… without a job file (also on estimate)
+squint check --config squint.toml --job job.toml [--quiet]   # verdict on stdout; decision dir and the summary on stderr
 squint report view ./squint-out/<run-id>    # prints only its URL; Ctrl-C or end of stdin stops it
 squint report export ./squint-out/<run-id>  # one self-contained page in ~/.cache/squint/reports/
 squint report rebuild ./squint-out/<run-id>
 squint report prune --older-than 30d
+squint init [--provider anthropic|google-ai-studio|openai] [--model <id>]   # writes $XDG_CONFIG_HOME/squint/squint.toml (no secrets; never overwrites); names the key's variable
 squint tools list --config squint.toml      # manifests as the model will see them
+squint rules list [<use-case>] [--profile architecture]   # the shipped sets; or one set's rules (id, kind, scope, evidence, text) and how to change them
+squint rules init <use-case> [--out <dir>]  # writes squint.toml and rules.toml (header, every base rule commented out); never overwrites
+squint rules show --config squint.toml [--job job.toml] [--json]   # the merged rules with provenance
 squint describe --json [--config squint.toml] # the contract's description document (ADR 0018); works with no config
 squint estimate --json --config squint.toml --job job.toml [--max-spend-usd 0.10]   # the estimate of one check; nothing sent
 squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check; above it, exit 64
@@ -1786,6 +1820,17 @@ squint check --config squint.toml --job job.toml --record recordings/first-look
 squint catalog show claude-opus-5-5 [--json]
 squint catalog list [--json]
 ```
+
+What `check` prints (task 11.1): the verdict word alone on stdout (`pass`, `fail` or `unsure`;
+nothing on an error, which is `error: <class>: <message>` on stderr), then on stderr
+`decision: <dir>` and a summary read back from the decision's report: a line per checklist item
+(its id, the rule's text shortened, disposition, confidence, location and the model's reason on
+one line), the findings with their locations, `why:` (the confidently violated items, or the
+items that made it unsure and how: tentative, can't tell, hidden; or the two runs'
+disagreement), `spent:` (the settled spend against the cap and the envelope reserved; a cache hit
+spends nothing and names what the decision it copies spent) and `view: squint report view <dir>`.
+Every human line is on stderr, so stdout stays the machine's answer; `--quiet` (`-q`) leaves out
+the summary and prints exactly the verdict and the decision line.
 
 Exit codes for `check`: 0 pass, 1 fail, 2 unsure, 3 error, after `[policy]` is applied; 64 for a
 usage error or an `invalid` request (a job that does not resolve, an image that is not the one

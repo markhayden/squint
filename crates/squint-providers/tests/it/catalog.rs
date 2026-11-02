@@ -346,3 +346,35 @@ fn provider_data_documents_every_shipped_profile_and_model() {
         );
     }
 }
+
+/// Task 11.4: the tier a bound is taken at, with its reason, is the one `bound` prices with:
+/// Haiku's long-prompt tier once the prompt with its images at their maximum passes 100k tokens;
+/// a model without one always reports the base tier and no threshold.
+#[test]
+fn the_bound_tier_is_the_one_the_bound_uses() {
+    use squint_core::ledger::{Pricing, RequestShape};
+    let c = Catalog::shipped().unwrap();
+    let haiku = c.model("claude-haiku-5-5").unwrap();
+    let per_image = haiku.images.tokens.max_tokens_per_image();
+    let at = |input_tokens: u64, images: u64| RequestShape {
+        input_tokens,
+        output_tokens: 1_000,
+        images,
+    };
+    let short = haiku.bound_tier(&at(100_000 - 2 * per_image, 2));
+    assert_eq!(short.prompt_tokens, 100_000);
+    assert_eq!(short.long_prompt_threshold, Some(100_000));
+    assert!(!short.long_prompt);
+    assert!((short.input_per_million - 0.10).abs() < 1e-12);
+    let long = haiku.bound_tier(&at(100_001 - 2 * per_image, 2));
+    assert!(long.long_prompt, "the images push it over: {long:?}");
+    assert!((long.input_per_million - 0.50).abs() < 1e-12);
+    assert!((long.output_per_million - 2.50).abs() < 1e-12);
+    let shape = at(100_001 - 2 * per_image, 2);
+    let expected = 100_001.0 * 0.50 / 1e6 + 1_000.0 * 2.50 / 1e6;
+    assert!((haiku.bound(&shape).unwrap() - expected).abs() < 1e-12);
+    let opus = c.model("claude-opus-5-5").unwrap();
+    let flat = opus.bound_tier(&at(900_000, 0));
+    assert_eq!(flat.long_prompt_threshold, None);
+    assert!(!flat.long_prompt);
+}

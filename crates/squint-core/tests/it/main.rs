@@ -12,6 +12,7 @@ mod contract_fixtures;
 mod contract_locations;
 mod contract_schemas;
 mod description;
+mod docs_rules;
 mod image_reference;
 mod images_and_frames;
 mod journal_artifacts;

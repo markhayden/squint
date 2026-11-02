@@ -3,12 +3,16 @@
 
 mod call;
 mod catalog;
+mod cost;
 mod describe;
 mod eval;
+mod init;
 mod playground;
 mod report;
+mod rules;
 mod serve;
 mod sets;
+mod summary;
 mod viewer;
 
 use std::path::{Path, PathBuf};
@@ -38,7 +42,7 @@ struct Cli {
 enum Command {
     /// Judge one image job and print the verdict.
     Check(CheckArgs),
-    /// Inspect rules.
+    /// The rules: list the shipped sets, start your own, show what a config merges to.
     Rules(RulesArgs),
     /// Inspect tools.
     Tools(ToolsArgs),
@@ -62,6 +66,9 @@ enum Command {
     Call(call::CallArgs),
     /// Open Wafflery, the shared local workspace, on squint (`wafflery --tool squint`).
     Playground(playground::PlaygroundArgs),
+    /// Write a personal default config ($XDG_CONFIG_HOME/squint/squint.toml) so checks need no
+    /// --config; it holds no secret and is never overwritten.
+    Init(init::InitArgs),
 }
 
 #[derive(clap::Args)]
@@ -117,6 +124,10 @@ struct RulesArgs {
 enum RulesCommand {
     /// Print the merged obligations for a config (and optionally a job) with provenance.
     Show(RulesShowArgs),
+    /// List the shipped rule sets, or print one use case's rules and how to change them.
+    List(rules::RulesListArgs),
+    /// Write a starter squint.toml and a rules.toml (every base rule commented out) to edit.
+    Init(rules::RulesInitArgs),
 }
 
 #[derive(clap::Args)]
@@ -150,6 +161,10 @@ struct CheckArgs {
     /// Record every exchange with the provider into this directory, secrets stripped.
     #[arg(long, value_name = "DIR")]
     record: Option<PathBuf>,
+    /// Print only the verdict (stdout) and the decision directory (stderr), without the summary
+    /// of items, findings, reasons and spend that follows them.
+    #[arg(long, short)]
+    quiet: bool,
 }
 
 #[derive(clap::Args)]
@@ -189,6 +204,19 @@ struct JobArgs {
     /// Shorthand job: the use case, for example `source-fidelity`.
     #[arg(long, requires = "candidate")]
     use_case: Option<String>,
+    /// A requirement in your words that must hold in the candidate, for example "the dog's
+    /// markings are unchanged" (repeatable). Requirements are numbered RQ1, RQ2, …: every
+    /// --must-hold, then every --must-not, then every --allow.
+    #[arg(long = "must-hold", value_name = "TEXT")]
+    must_hold: Vec<String>,
+    /// Something that must not happen in the candidate, for example "a white patch is added"
+    /// (repeatable); the model marking it a violation fails the check.
+    #[arg(long = "must-not", value_name = "TEXT")]
+    must_not: Vec<String>,
+    /// What may change without counting against any rule, for example "the pose may change"
+    /// (repeatable); it waives nothing.
+    #[arg(long = "allow", value_name = "TEXT")]
+    allow: Vec<String>,
     /// Lower the configured per-call spend cap for this check; a value above it is refused.
     #[arg(long, value_name = "USD")]
     max_spend_usd: Option<f64>,
@@ -222,6 +250,12 @@ fn main() {
         Some(Command::Rules(RulesArgs {
             command: RulesCommand::Show(args),
         })) => rules_show(&args),
+        Some(Command::Rules(RulesArgs {
+            command: RulesCommand::List(args),
+        })) => rules::list(&args),
+        Some(Command::Rules(RulesArgs {
+            command: RulesCommand::Init(args),
+        })) => rules::init(&args),
         Some(Command::Tools(ToolsArgs {
             command: ToolsCommand::List(args),
         })) => tools_list(&args),
@@ -237,12 +271,13 @@ fn main() {
         Some(Command::Serve(args)) => serve::run(&args),
         Some(Command::Call(args)) => call::run(&args),
         Some(Command::Playground(args)) => playground::run(&args),
+        Some(Command::Init(args)) => init::run(&args),
     };
     std::process::exit(code);
 }
 
 fn check(args: &CheckArgs) -> i32 {
-    let (mut config, config_identity) = match load_config(&args.input) {
+    let (mut config, config_identity, configured_cap) = match load_config(&args.input) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("squint: {e}");
@@ -387,6 +422,25 @@ fn check(args: &CheckArgs) -> i32 {
                 );
             }
             eprintln!("decision: {}", o.dir.display());
+            if !args.quiet {
+                match squint_core::report::Report::read(&o.dir) {
+                    Ok(report) => {
+                        eprintln!(
+                            "{}",
+                            squint_core::artifacts::redact(
+                                &summary::render(&report, &o.dir),
+                                &config.secrets
+                            )
+                        );
+                        if let Some(why) =
+                            cost::cap_refusal(&report, &config, configured_cap, &out_dir, &o.dir)
+                        {
+                            eprintln!("{}", squint_core::artifacts::redact(&why, &config.secrets));
+                        }
+                    }
+                    Err(e) => eprintln!("squint: no summary: {e}"),
+                }
+            }
             match signalled.load(std::sync::atomic::Ordering::SeqCst) {
                 0 => o.exit_code,
                 code if o.decision.verdict.is_none() => code,
@@ -628,21 +682,40 @@ fn estimate(args: &EstimateArgs) -> i32 {
 }
 
 /// The config the lookup finds, with `--set` overrides and a `--max-spend-usd` that lowers the
-/// cap (above the configured cap, a usage error), and the identity of the configuration as loaded
-/// (before the cap is lowered, as `squint estimate` computes it, table-manners 4.5, 4.8); none
-/// found is a usage error naming where squint looked.
-fn load_config(args: &JobArgs) -> Result<(Config, String), String> {
+/// cap (above the configured cap, a usage error), the identity of the configuration as loaded
+/// (before the cap is lowered, as `squint estimate` computes it, table-manners 4.5, 4.8), and the
+/// configured cap before any lowering; none found is a usage error naming where squint looked.
+fn load_config(args: &JobArgs) -> Result<(Config, String, f64), String> {
     let mut config = Config::open(args.config.as_deref(), &args.overrides)
         .require()
         .map_err(|e| e.to_string())?;
     let identity = squint_core::contract::config_identity(&config);
+    let configured_cap = config.budget.spend_cap_usd;
     if let Some(max) = args.max_spend_usd {
         config.call_cap(max).map_err(|e| e.to_string())?;
     }
-    Ok((config, identity))
+    Ok((config, identity, configured_cap))
 }
 
+/// The job from `--job` or the shorthand, with the requirements `--must-hold`, `--must-not` and
+/// `--allow` state (refused beside a job file that has its own).
 fn load_job(args: &JobArgs) -> Result<Job, String> {
+    let intent = squint_core::job::Intent {
+        must_hold: args.must_hold.clone(),
+        must_not: args.must_not.clone(),
+        allow: args.allow.clone(),
+    };
+    let origin = args
+        .job
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "the job".into());
+    load_stated_job(args)?
+        .with_intent(&intent, &origin)
+        .map_err(|e| e.to_string())
+}
+
+fn load_stated_job(args: &JobArgs) -> Result<Job, String> {
     match (&args.job, &args.candidate) {
         (Some(path), None) => Job::load(path).map_err(|e| e.to_string()),
         (None, Some(candidate)) => {
@@ -969,7 +1042,7 @@ fn rules_show(args: &RulesShowArgs) -> i32 {
                     println!(
                         "{:<5} {:<10} matters={:<5} hidden_ok={:<5} [{}] {}",
                         ob.id,
-                        format!("{:?}", ob.kind).to_lowercase(),
+                        rules::kind_word(ob.kind),
                         ob.matters(),
                         ob.hidden_ok,
                         o.provenance,

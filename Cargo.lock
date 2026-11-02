@@ -1763,6 +1763,7 @@ dependencies = [
  "table-manners",
  "thiserror",
  "tokio",
+ "toml",
 ]
 
 [[package]]

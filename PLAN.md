@@ -2554,6 +2554,225 @@ answer the tasks assume until told otherwise.
    `bundle-*/invocation.json` to the bundle schema, and does it want the input members beside the
    manifest? Assumed: yes to all three.
 
+## Milestone M11: CLI usability
+
+From the owner's first real reference-consistency check on the command line (2026-11-02): the
+result printed only `unsure` and a decision path, with no reason; stating intent ("the subject
+must not change; an added white patch should fail") took two TOML files, and `docs/rules.md`'s
+layering example left out the `[rules]` header a rules file requires, so following it failed with
+"missing field `rules`"; nothing on the command line showed the built-in rules; a
+`--max-spend-usd 0.50` refusal named a $0.6285 envelope with no explanation, when the run itself
+cost $0.0018 (the envelope is the worst case: every tool turn, the final turn and the repair at
+the full output allowance, the retry reserve, priced at the long-prompt tier); and every run
+needed `--config` with a long path. The owner approved the four tasks below (2026-11-02). The
+branch `usability` starts from `main` at `m10`. Nothing here calls a paid provider: every test
+runs on the scripted provider or a replay, so the estimated and actual spend is $0. No shipped
+rules file (`crates/squint-core/rules/*.toml`) changes.
+
+### Task 11.1: The verdict explained in the terminal
+
+**Description.** After `squint check`, a human summary of the decision, read back from its
+report: one line per checklist item (id, the rule's text shortened to a label, disposition,
+confidence, the model's reason trimmed to one line), the findings and observations with their
+location, why the verdict is what it is (the failing items, or the items that made it unsure
+and how: tentative, can't tell, hidden; or "every mandatory item held"; for two runs, their
+disagreement), the spend against the cap (`spent $x of the $y cap; the envelope reserved $z`)
+and the `squint report view <dir>` command. Compatibility: stdout's first line stays exactly
+the verdict word and stderr keeps `decision: <path>`; the summary follows on stderr, after the
+decision line, as every other human line of `check` already does (stdout is the machine's
+answer). `--quiet` prints today's output exactly.
+
+**Acceptance.** A scripted unsure run (one item held tentatively) prints `unsure` alone on stdout
+and, on stderr after `decision:`, a line per item with its reason, "unsure: SF1@candidate held
+only tentatively", the spend line and the `report view` command; a failing run names the
+violated item with its reason and location; a cache hit prints the summary of the decision it
+copies; `--quiet` gives exactly the M10 stdout and stderr.
+
+**Verification.** `crates/squint-cli/tests/it/summary_cli.rs`, `just check`.
+
+**Files.** `crates/squint-cli/src/summary.rs`, `crates/squint-cli/src/main.rs`, `SPEC.md`
+("Commands"), `README.md`, `docs/agents.md` if it describes the output. **Size.** M.
+
+**As built** (2026-11-02): the summary goes to **stderr**, after `decision:`. The CLI's
+convention already puts every human line there (`error:`, `cache: hit`, `decision:`, warnings)
+and keeps stdout for the machine's answer, so `v=$(squint check …)` still reads one word. It is
+rendered by `summary::render` from `report.json` (`Report::read`), redacted like every other
+stderr line, so a cache hit summarises the decision it copies and an error decision still says
+which run ended in which class. Item lines show `RC1@candidate` rather than `chk:ob:RC1@candidate`;
+the label is the obligation's text cut at 48 characters, the reason collapsed to one line and cut
+at 140; locations are the root image's (`candidate box [l t r b]` as fractions, `(whole image)`),
+else the frame as submitted. `why:` reads the aggregation rows the report already holds (items,
+then findings, whose rows pair with the non-observed findings in order), so it cannot disagree
+with the verdict. `--quiet` has `-q`. `docs/agents.md` describes `run.json` and the served
+results, not the terminal, so it is unchanged; SPEC "Commands" and a new README "Usage" section
+describe the output. Tests: `summary_cli.rs` (unsure, fail with location, findings, cache hit,
+`--quiet` byte-for-byte) and three unit tests in `summary.rs`.
+
+### Task 11.2: Intent on the command line
+
+**Description.** `--must-hold "<text>"`, `--must-not "<text>"` and `--allow "<text>"`,
+repeatable, on every command that takes the shorthand job (`check`, `estimate`). They become the
+job's requirements `RQ1`, `RQ2`, … (the `must_hold` flags first, then `must_not`, then `allow`,
+each in command-line order, so the numbering does not depend on how the kinds interleave) under
+the obligation model's defaults: scope `candidate`, evidence every source and reference. `--allow`
+is an exemption with `waives = []`: it states what may change and waives nothing. Being job
+requirements, they show in `--dry-run`, carry the provenance `job` and enter the cache key and the
+decision's rules exactly as `[[job.requirements]]` from a job file do. With `--job`: allowed when
+the file has no requirements of its own; refused (exit 64, naming the file) when it has, so one
+place states a job's requirements and no numbering is merged or guessed.
+
+**Acceptance.** `--dry-run` with the three flags lists `RQ1`–`RQ3` with their kinds and
+provenance `job`; a scripted run whose provider marks the `--must-not` item a violation fails;
+the same flags give the same cache key as the equivalent job file; a job file with requirements
+plus a flag exits 64; `estimate --json` takes the flags.
+
+**Verification.** `crates/squint-cli/tests/it/intent_cli.rs`, unit tests for the requirement
+builder in `squint-core`, `just check`.
+
+**Files.** `crates/squint-core/src/job.rs`, `crates/squint-cli/src/main.rs`, `SPEC.md` ("Job",
+"Commands"), `docs/rules.md`, `README.md`. **Size.** S.
+
+**As built** (2026-11-02): `squint_core::job::Intent` turns the three lists into obligations and
+`Job::with_intent` sets them as the job's requirements, so everything downstream (merge,
+resolve, prompt, checklist, cache key, report, `run.json`) sees an ordinary job with
+requirements; there is no second path. Numbering is by kind (every `--must-hold`, then
+`--must-not`, then `--allow`), not by position on the line, so reordering flags of different
+kinds never renumbers or changes the cache key. Beside `--job` they are allowed only when the
+file has no `[[job.requirements]]` (refused with `<file> has its own [[job.requirements]]; state
+every requirement there, or every one with --must-hold, --must-not and --allow`, exit 64): a
+merge would have to pick numbers the file's author did not write, and `allowed_by` and waives
+name requirements by id. A blank sentence is refused naming its flag. The flags live on
+`JobArgs`, so `check` and `estimate` take them; `call` takes MCP arguments, where `requirements`
+already exists. The rendered exemption line puts the prompt's fixed note straight after the
+text, so a sentence without a final full stop runs into it; changing that is a prompt change
+(`PROMPT_VERSION`, recordings), left for a prompt revision. Tests: `intent_cli.rs` (dry run, a
+`--must-not` violation fails, flags and the equivalent job file share a cache key, the refusal,
+`estimate`), two unit tests in `job.rs`; fixtures `fixtures/jobs/pair-must-not.toml` and
+`fixtures/scripts/intent-must-not-violation.json`.
+
+### Task 11.3: The rules discoverable
+
+**Description.** (i) `squint rules list` lists the shipped bases (use case, required roles,
+profiles); `squint rules list <use-case>` prints each rule's id, kind, scope, evidence and text,
+then a short "to change these" note: the intent flags, `[rules] extra` files, where the same id
+replaces a rule and `disabled = true` removes it. (ii) `squint rules init <use-case> [--out
+<dir>]` writes a starter `squint.toml` (`[rules] base` and `extra`) and a `rules.toml` with the
+correct `[rules]` header and every base rule present but commented out, with notes on overriding,
+replacing and disabling; it refuses to overwrite either file (checking both before writing
+either). (iii) `docs/rules.md`'s examples are complete files, and a test parses every TOML block
+of the page (a rules file merges over its base, a config's `[rules]` loads), so the page cannot
+drift again. (iv) README's usage section mentions all of it briefly.
+
+**Acceptance.** `rules list` names the five bases and the `architecture` profile;
+`rules list reference-consistency` prints RC1–RC5 with kind, scope, evidence and text and the
+note; an unknown use case exits 64 naming the known ones; `rules init` writes two files that load
+(`rules show --config` on the result succeeds and lists the base rules unchanged), uncommenting a
+rule replaces it, and a second `rules init` into the same directory exits 64 and changes nothing;
+the docs test fails on the old example (no header) and passes on the new one.
+
+**Verification.** `crates/squint-cli/tests/it/rules_cli.rs`, `crates/squint-core/tests/it/docs_rules.rs`,
+`just check`.
+
+**Files.** `crates/squint-cli/src/main.rs`, `crates/squint-cli/src/rules.rs`,
+`crates/squint-core/src/obligations.rs` (profile listing), `docs/rules.md`, `README.md`,
+`SPEC.md` ("Commands"). **Size.** M.
+
+**As built** (2026-11-02): `crates/squint-cli/src/rules.rs` holds `list` and `init`;
+`squint_core::obligations::SHIPPED_PROFILES` lists the profiles beside `SHIPPED_BASES` (the
+`shipped_sets_parse` test now covers every base and profile). `rules list <use-case>` takes
+`--profile` and then prints each rule's provenance; scope and evidence left to the defaults read
+`candidate (default)` and `every source and reference (default)`, evidence only on mandatory kinds,
+`waives nothing` or `waives …` on exemptions. `rules init` writes `squint.toml` and `rules.toml`
+into `--out` (default `.`, so the result is also the lookup's `./squint.toml`): the config is
+`init::config_text` (shared with `squint init`, 11.4) with `[rules] base` and an **absolute**
+`extra` path, since a relative one resolves against the directory squint runs from; the rules
+file is the header (`use_case`, `version = 1`) and the base file's text from its first
+`[[rule]]` with every non-blank line behind `# ` (a unit test uncomments it and gets the base's
+obligations back exactly, for all five bases). Removing a rule keeps `id` and `kind`, since `kind`
+is a required field; the notes say so. Both files are checked before either is written and
+each is created with `create_new`, so neither is ever overwritten. `rules show` now prints kinds
+as written (`must_hold`, not `musthold`). The docs test (`docs_rules.rs`) reads every ```toml
+block of `docs/rules.md`: a `[rules]` naming `use_case` must parse and merge over its base, one
+naming `base` must parse as a config's section with a shipped base and profile, and anything
+else fails; the obligation example became a complete file and the layering section gained the
+`rules/mine.toml` it names (replace, disable, add). Tests: `rules_cli.rs` (list, a use case's
+rules, unknown use case, init then show then edit then refuse, either file existing), unit tests
+in `rules.rs` and `init.rs`.
+
+### Task 11.4: Cost and setup
+
+**Description.** (i) When the per-call cap refuses a check, the refusal explains itself on
+stderr from the decision's planned envelope: the requests one run plans by kind with their
+count, output allowance and bound, the retry reserve (`retries` × the largest bound), the number
+of decision runs, and the price tier that applies with why (the catalog's long-prompt tier and
+its threshold against the planned prompt, or the one tier the model has); that the envelope is a
+worst-case bound reserved before the first request, not an expected cost; and the knobs that
+lower it or raise the cap (`--max-spend-usd` up to `[budget] spend_cap_usd`,
+`budget.tool_turns`, `provider.max_output_tokens`, `budget.repairs` and
+`budget.repair_output_tokens`, `budget.retries`, `budget.decision_runs`, each with its value
+now). It invents no typical cost: the only spend shown is real, the settled spend of the most
+recent completed decisions in the same output directory with the same model and use case, when
+there are any. (ii) `squint init [--provider <profile>] [--model <id>]` writes a personal
+default config at `$XDG_CONFIG_HOME/squint/squint.toml` (`~/.config/squint/squint.toml`), the
+path the lookup already searches, with no secret in it (the account id comes from an environment
+variable), refuses to overwrite one, rejects a profile or model the catalog lacks (or a model of
+another adapter), and prints which environment variables hold the key and the account.
+
+**Acceptance.** A scripted check refused by the cap prints the breakdown, the worst-case
+sentence, the tier line and the knobs with their values; with an earlier completed decision in
+the output directory it prints that decision's real spend, and without one prints no cost
+figure but the envelope's; `squint init` into an empty `XDG_CONFIG_HOME` writes a file that
+`check --dry-run` (no `--config`) loads, names `ANTHROPIC_API_KEY`, and a second `init` exits 64
+leaving the file unchanged; `--provider openai` picks an OpenAI model; an unknown model exits 64.
+
+**Verification.** `crates/squint-cli/tests/it/budget_cli.rs`, `crates/squint-cli/tests/it/init_cli.rs`,
+unit tests for the tier explanation in `squint-providers`, `just check`.
+
+**Files.** `crates/squint-cli/src/summary.rs`, `crates/squint-cli/src/init.rs`,
+`crates/squint-cli/src/main.rs`, `crates/squint-providers/src/catalog.rs`,
+`crates/squint-core/src/config.rs` (the user config path), `SPEC.md` ("Config", "Commands"),
+`README.md`. **Size.** M.
+
+**As built** (2026-11-02): (i) `crates/squint-cli/src/cost.rs` `cap_refusal` runs after the
+summary when any run of the decision ended in `cap` and the report has the planned envelope. It
+groups the envelope's requests by kind (count, output allowance, the planned input-token span,
+their bound), derives the retry count from the reserve over the largest bound, multiplies by the
+decision runs, and says whether anything was sent (`cost.attempts`: none for the limits check,
+some for a refused retry). The tier comes from `squint_providers::catalog::Model::bound_tier`,
+which `Pricing::bound` now uses itself, so the explanation and the bound cannot disagree; a model
+the catalog lacks (the scripted one) says so. The owner's case reproduces exactly from
+`examples/reference-consistency.toml` and a refused `--replay` (no request is made): Haiku's
+$0.6285 is four tool turns ($0.0502), the final turn ($0.0179) and the repair ($0.1401, the only
+request over Haiku's 100k-token threshold, so at $0.50/$2.50 per million), plus three retries at
+that largest bound ($0.4203). The "real spend" is the output directory's own record: the newest
+completed decisions (by the time in `decision-<ms>-<pid>`, at most 200 read, five shown) with the
+same model and use case, not cache hits; with none, no figure is printed. `--quiet` leaves the
+explanation out with the summary, as it promises the M10 output. `load_config` also returns the
+configured cap, so the knob line can say how far `--max-spend-usd` may go. (ii) `squint init` is
+`init::run`: `init::choose` checks the profile and model against the catalog (a model must speak
+the profile's adapter; defaults `claude-haiku-5-5`, `gemini-3.8-flash`, `gpt-6.1-terra`, a test
+pins each), `Config::user_file` is the lookup's own personal path, and `write_new` creates with
+`create_new`. The account id stays in `SQUINT_<VENDOR>_ACCOUNT` as the examples have it, so the
+file holds no id or key; stdout is `wrote <path>`, stderr names both variables. Tests:
+`budget_cli.rs` (the breakdown, worst-case sentence and knobs with no figure, then the real $0.09
+of an earlier scripted decision; Haiku's long-prompt line through a refused replay),
+`init_cli.rs` (written where the lookup finds it, `check --dry-run` with no `--config`, no
+overwrite, `--provider openai`, refusals), `catalog.rs` `the_bound_tier_is_the_one_the_bound_uses`,
+unit tests in `init.rs` and `cost.rs`.
+
+### Checkpoint M11
+- [x] The owner's dog check repeated with `--replay` or a scripted script: the reason, the intent
+      flags and the cap explanation read as the owner asked (2026-11-02). Scripted: a
+      reference-consistency check with `--must-hold "The dog is the same individual as in the
+      reference."` and `--must-not "A white patch is added to the dog."`, the provider holding
+      RC1, RC2 and RQ1 tentatively and marking RQ2 a confident violation with a box, printed
+      `fail`, a line per item with its reason, `why: fail: RQ2@candidate violated (confident)`
+      and `spent: $0.0014 of the $2.00 cap`; without the violation the same items read
+      `unsure: RC1@candidate, RC2@candidate, RQ1@candidate held only tentatively`. Replay: the
+      owner's `--max-spend-usd 0.50` on `examples/reference-consistency.toml` reproduces the
+      $0.6285 envelope and explains it (11.4 "As built"). No paid call; spend $0.
+- [ ] Review; merge; tag `m11` (coordinator and owner; not done on the branch).
+
 ## Risks and mitigations
 
 | Risk | Impact | Mitigation |

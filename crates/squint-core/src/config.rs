@@ -515,6 +515,13 @@ impl Config {
         Config::locate_with(given, &|name| std::env::var_os(name))
     }
 
+    /// The personal config file the lookup reads after `./squint.toml`:
+    /// `$XDG_CONFIG_HOME/squint/squint.toml`, else `~/.config/squint/squint.toml`; `None` when
+    /// neither variable gives an absolute directory. `squint init` writes it.
+    pub fn user_file() -> Option<PathBuf> {
+        user_config_file(&|name| std::env::var_os(name))
+    }
+
     /// [`Config::locate`] with the environment injected (for tests).
     pub fn locate_with(
         given: Option<&Path>,

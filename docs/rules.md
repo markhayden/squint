@@ -6,7 +6,14 @@ page is the practical version. Code: `crates/squint-core/src/obligations.rs`; sh
 
 ## An obligation
 
+A rules file is a `[rules]` header naming its use case and version, then its obligations. Every
+field of one obligation:
+
 ```toml
+[rules]
+use_case = "source-fidelity"   # the base this file applies to; it must match the config's base
+version = 1                    # yours to bump when the file changes (part of the cache key)
+
 [[rule]]
 id = "SF1"                 # two capital letters and a number; job requirements use RQ1, RQ2, …
 kind = "must_hold"         # must_hold | must_not (mandatory) | allowed (exemption) | observe
@@ -25,7 +32,8 @@ Exemptions (`kind = "allowed"`) add `waives = ["SF1"]` and a `condition`. An exe
 
 ## Layering
 
-A config names a shipped base and optionally a shipped profile and consumer files:
+A config's `[rules]` section names a shipped base and optionally a shipped profile and your own
+rules files (a relative path resolves against the directory squint runs from):
 
 ```toml
 [rules]
@@ -34,10 +42,48 @@ profile = "architecture"
 extra = ["./rules/mine.toml"]
 ```
 
+Each file in `extra` is a rules file with its own `[rules]` header (`use_case` and `version`;
+without it loading fails with "missing field `rules`"). This `rules/mine.toml` replaces one base
+rule, removes another and adds one:
+
+```toml
+[rules]
+use_case = "source-fidelity"
+version = 1
+
+# The same id replaces the base's SF2 (every field is the new one's).
+[[rule]]
+id = "SF2"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The candidate keeps the source's framing; a crop of up to a tenth on any side is fine."
+
+# `disabled = true` removes SF4 (`id` and `kind` stay; nothing else is needed).
+[[rule]]
+id = "SF4"
+kind = "observe"
+disabled = true
+
+# A new id adds a rule.
+[[rule]]
+id = "MY1"
+kind = "must_not"
+text = "No watermark or signature appears anywhere in the candidate."
+```
+
 Merge order: base, then the profile (it `extends` the base), then each consumer file in order,
-then the job's `[[job.requirements]]`. The same `id` replaces the earlier obligation and takes
-the new provenance; `disabled = true` removes it; a new id appends. Without a `[rules]` section
-the base is the job's use case.
+then the job's `[[job.requirements]]` (or, on the command line, `--must-hold`, `--must-not` and
+`--allow`, which become those requirements: `RQ1`, `RQ2`, … over every `--must-hold`, then every
+`--must-not`, then every `--allow`; a job file that has its own requirements refuses them). The
+same `id` replaces the earlier obligation and takes the new provenance; `disabled = true` removes
+it; a new id appends. Without a `[rules]` section the base is the job's use case.
+
+`squint rules list` names the shipped bases; `squint rules list <use-case>` prints one base's
+rules with their kind, scope and evidence; `squint rules init <use-case> [--out <dir>]` writes a
+starter `squint.toml` and a `rules.toml` with this header and every base rule commented out,
+ready to edit. Every TOML block on this page is loaded by a test
+(`crates/squint-core/tests/it/docs_rules.rs`), so the examples stay copy-paste correct.
 
 ## What is checked at load
 

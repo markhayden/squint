@@ -1,0 +1,20 @@
+# The source-fidelity pair with one requirement, as `--must-not "a white patch is added"` on the
+# command line states it (task 11.2).
+[job]
+use_case = "source-fidelity"
+brief = "Restyle the scene; keep the structure."
+
+[[job.requirements]]
+id = "RQ1"
+kind = "must_not"
+text = "a white patch is added"
+
+[[job.images]]
+id = "candidate"
+role = "candidate"
+source = { path = "fixtures/images/candidate-64x48.png" }
+
+[[job.images]]
+id = "source"
+role = "source"
+source = { path = "fixtures/images/source-64x48.png" }

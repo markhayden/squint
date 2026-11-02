@@ -67,6 +67,46 @@ The model's own opinion is recorded and ignored.
 Every run writes a journal and a report with every image the model saw, every tool result and
 every location, viewable offline. Details: [`SPEC.md`](SPEC.md).
 
+## Usage
+
+`squint init` writes a personal default config (`~/.config/squint/squint.toml`, or under
+`$XDG_CONFIG_HOME`) so no check needs `--config`; it holds no secret and prints the environment
+variables to set (the API key, and the account id the config attests to). `--provider` and
+`--model` pick another provider or model from the catalog (`squint catalog list`).
+
+```
+squint check --use-case reference-consistency --candidate scene.png --ref dog=dog.jpg
+```
+
+prints the verdict (`pass`, `fail` or `unsure`) alone on stdout, so scripts can read it, and on
+stderr the decision directory and a summary: every checklist item with the rule it stands for,
+the model's answer and its reason, any findings with where they are, why the verdict is what it
+is, what the check spent against its cap, and the `squint report view <dir>` command that opens
+the full report. `--quiet` prints only the verdict and the decision directory.
+
+Say what matters for this image in plain words, without writing a file:
+
+```
+squint check --use-case reference-consistency --candidate scene.png --ref dog=dog.jpg \
+  --must-hold "The dog's coat pattern is unchanged." \
+  --must-not "A white patch is added to the dog." \
+  --allow "The dog's pose may change."
+```
+
+Each becomes a job requirement (`RQ1`, `RQ2`, …) checked beside the use case's built-in rules; a
+confident violation of any of them fails the check.
+
+`squint rules list` names the built-in rule sets and `squint rules list reference-consistency`
+prints one set's rules. To change them for good, `squint rules init reference-consistency` writes
+a starter `squint.toml` and a `rules.toml` with every built-in rule commented out: uncomment one
+to replace it (same id), add `disabled = true` to remove it, or add your own. Writing rules:
+[`docs/rules.md`](docs/rules.md).
+
+Before the first request a check reserves its worst case against the spend cap: every tool turn,
+the final turn and the repair at full output, plus a reserve for retries. That bound can be
+far above what a check spends; when it is over the cap the refusal shows how it was built,
+which price tier applies and why, and the settings that bring it down.
+
 ## How it is built
 
 The method is the brief's: measure first, then earn each tool.
