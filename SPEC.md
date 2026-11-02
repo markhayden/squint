@@ -1454,8 +1454,7 @@ Schemas (the source of truth), test vectors, a fixture per tool and a Rust crate
 The contract has a core every tool follows and profiles a kind of tool adds; squint implements the
 core and the images profile, and lists `images` in its description's `profiles`. squint pins a
 tagged release, keeps a hash-checked copy of its schemas under `schemas/contract/`, and warns in CI
-when a newer tag exists. squint conforms to v0.4.0 (M10), built against the contract's `v0.4`
-branch by path until v0.4.0 is published (task 10.7 moves it to `=0.4.0` from crates.io). It lists
+when a newer tag exists. squint conforms to v0.4.0 (M10), pinned `=0.4.0` from crates.io. It lists
 no operations profile, so it emits none of that profile's fields (`artifact_types`, `ports`,
 `artifacts`, the artifact resource, the `binding` refusal), no action is of kind `operation`, and
 it serves neither reserved `export` nor `import` (a call of either is an unknown tool). Field

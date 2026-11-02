@@ -2489,6 +2489,18 @@ the fixture drift tests pass; `scripts/check-contract-tag.sh` reports no newer t
 **Dependencies.** 10.6; table-manners v0.4.0 published (owner). **Files.** `Cargo.toml`,
 `Cargo.lock`, `schemas/contract/SOURCES.toml`. **Size.** S.
 
+**As built** (2026-11-02): the workspace pins `table-manners = "=0.4.0"` from crates.io, and
+`squint-core` and `squint-cli` take it from the workspace; `Cargo.lock` gains only the registry
+source and checksum (the published crate's dependencies are the branch's). `UPDATE_CONTRACT=1`
+removed `SOURCES.toml`'s `branch` and `commit` lines and nothing else: every copied schema is
+byte-identical to the published crate's. `UPDATE_CONTRACT_FIXTURES=1` left every fixture
+unchanged, so the directory handed over at 10.6 stands and nothing is re-sent.
+`scripts/check-contract-tag.sh` reports v0.4.0 the newest release. CI never fetched the draft
+checkout, so no CI wiring was removed; the schema test's path-dependency branch stays, since it is
+how every milestone builds before its release. SPEC, README, `docs/agents.md`,
+`docs/architecture.md`, ADR 0018's v0.4 amendment and `fixtures/contract/README.md` no longer
+describe the draft pin. `just ci-local` remains for the checkpoint.
+
 ### Checkpoint M10
 - [ ] Every item of CONTRACT.md "Changes from v0.3" and of `docs/v04-design.md` 7 "squint M10",
       and MAPPING.md's v0.4 squint column once the coordinator writes it, checked one by one on

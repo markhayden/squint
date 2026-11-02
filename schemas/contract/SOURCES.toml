@@ -1,9 +1,6 @@
 # The table-manners schemas squint conforms to, copied from the crate pinned in Cargo.toml.
 # Regenerate after a version bump: UPDATE_CONTRACT=1 cargo test -p squint-core --test it contract_schemas
 tag = "v0.4.0"
-# Copied from an unpublished checkout by path; the registry's release replaces it.
-branch = "v0.4"
-commit = "5becd42e22d26f6eb4449000bd82a81f60a7f7dc"
 
 [[file]]
 path = "images/image-reference.json"

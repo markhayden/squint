@@ -6,7 +6,7 @@ github.com/markhayden/table-manners), copied unchanged. `digests.json` records e
 reproduces every `pixel_sha256` through squint's own decode path (task 7.2).
 
 `squint/`: squint's conformance fixtures (tasks 7.10, 8.6, 9.10, 10.6) for table-manners
-`fixtures/squint/`, at contract v0.4.0 (the unpublished `v0.4` branch until its release), per
+`fixtures/squint/`, at contract v0.4.0 (the published crate), per
 CONTRACT.md 7 item 7: the v0.2 and v0.3 sets at 0.4.0 and v0.4's additions. Every action is of
 kind `task`, with no `group`; every result carries `invocation`, null only on an `invalid` run
 whose arguments did not resolve (`run-invalid.json`, an image that does not match its `expect`,

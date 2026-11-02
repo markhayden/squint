@@ -147,10 +147,9 @@ Where the contract leaves the choice to the tool, squint chooses:
   (`frame-ancestors 'none'`). A render never modifies the run directory, so `report export`
   writes to `$XDG_CACHE_HOME/squint/reports/<run id>.html` unless `--out` says otherwise.
 
-*Amended 2026-11-01 for table-manners v0.4 (PLAN.md M10, tasks 10.1 to 10.6; on the contract's
-unpublished `v0.4` branch until v0.4.0 is published, task 10.7).* squint conforms to the core and
-the images profile at v0.4.0. Where the contract leaves the choice to the tool, or a part of it
-does not apply, squint chooses:
+*Amended 2026-11-01 for table-manners v0.4 (PLAN.md M10, tasks 10.1 to 10.7; pinned `=0.4.0` from
+crates.io).* squint conforms to the core and the images profile at v0.4.0. Where the contract
+leaves the choice to the tool, or a part of it does not apply, squint chooses:
 
 - **No operations profile.** squint keeps `profiles: ["images"]`: a check is the unit an agent
   wants (Surfaces, above), and squint has no native artifacts that leave a run (its findings

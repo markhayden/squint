@@ -2,9 +2,9 @@
 //! byte for byte, and `SOURCES.toml` records the tag and each file's sha256, so an edit to the copy
 //! fails here. After a deliberate version bump of the `table-manners` dependency,
 //! `UPDATE_CONTRACT=1` rewrites the copy and the record from the crate. While the dependency is a
-//! path to an unpublished checkout (M10 builds on the contract's `v0.4` branch until v0.4.0 is
+//! path to an unpublished checkout (as a milestone does until the contract's release is
 //! published), the record also names that checkout's branch and commit; once it is the registry's
-//! release again, it names neither.
+//! release, it names neither.
 #![allow(clippy::unwrap_used)]
 
 use sha2::{Digest, Sha256};
