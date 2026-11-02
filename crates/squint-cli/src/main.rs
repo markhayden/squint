@@ -9,6 +9,7 @@ mod playground;
 mod report;
 mod serve;
 mod sets;
+mod summary;
 mod viewer;
 
 use std::path::{Path, PathBuf};
@@ -150,6 +151,10 @@ struct CheckArgs {
     /// Record every exchange with the provider into this directory, secrets stripped.
     #[arg(long, value_name = "DIR")]
     record: Option<PathBuf>,
+    /// Print only the verdict (stdout) and the decision directory (stderr), without the summary
+    /// of items, findings, reasons and spend that follows them.
+    #[arg(long, short)]
+    quiet: bool,
 }
 
 #[derive(clap::Args)]
@@ -387,6 +392,18 @@ fn check(args: &CheckArgs) -> i32 {
                 );
             }
             eprintln!("decision: {}", o.dir.display());
+            if !args.quiet {
+                match squint_core::report::Report::read(&o.dir) {
+                    Ok(report) => eprintln!(
+                        "{}",
+                        squint_core::artifacts::redact(
+                            &summary::render(&report, &o.dir),
+                            &config.secrets
+                        )
+                    ),
+                    Err(e) => eprintln!("squint: no summary: {e}"),
+                }
+            }
             match signalled.load(std::sync::atomic::Ordering::SeqCst) {
                 0 => o.exit_code,
                 code if o.decision.verdict.is_none() => code,

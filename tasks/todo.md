@@ -238,7 +238,7 @@ PLAN.md "Milestone M11" (2026-11-02), from the owner's first real check on the c
 paid provider calls (estimate and spend $0).
 
 - [x] Owner: M11 approved (2026-11-02)
-- [ ] 11.1 The verdict explained: a summary on stderr after `decision:` (items, findings, why, spend against the cap, `report view`), `--quiet` for the M10 output
+- [x] 11.1 The verdict explained: a summary on stderr after `decision:` (items, findings, why, spend against the cap, `report view`), `--quiet` for the M10 output
 - [ ] 11.2 Intent flags: `--must-hold`, `--must-not`, `--allow` as `RQ1…` on `check` and `estimate`; refused beside a job file with its own requirements
 - [ ] 11.3 `rules list [<use-case>]`, `rules init <use-case> [--out <dir>]`, `docs/rules.md` examples complete and tested, README
 - [ ] 11.4 The cap refusal explained (breakdown, tier, worst case, knobs, real recent spend only); `squint init [--provider] [--model]`

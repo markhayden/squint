@@ -67,6 +67,18 @@ The model's own opinion is recorded and ignored.
 Every run writes a journal and a report with every image the model saw, every tool result and
 every location, viewable offline. Details: [`SPEC.md`](SPEC.md).
 
+## Usage
+
+```
+squint check --use-case reference-consistency --candidate scene.png --ref dog=dog.jpg
+```
+
+prints the verdict (`pass`, `fail` or `unsure`) alone on stdout, so scripts can read it, and on
+stderr the decision directory and a summary: every checklist item with the rule it stands for,
+the model's answer and its reason, any findings with where they are, why the verdict is what it
+is, what the check spent against its cap, and the `squint report view <dir>` command that opens
+the full report. `--quiet` prints only the verdict and the decision directory.
+
 ## How it is built
 
 The method is the brief's: measure first, then earn each tool.

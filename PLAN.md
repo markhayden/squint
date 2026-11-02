@@ -2593,6 +2593,21 @@ copies; `--quiet` gives exactly the M10 stdout and stderr.
 **Files.** `crates/squint-cli/src/summary.rs`, `crates/squint-cli/src/main.rs`, `SPEC.md`
 ("Commands"), `README.md`, `docs/agents.md` if it describes the output. **Size.** M.
 
+**As built** (2026-11-02): the summary goes to **stderr**, after `decision:`. The CLI's
+convention already puts every human line there (`error:`, `cache: hit`, `decision:`, warnings)
+and keeps stdout for the machine's answer, so `v=$(squint check …)` still reads one word. It is
+rendered by `summary::render` from `report.json` (`Report::read`), redacted like every other
+stderr line, so a cache hit summarises the decision it copies and an error decision still says
+which run ended in which class. Item lines show `RC1@candidate` rather than `chk:ob:RC1@candidate`;
+the label is the obligation's text cut at 48 characters, the reason collapsed to one line and cut
+at 140; locations are the root image's (`candidate box [l t r b]` as fractions, `(whole image)`),
+else the frame as submitted. `why:` reads the aggregation rows the report already holds (items,
+then findings, whose rows pair with the non-observed findings in order), so it cannot disagree
+with the verdict. `--quiet` has `-q`. `docs/agents.md` describes `run.json` and the served
+results, not the terminal, so it is unchanged; SPEC "Commands" and a new README "Usage" section
+describe the output. Tests: `summary_cli.rs` (unsure, fail with location, findings, cache hit,
+`--quiet` byte-for-byte) and three unit tests in `summary.rs`.
+
 ### Task 11.2: Intent on the command line
 
 **Description.** `--must-hold "<text>"`, `--must-not "<text>"` and `--allow "<text>"`,

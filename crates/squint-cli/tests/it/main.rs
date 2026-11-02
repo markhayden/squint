@@ -36,6 +36,7 @@ mod serve_session_cli;
 mod sets_cli;
 mod shared_pack_cli;
 mod submission_cli;
+mod summary_cli;
 mod tool_turns_cli;
 mod tools_cli;
 mod usage_cli;

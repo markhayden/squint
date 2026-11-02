@@ -1757,7 +1757,7 @@ uv run --frozen --offline --no-sync ruff check . && uv run --frozen --offline --
 # The binary
 squint tools setup --config squint.toml     # provisions bundles and artifacts (network allowed here)
 squint check --config squint.toml --candidate out.png --ref "pip=refs/pip.jpg" --brief "…"
-squint check --config squint.toml --job job.toml
+squint check --config squint.toml --job job.toml [--quiet]   # verdict on stdout; decision dir and the summary on stderr
 squint report view ./squint-out/<run-id>    # prints only its URL; Ctrl-C or end of stdin stops it
 squint report export ./squint-out/<run-id>  # one self-contained page in ~/.cache/squint/reports/
 squint report rebuild ./squint-out/<run-id>
@@ -1786,6 +1786,17 @@ squint check --config squint.toml --job job.toml --record recordings/first-look
 squint catalog show claude-opus-5-5 [--json]
 squint catalog list [--json]
 ```
+
+What `check` prints (task 11.1): the verdict word alone on stdout (`pass`, `fail` or `unsure`;
+nothing on an error, which is `error: <class>: <message>` on stderr), then on stderr
+`decision: <dir>` and a summary read back from the decision's report: a line per checklist item
+(its id, the rule's text shortened, disposition, confidence, location and the model's reason on
+one line), the findings with their locations, `why:` (the confidently violated items, or the
+items that made it unsure and how: tentative, can't tell, hidden; or the two runs'
+disagreement), `spent:` (the settled spend against the cap and the envelope reserved; a cache hit
+spends nothing and names what the decision it copies spent) and `view: squint report view <dir>`.
+Every human line is on stderr, so stdout stays the machine's answer; `--quiet` (`-q`) leaves out
+the summary and prints exactly the verdict and the decision line.
 
 Exit codes for `check`: 0 pass, 1 fail, 2 unsure, 3 error, after `[policy]` is applied; 64 for a
 usage error or an `invalid` request (a job that does not resolve, an image that is not the one
