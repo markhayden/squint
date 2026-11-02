@@ -48,6 +48,11 @@ pub struct ServeArgs {
     /// Where run directories go; overrides `[output] dir`. An unconfigured server writes nothing.
     #[arg(long)]
     pub out: Option<PathBuf>,
+    /// A directory this session reads caller image paths from: absolute and existing, resolved
+    /// at start (repeatable). `[serve] allow_dirs` may narrow them, never widen; with none, every
+    /// path is refused and images come inline.
+    #[arg(long = "allow-dir", value_name = "ABS_DIR")]
+    pub allow_dirs: Vec<PathBuf>,
     /// Scripted envelopes for the fake `fake_regions` tool, for tests and debugging only.
     #[cfg(feature = "testkit")]
     #[arg(long)]
@@ -136,6 +141,18 @@ pub fn run(args: &ServeArgs) -> i32 {
         Err(e) => return usage(e.to_string()),
     };
     let config = described.file.config().cloned();
+    // The directories this session reads caller paths from (table-manners 5.2), fixed for its
+    // life; a flag that is relative, missing or not a directory ends `serve` here, before
+    // `initialize`, naming it.
+    let allowed_dirs = match allowed_dirs(
+        &args.allow_dirs,
+        config
+            .as_ref()
+            .map_or(&[][..], |c| c.serve.allow_dirs.as_slice()),
+    ) {
+        Ok(dirs) => dirs,
+        Err(e) => return usage(e),
+    };
     #[cfg(feature = "testkit")]
     let script = args.tool_script.as_deref();
     #[cfg(not(feature = "testkit"))]
@@ -158,15 +175,6 @@ pub fn run(args: &ServeArgs) -> i32 {
         .clone()
         .or_else(|| config.as_ref().map(|c| c.output.dir.clone()));
     let serve = config.as_ref().map(|c| c.serve.clone()).unwrap_or_default();
-    // The directories squint itself names for the session (table-manners 4.6): until the path
-    // rule (task 10.2), the configured `[serve] roots` that resolve, canonicalised; a client's
-    // roots are per call and not the session's.
-    let allowed_dirs = serve
-        .roots
-        .iter()
-        .filter_map(|root| root.canonicalize().ok())
-        .map(|root| root.to_string_lossy().into_owned())
-        .collect();
     // How long an estimate's binding is honoured. A testkit build may shorten it, the clock seam
     // a test expires a binding with, without waiting an hour.
     #[cfg(feature = "testkit")]
@@ -248,8 +256,9 @@ struct Inner {
     /// process (squint never reloads its config), and when it started.
     session_id: String,
     session_started_ms: u64,
-    /// The session's `allowed_dirs` (table-manners 4.6), fixed at start, canonical.
-    allowed_dirs: Vec<String>,
+    /// The directories caller paths are read from ([`allowed_dirs`], table-manners 5.2), fixed at
+    /// start, canonical; the session lists them (4.6).
+    allowed_dirs: Vec<PathBuf>,
     /// Every `client_run_id` this session has accepted (table-manners 4.4), with its run once one
     /// is allocated: claimed on acceptance, so a reuse is refused even before the first runs.
     claims: std::sync::Mutex<std::collections::HashMap<String, Option<table_manners::RunRef>>>,
@@ -352,14 +361,10 @@ impl Server {
     /// `estimate` (table-manners 4.5): the worst case of one exact call of an action, priced as
     /// the limits check would reserve it, bound to the call's inputs, the configuration, the tool
     /// version and this session; never a run, so it writes nothing, takes no permit and claims no
-    /// `client_run_id`. It reads its images, so it answers to the roots a check does. Arguments
+    /// `client_run_id`. It reads its images, so it answers to the path rule a check does. Arguments
     /// the input schema rejects are plain `-32602`; any other wrong request is `-32602` with the
     /// `invalid_arguments` refusal. A call that is not ready is not an error: its estimate says so.
-    fn estimate(
-        &self,
-        args: Map<String, Value>,
-        roots: Option<Vec<PathBuf>>,
-    ) -> Result<CallToolResult, ErrorData> {
+    fn estimate(&self, args: Map<String, Value>) -> Result<CallToolResult, ErrorData> {
         if let Some(unknown) = args
             .keys()
             .find(|k| !matches!(k.as_str(), "action" | "arguments"))
@@ -408,8 +413,7 @@ impl Server {
             Err(e) => return Err(refused_estimate(&e)),
         };
         let config = self.inner.config.as_ref();
-        let config_roots = config.map_or(&[][..], |c| c.serve.roots.as_slice());
-        inside_roots(&mut job, roots.as_deref(), config_roots).map_err(|e| refused_estimate(&e))?;
+        inside_allowed(&mut job, &self.inner.allowed_dirs).map_err(|e| refused_estimate(&e))?;
         let now_ms = contract::now_ms();
         let context = contract::EstimateContext {
             binder: contract::Binder {
@@ -568,18 +572,22 @@ impl Server {
             unresolved_usd: contract::usd(unresolved),
             reserved_usd: contract::usd(reserved),
             remaining_usd: Some(contract::usd((budget - spent - reserved).max(0.0))),
-            allowed_dirs: self.inner.allowed_dirs.clone(),
+            allowed_dirs: self
+                .inner
+                .allowed_dirs
+                .iter()
+                .map(|d| d.to_string_lossy().into_owned())
+                .collect(),
         }
     }
 
     /// One decision of a use case: the call's arguments as a job, every image path inside the
-    /// allowed roots, the per-call cap lowered by `max_spend_usd`, the decision reserving against
+    /// session's allowed directories, the per-call cap lowered by `max_spend_usd`, the decision reserving against
     /// the session budget; the result is the decision's `run.json`.
     fn check(
         &self,
         action: &str,
         args: Map<String, Value>,
-        roots: Option<Vec<PathBuf>>,
         hooks: Hooks,
     ) -> Result<CallToolResult, ErrorData> {
         let use_case = action.replace('_', "-");
@@ -591,7 +599,7 @@ impl Server {
             }
         };
         let (config, out_dir) = self.configured()?;
-        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &config.serve.roots) {
+        if let Err(e) = inside_allowed(&mut job, &self.inner.allowed_dirs) {
             return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
         }
         let mut config = config.clone();
@@ -983,8 +991,8 @@ fn not_ready(requirements: Vec<table_manners::Requirement>) -> ErrorData {
 /// A request's hold on its `client_run_id` (table-manners 4.4, squint's M8 review S3). Dropped
 /// when the request ends: a request that got a run keeps the id (the claim names the run), and so
 /// does one cancelled before allocation (the client retries under a new id); any other request
-/// that ends with no run (a JSON-RPC error: arguments refused, a `not_ready` refusal, a failed
-/// `roots/list`, a server error) releases it, so the corrected request may use it.
+/// that ends with no run (a JSON-RPC error: arguments refused, a `not_ready` refusal, a server
+/// error) releases it, so the corrected request may use it.
 struct Claim {
     inner: Arc<Inner>,
     id: String,
@@ -1079,76 +1087,82 @@ fn running_action(dir: &Path, id: &str) -> String {
         .unwrap_or_else(|| id.split('-').next().unwrap_or_default().to_string())
 }
 
-/// The local path of a `file:` URL (RFC 8089): an empty or `localhost` host, the path
-/// percent-decoded. Anything else names no local directory and is dropped, so it admits nothing.
-fn file_url_path(uri: &str) -> Option<PathBuf> {
-    use std::os::unix::ffi::OsStringExt;
-    let rest = uri.strip_prefix("file://")?;
-    let path = match rest.find('/') {
-        Some(0) => rest,
-        Some(i) if rest[..i].eq_ignore_ascii_case("localhost") => &rest[i..],
-        _ => return None,
-    };
-    let mut bytes = Vec::with_capacity(path.len());
-    let mut raw = path.bytes();
-    while let Some(b) = raw.next() {
-        if b == b'%' {
-            let hex = [raw.next()?, raw.next()?];
-            bytes.push(u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?);
-        } else {
-            bytes.push(b);
+/// The directories a session (or a command-line `call`) reads caller paths from (table-manners
+/// 5.2): each `--allow-dir` resolved at start (absolute, existing, a directory; `.`, `..` and
+/// symlinks resolved by `canonicalize`), else a usage error naming it. The configuration may only
+/// take away: when `[serve] allow_dirs` names any directory, the set is every flag that lies
+/// inside one of them plus every configured directory that lies inside a flag, deduplicated;
+/// when it names none, the flags stand. A configured directory alone grants nothing, and one that
+/// does not resolve narrows to nothing. Compared by path components, never as strings.
+pub(crate) fn allowed_dirs(
+    flags: &[PathBuf],
+    configured: &[PathBuf],
+) -> Result<Vec<PathBuf>, String> {
+    let mut given = Vec::new();
+    for flag in flags {
+        if !flag.is_absolute() {
+            return Err(format!(
+                "--allow-dir {}: not an absolute path",
+                flag.display()
+            ));
+        }
+        let real = flag
+            .canonicalize()
+            .map_err(|e| format!("--allow-dir {}: {e}", flag.display()))?;
+        if !real.is_dir() {
+            return Err(format!("--allow-dir {}: not a directory", flag.display()));
+        }
+        given.push(real);
+    }
+    let mut allowed: Vec<PathBuf> = Vec::new();
+    if configured.is_empty() {
+        allowed = given;
+    } else {
+        let configured: Vec<PathBuf> = configured
+            .iter()
+            .filter_map(|c| c.canonicalize().ok())
+            .collect();
+        for flag in &given {
+            if configured.iter().any(|c| flag.starts_with(c)) {
+                allowed.push(flag.clone());
+            }
+        }
+        for c in &configured {
+            if given.iter().any(|flag| c.starts_with(flag)) {
+                allowed.push(c.clone());
+            }
         }
     }
-    Some(PathBuf::from(std::ffi::OsString::from_vec(bytes)))
+    let mut unique: Vec<PathBuf> = Vec::new();
+    for dir in allowed {
+        if !unique.contains(&dir) {
+            unique.push(dir);
+        }
+    }
+    Ok(unique)
 }
 
-/// Every image path of `job` inside the client's roots (when the client offers roots) and inside
-/// the config's `[serve] roots` (when it names any): an image elsewhere is `input`. With neither,
-/// no path is allowed (closed by default, table-manners 10.1); inline images need no roots. Each path is
-/// replaced by the real one it was checked as, so a symlink swapped afterwards cannot lead out. A
-/// path that does not resolve is refused in the words of one outside, so a refusal says nothing
-/// about what exists.
-fn inside_roots(
-    job: &mut squint_core::job::Job,
-    client: Option<&[PathBuf]>,
-    config: &[PathBuf],
-) -> squint_core::Result<()> {
-    let within = |path: &Path, roots: &[PathBuf]| {
-        roots
-            .iter()
-            .any(|root| root.canonicalize().is_ok_and(|r| path.starts_with(r)))
-    };
+/// The words every refused caller path gets, whether or not the file exists, so a refusal says
+/// nothing about it (table-manners 5.2).
+const OUTSIDE: &str = "a path outside the directories this session allows";
+
+/// Every image path of `job` inside one of the session's allowed directories (table-manners 5.2),
+/// else `input`: the path is resolved (`..` and symlinks included) and compared by components,
+/// so neither a `..` nor a symlink leads out. A path that does not resolve is refused in the same
+/// words as one outside, never "not found". With no allowed directory every path is refused;
+/// inline images need none. Each path is replaced by the real one it was checked as, so a symlink
+/// swapped afterwards cannot lead out.
+fn inside_allowed(job: &mut squint_core::job::Job, allowed: &[PathBuf]) -> squint_core::Result<()> {
     for image in &mut job.images {
         let squint_core::job::ImageSource::Path { path, .. } = &mut image.source else {
             continue;
         };
-        let refused = |which: &str| {
-            squint_core::Error::Input(format!(
-                "{}: {} is not a readable file inside {which}",
-                image.id,
-                path.display()
-            ))
-        };
-        if client.is_none() && config.is_empty() {
-            return Err(squint_core::Error::Input(format!(
-                "{}: {} is refused: neither the client nor [serve] roots names a directory squint \
-                 may read; send the image inline or configure roots",
-                image.id,
-                path.display()
-            )));
-        }
-        let real = path.canonicalize();
-        if client.is_some_and(|roots| !real.as_ref().is_ok_and(|r| within(r, roots))) {
-            return Err(refused("the client's roots"));
-        }
-        if !config.is_empty() && !real.as_ref().is_ok_and(|r| within(r, config)) {
-            return Err(refused("[serve] roots"));
-        }
-        match real {
-            Ok(real) => *path = real,
-            Err(e) => {
+        match path.canonicalize() {
+            Ok(real) if allowed.iter().any(|dir| real.starts_with(dir)) => *path = real,
+            _ => {
                 return Err(squint_core::Error::Input(format!(
-                    "{}: {}: {e}",
+                    "{}: {} is {OUTSIDE}; send the image inline, or start squint serve with \
+                     --allow-dir for its directory",
                     image.id,
                     path.display()
                 )));
@@ -1314,8 +1328,7 @@ impl ServerHandler for Server {
         let args = request.arguments.clone().unwrap_or_default();
         let server = self.clone();
         let name = request.name.to_string();
-        // Only a check makes a run; `estimate` is a control (table-manners 4.5) that still reads
-        // images, so it answers to roots.
+        // Only a check makes a run; `estimate` is a control (table-manners 4.5).
         let is_check = self
             .inner
             .description
@@ -1323,7 +1336,6 @@ impl ServerHandler for Server {
             .iter()
             .any(|a| a.name == name);
         let makes_run = is_check;
-        let reads_images = is_check || name == "estimate";
         // The request's correlation id (table-manners 4.4): checked, then claimed for this
         // session before anything waits, so two submissions of one id execute at most once.
         let client_run_id = match context.meta.get(CLIENT_RUN_META) {
@@ -1359,37 +1371,11 @@ impl ServerHandler for Server {
         };
         let association = self.association(&name, client_run_id);
         // A check needs the configuration, the credential, the model and the files its tools
-        // run; one that is `missing` or `invalid` refuses the call here, before roots, the permit
-        // or any directory, releasing its claim (table-manners 3.1).
+        // run; one that is `missing` or `invalid` refuses the call here, before its paths, the
+        // permit or any directory, releasing its claim (table-manners 3.1).
         if is_check {
             self.ready_for_check()?;
         }
-        // A client that offers roots is asked for them on every call that reads images: they may
-        // have changed.
-        // Roots are part of revision 2025-11-25, the only one squint serves; SEP-2577 deprecates
-        // them in a later revision, which the contract must answer before squint moves (v0.2).
-        #[allow(deprecated)]
-        let roots = if reads_images
-            && context
-                .peer
-                .peer_info()
-                .is_some_and(|info| info.capabilities.roots.is_some())
-        {
-            let listed = context
-                .peer
-                .list_roots()
-                .await
-                .map_err(|e| ErrorData::internal_error(format!("roots/list: {e}"), None))?;
-            Some(
-                listed
-                    .roots
-                    .iter()
-                    .filter_map(|r| file_url_path(&r.uri))
-                    .collect(),
-            )
-        } else {
-            None
-        };
         let cancel = Arc::new(squint_core::run::Cancel::new());
         // Progress starts before any wait, so a call queued for the permit beats too.
         let (sender, progress) = match context.meta.get_progress_token().filter(|_| is_check) {
@@ -1442,8 +1428,8 @@ impl ServerHandler for Server {
             let _permit = permit;
             match name.as_str() {
                 "describe" => server.describe(),
-                "estimate" => server.estimate(args, roots),
-                action if is_check => server.check(action, args, roots, hooks),
+                "estimate" => server.estimate(args),
+                action if is_check => server.check(action, args, hooks),
                 other => Err(ErrorData::invalid_params(
                     format!("no tool {other:?}; call describe for the actions"),
                     None,

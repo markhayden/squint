@@ -42,12 +42,9 @@ fn client(out: &Path, script: &str, overrides: &[&str]) -> Client {
     for o in overrides {
         c.args(["--set", o]);
     }
-    let mut client = Client::start(&mut c).unwrap();
-    client.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
-    client
+    c.arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"));
+    Client::start(&mut c).unwrap()
 }
 
 fn pair() -> serde_json::Value {

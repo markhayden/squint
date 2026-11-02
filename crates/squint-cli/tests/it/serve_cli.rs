@@ -2,7 +2,8 @@
 //! the independent test client: the handshake at `2025-11-25` only, the tools listed through the
 //! cursor, `describe` equal to `squint describe --json`, unknown tools as JSON-RPC errors, and
 //! nothing but the protocol on stdout. Task 9.4: `estimate`, the reserved tool, never a run. Task
-//! 10.1: the reserved `export` and `import` are unknown tools.
+//! 10.1: the reserved `export` and `import` are unknown tools. Task 10.2: a bad `--allow-dir`
+//! ends `serve` before `initialize`.
 #![allow(clippy::unwrap_used)]
 
 use std::path::{Path, PathBuf};
@@ -34,6 +35,8 @@ fn server(out: &Path) -> Command {
             "--out",
         ])
         .arg(out)
+        .arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"))
         .env_remove("ANTHROPIC_API_KEY")
         .env("SQUINT_ANTHROPIC_ACCOUNT", "org-serve");
     c
@@ -132,12 +135,8 @@ fn tree(dir: &Path) -> Vec<PathBuf> {
 fn estimate_is_never_a_run() {
     let dir = out("estimate");
     std::fs::create_dir_all(&dir).unwrap();
+    // An estimate reads its images, so the server allows their directory as a check needs.
     let mut client = Client::start(&mut server(&dir)).unwrap();
-    // An estimate reads its images, so they must be inside the client's roots like a check's.
-    client.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
     let names: Vec<String> = client
         .list_tools()
         .unwrap()
@@ -290,11 +289,10 @@ fn unconfigured(tag: &str, extra: &[&std::ffi::OsStr]) -> (PathBuf, Command) {
 fn an_unconfigured_server_starts_and_refuses_runs_not_ready() {
     let runs = out("unconfigured-runs");
     let (dir, mut command) = unconfigured("refuses", &["--out".as_ref(), runs.as_os_str()]);
+    command
+        .arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"));
     let mut client = Client::start(&mut command).unwrap();
-    client.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
     let names: Vec<String> = client
         .list_tools()
         .unwrap()
@@ -398,8 +396,8 @@ fn a_server_with_an_invalid_config_starts_and_says_so() {
     assert_eq!(requirement["name"], broken.to_str().unwrap());
 }
 
-/// A server on the scripted provider, ready and priced from its own prices, its roots the fixture
-/// images.
+/// A server on the scripted provider, ready and priced from its own prices, allowed the fixture
+/// images' directory.
 #[cfg(feature = "testkit")]
 fn scripted(out: &Path, overrides: &[&str]) -> Client {
     let mut c = Command::new(env!("CARGO_BIN_EXE_squint"));
@@ -416,12 +414,9 @@ fn scripted(out: &Path, overrides: &[&str]) -> Client {
     for o in overrides {
         c.args(["--set", o]);
     }
-    let mut client = Client::start(&mut c).unwrap();
-    client.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
-    client
+    c.arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"));
+    Client::start(&mut c).unwrap()
 }
 
 #[cfg(feature = "testkit")]
@@ -547,5 +542,39 @@ fn an_estimates_wrong_request_is_the_invalid_arguments_refusal() {
         assert_eq!(data["run"], serde_json::Value::Null);
         assert_eq!(data["error"]["code"], code, "{request}");
         assert_eq!(data["error"]["retryable"], false);
+    }
+}
+
+/// An `--allow-dir` that is relative, missing or not a directory cannot be resolved at start
+/// (table-manners 5.2), so `serve` exits 64 naming it, before `initialize`: nothing on stdout.
+#[test]
+fn a_bad_allow_dir_ends_serve_before_initialize() {
+    let dir = out("bad-allow-dir");
+    std::fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("a-file");
+    std::fs::write(&file, "").unwrap();
+    let relative = PathBuf::from("fixtures/images");
+    let missing = dir.join("missing");
+    for (flag, why) in [
+        (&relative, "not an absolute path"),
+        (&missing, "No such file"),
+        (&file, "not a directory"),
+    ] {
+        let o = Command::new(env!("CARGO_BIN_EXE_squint"))
+            .current_dir(repo_root())
+            .args(["serve", "--config", "examples/source-fidelity.toml"])
+            .arg("--allow-dir")
+            .arg(flag)
+            .env("SQUINT_ANTHROPIC_ACCOUNT", "org-serve")
+            .stdin(std::process::Stdio::null())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&o.stderr);
+        assert_eq!(o.status.code(), Some(64), "{flag:?}: {stderr}");
+        assert!(o.stdout.is_empty(), "{flag:?}: nothing before initialize");
+        assert!(
+            stderr.contains(&format!("--allow-dir {}", flag.display())) && stderr.contains(why),
+            "{flag:?}: {stderr}"
+        );
     }
 }

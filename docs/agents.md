@@ -67,7 +67,8 @@ and its `expect`, squint's version, the configuration and the session; `return_i
 catalog lacks) is refused for readiness with `worst_case_usd` and `effective.model` null (and
 `effective.config_identity` null with no configuration), never zero. A wrong request is a
 JSON-RPC error: arguments the input schema rejects are plain `-32602`; `max_spend_usd` above the
-configured cap, an `expect` that does not match, an unknown action or a path outside the roots is
+configured cap, an `expect` that does not match, an unknown action or a path outside the allowed
+directories is
 `-32602` with `{"reason": "invalid_arguments", "run": null, "error": {"code": "usage" | "input",
 …}}`. An estimate takes no permit and claims no `client_run_id`. On the command line the same
 document has `session_id` and `session` null, so no server accepts its binding; with no
@@ -76,7 +77,7 @@ configuration it answers like `describe`, refused for readiness; a wrong request
 ## Serve
 
 ```
-squint serve [--config squint.toml] [--out runs/] [--set serve.session_budget_usd=5]
+squint serve [--config squint.toml] [--out runs/] [--allow-dir /abs/images]… [--set serve.session_budget_usd=5]
 ```
 
 MCP over stdio at protocol revision `2025-11-25` only, on `rmcp` `=3.8.0`; nothing but the
@@ -96,9 +97,14 @@ this way: it answers, its estimate `refused: "readiness"` when the action is not
 ordinary decision (its directory, journal, report and `run.json`).
 
 - **Images** by absolute `path` or `inline` bytes, each with an optional `expect` reference whose
-  digest and dimensions are verified before anything runs. When the client offers MCP roots, a
-  path must sit inside them, and inside `[serve] roots` when the config names any; with no roots
-  from either, images go inline (a path is refused).
+  digest and dimensions are verified before anything runs. A path must lie inside a directory
+  the server was started with by `--allow-dir` (absolute and existing, resolved at start; a bad
+  one makes `serve` exit 64 before `initialize`); `[serve] allow_dirs` in the configuration can
+  only narrow those, never add one. Paths are compared after resolving `..` and symlinks, so
+  neither leads out. With no `--allow-dir` every path is refused and images go inline. A refused
+  path is `invalid`, `input` (on `estimate`, the `invalid_arguments` refusal) with the same
+  words whether or not the file exists. squint never asks the client for MCP roots;
+  `squint://session` lists the allowed directories as `allowed_dirs`.
 - **Spend**: the per-call cap from config, lowered by `max_spend_usd` (a value above the
   configured cap is `invalid`, `usage`, spending nothing; never silently lowered); a session
   budget (`[serve] session_budget_usd`, default $20) every decision reserves against before its
@@ -114,7 +120,7 @@ ordinary decision (its directory, journal, report and `run.json`).
 - **Correlation**: send `_meta["table-manners/client_run_id"]` with a call to find its run after a
   lost connection; an id is good once per server session (a reuse is `-32602`, reason
   `client_run_id_reused`, naming the earlier run). A request refused with a JSON-RPC error before
-  any run (arguments the server rejects, a `not_ready` refusal, a failed `roots/list`) releases
+  any run (arguments the server rejects, a `not_ready` refusal) releases
   its id: fix the request and send it again under the same id.
 - **Cancellation**: `notifications/cancelled` stops the provider call; the run's `run.json` says
   `cancelled` with spend to date, and the request gets no response. A call cancelled before its

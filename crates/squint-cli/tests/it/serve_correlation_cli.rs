@@ -41,12 +41,9 @@ fn client(out: &Path, script: &str) -> Client {
         .arg(repo_root().join("fixtures/scripts").join(script))
         .arg("--out")
         .arg(out);
-    let mut client = Client::start(&mut c).unwrap();
-    client.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
-    client
+    c.arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"));
+    Client::start(&mut c).unwrap()
 }
 
 fn pair() -> serde_json::Value {
@@ -409,11 +406,10 @@ fn a_check_without_its_key_is_refused_not_ready_and_releases_its_id() {
         ])
         .arg(&dir)
         .env_remove("ANTHROPIC_API_KEY");
+    command
+        .arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"));
     let mut c = Client::start(&mut command).unwrap();
-    c.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
     let before = session(&mut c);
     for _ in 0..2 {
         let (code, data) =

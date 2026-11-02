@@ -1,8 +1,9 @@
 //! Task 7.7b: a use case's action over `squint serve` is one decision (table-manners 5, 10):
-//! images by path inside the client's roots or inline, the result the decision's `run.json`,
-//! `invalid` for a path outside the roots, and the session budget refusing before any request;
+//! images by path inside an allowed directory or inline, the result the decision's `run.json`,
+//! `invalid` for a path outside them, and the session budget refusing before any request;
 //! since task 9.8, `references` a `many` slot: a non-empty list, taken in once per image in order;
-//! since task 10.1, the invocation on every result.
+//! since task 10.1, the invocation on every result; since task 10.2, the path rule (`--allow-dir`,
+//! narrowed by `[serve] allow_dirs`, no MCP roots).
 #![cfg(feature = "testkit")]
 #![allow(clippy::unwrap_used)]
 
@@ -25,7 +26,13 @@ fn out(tag: &str) -> PathBuf {
     dir
 }
 
+/// A server allowed the fixture images' directory.
 fn server(out: &Path, overrides: &[&str]) -> Command {
+    server_allowing(out, overrides, &[&repo_root().join("fixtures/images")])
+}
+
+/// A server given `--allow-dir` for each of `allowed` (none: every path refused).
+fn server_allowing(out: &Path, overrides: &[&str], allowed: &[&Path]) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_squint"));
     c.current_dir(repo_root())
         .args([
@@ -40,17 +47,15 @@ fn server(out: &Path, overrides: &[&str]) -> Command {
     for o in overrides {
         c.args(["--set", o]);
     }
+    for dir in allowed {
+        c.arg("--allow-dir").arg(dir);
+    }
     c
 }
 
-/// A client whose roots hold the fixture images.
+/// A client of a server allowed the fixture images' directory.
 fn client(out: &Path, overrides: &[&str]) -> Client {
-    let mut client = Client::start(&mut server(out, overrides)).unwrap();
-    client.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
-    client
+    Client::start(&mut server(out, overrides)).unwrap()
 }
 
 fn image(name: &str) -> serde_json::Value {
@@ -206,12 +211,13 @@ fn a_call_whose_images_did_not_resolve_has_no_invocation() {
 }
 
 #[test]
-fn a_path_outside_the_clients_roots_is_invalid_input_and_spends_nothing() {
-    let mut c = client(&out("roots"), &[]);
-    c.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/jobs").display()
-    )];
+fn a_path_outside_the_allowed_directories_is_invalid_input_and_spends_nothing() {
+    let mut c = Client::start(&mut server_allowing(
+        &out("outside"),
+        &[],
+        &[&repo_root().join("fixtures/jobs")],
+    ))
+    .unwrap();
     let r = c
         .call(
             "source_fidelity",
@@ -226,18 +232,20 @@ fn a_path_outside_the_clients_roots_is_invalid_input_and_spends_nothing() {
     assert!(r["invocation"].is_null(), "{r}");
 }
 
-/// `estimate` reads its images too, so it answers to the same roots as a check (review C1): a
-/// path outside them is refused before it is opened (the `invalid_arguments` refusal, `input`,
-/// since an estimate has no result), and a missing path is refused in the same words, so nothing
-/// about the file (its digest, size or existence) comes back.
+/// `estimate` reads its images too, so it answers to the same path rule as a check (review C1):
+/// a path outside the allowed directories is refused before it is opened (the
+/// `invalid_arguments` refusal, `input`, since an estimate has no result), and a missing path is
+/// refused in the same words, so nothing about the file (its digest, size or existence) comes
+/// back.
 #[test]
-fn estimate_refuses_a_path_outside_the_roots_without_reading_it() {
-    // A catalog model, so an estimate that ignored the roots would go on to read the image.
-    let mut c = client(&out("estimate-roots"), &["provider.model=claude-haiku-5-5"]);
-    c.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/jobs").display()
-    )];
+fn estimate_refuses_a_path_outside_the_allowed_directories_without_reading_it() {
+    // A catalog model, so an estimate that ignored the rule would go on to read the image.
+    let mut c = Client::start(&mut server_allowing(
+        &out("estimate-outside"),
+        &["provider.model=claude-haiku-5-5"],
+        &[&repo_root().join("fixtures/jobs")],
+    ))
+    .unwrap();
     let expect = json!({ "file_sha256": "0".repeat(64), "width": 64, "height": 48,
                          "projection": "flat", "topology": "bounded" });
     let outside = repo_root().join("fixtures/images/candidate-64x48.png");
@@ -315,12 +323,10 @@ fn a_config_with_rules_serves_its_use_case_with_its_files() {
         .args(["serve", "--config"])
         .arg(&config)
         .args(["--provider-script", "fixtures/scripts/held.json", "--out"])
-        .arg(dir.join("runs"));
+        .arg(dir.join("runs"))
+        .arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"));
     let mut c = Client::start(&mut command).unwrap();
-    c.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
     let names: Vec<String> = c
         .list_tools()
         .unwrap()
@@ -338,44 +344,11 @@ fn a_config_with_rules_serves_its_use_case_with_its_files() {
     assert_eq!(r["status"], "completed", "{r}");
 }
 
-/// Roots are `file:` URLs (RFC 8089): a percent-encoded space and a `localhost` host name the
-/// same directory as the plain path (review I5).
+/// A server started with no `--allow-dir` reads no caller path (table-manners 5.2): closed by
+/// default. Inline images still work.
 #[test]
-fn roots_are_read_as_file_urls() {
-    let dir = out("root-urls");
-    let images = dir.join("my images");
-    std::fs::create_dir_all(&images).unwrap();
-    for name in ["candidate-64x48.png", "source-64x48.png"] {
-        std::fs::copy(
-            repo_root().join("fixtures/images").join(name),
-            images.join(name),
-        )
-        .unwrap();
-    }
-    let encoded = images.display().to_string().replace(' ', "%20");
-    for root in [
-        format!("file://{encoded}"),
-        format!("file://localhost{encoded}"),
-    ] {
-        let mut c = client(&dir.join("runs"), &[]);
-        c.roots = vec![root.clone()];
-        let r = c
-            .call(
-                "source_fidelity",
-                json!({ "candidate": { "path": images.join("candidate-64x48.png") },
-                        "source": { "path": images.join("source-64x48.png") } }),
-            )
-            .unwrap();
-        let r = r.structured.unwrap();
-        assert_eq!(r["status"], "completed", "{root}: {r}");
-    }
-}
-
-/// With no roots from the client and none in `[serve] roots`, a path names nothing squint may read
-/// (table-manners 10.1): closed by default. Inline images still work.
-#[test]
-fn with_no_roots_anywhere_a_path_is_refused() {
-    let mut c = Client::start_without_roots(&mut server(&out("no-roots"), &[])).unwrap();
+fn with_no_allow_dir_a_path_is_refused() {
+    let mut c = Client::start(&mut server_allowing(&out("no-allow-dir"), &[], &[])).unwrap();
     let r = c
         .call(
             "source_fidelity",
@@ -677,10 +650,6 @@ fn a_config_made_invalid_by_an_unknown_model_refuses_a_check_not_ready() {
     );
     command.env("ANTHROPIC_API_KEY", "sk-unknown-model-not-a-key");
     let mut c = Client::start(&mut command).unwrap();
-    c.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
     let refused = c.call(
         "source_fidelity",
         json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
@@ -710,4 +679,204 @@ fn a_config_made_invalid_by_an_unknown_model_refuses_a_check_not_ready() {
         "{data}"
     );
     assert!(!out.exists(), "a refusal writes nothing");
+}
+
+/// A fresh directory with the fixture pair copied into `allowed/` and the candidate into
+/// `outside/`, and `allowed/link.png` a symlink to the outside copy.
+fn path_rule_dirs(tag: &str) -> (PathBuf, PathBuf, PathBuf) {
+    let base = out(tag);
+    let (allowed, outside) = (base.join("allowed"), base.join("outside"));
+    for dir in [&allowed, &outside] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    let fixture = |name: &str| repo_root().join("fixtures/images").join(name);
+    for name in ["candidate-64x48.png", "source-64x48.png"] {
+        std::fs::copy(fixture(name), allowed.join(name)).unwrap();
+    }
+    std::fs::copy(
+        fixture("candidate-64x48.png"),
+        outside.join("candidate-64x48.png"),
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        outside.join("candidate-64x48.png"),
+        allowed.join("link.png"),
+    )
+    .unwrap();
+    (base, allowed, outside)
+}
+
+/// The path rule (table-manners 5.2, task 10.2): a path inside an `--allow-dir` is read; one
+/// outside it, a `..` that leads out, a symlink that points out, a missing file and an existing
+/// one outside are each `invalid`, `input`, with the same refusal whatever the file, never "not
+/// found"; and `estimate` refuses each as `invalid_arguments` (`input`) in the same words.
+#[test]
+fn the_path_rule_refuses_every_escape_in_the_same_words() {
+    let (base, allowed, outside) = path_rule_dirs("path-rule");
+    let mut c = Client::start(&mut server_allowing(&base.join("runs"), &[], &[&allowed])).unwrap();
+    let source = json!({ "path": allowed.join("source-64x48.png") });
+    let inside = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": { "path": allowed.join("candidate-64x48.png") }, "source": source }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_eq!(inside["status"], "completed", "{inside}");
+    let escapes = [
+        outside.join("candidate-64x48.png"),
+        allowed.join("../outside/candidate-64x48.png"),
+        allowed.join("link.png"),
+        allowed.join("missing.png"),
+        outside.join("missing.png"),
+    ];
+    let mut reasons = Vec::new();
+    for path in &escapes {
+        let arguments = json!({ "candidate": { "path": path }, "source": source });
+        let r = c.call("source_fidelity", arguments.clone()).unwrap();
+        assert!(r.is_error, "{path:?}");
+        let r = r.structured.unwrap();
+        assert_eq!(
+            (&r["status"], &r["error"]["code"]),
+            (&json!("invalid"), &json!("input")),
+            "{path:?}: {r}"
+        );
+        let reason = r["error"]["reason"].as_str().unwrap();
+        assert!(
+            reason.contains("a path outside the directories this session allows"),
+            "{reason}"
+        );
+        assert!(!reason.to_lowercase().contains("not found"), "{reason}");
+        assert!(!reason.contains("No such file"), "{reason}");
+        reasons.push(reason.replace(&path.display().to_string(), "<path>"));
+        let estimated = c.call(
+            "estimate",
+            json!({ "action": "source_fidelity", "arguments": arguments }),
+        );
+        let Err(Failure::Rpc { code, data, .. }) = estimated else {
+            panic!("{path:?}: {estimated:?}");
+        };
+        assert_eq!(code, -32602);
+        let data = data.unwrap();
+        assert_eq!(
+            (&data["reason"], &data["error"]["code"]),
+            (&json!("invalid_arguments"), &json!("input"))
+        );
+        assert_eq!(data["error"]["reason"], r["error"]["reason"], "{path:?}");
+    }
+    assert!(
+        reasons.windows(2).all(|w| w[0] == w[1]),
+        "every refusal reads the same: {reasons:#?}"
+    );
+}
+
+/// `[serve] allow_dirs` only narrows (table-manners 5.2): with `--allow-dir top` and the
+/// configuration naming `top/sub`, a path in `sub` is read and one in its sibling is not, and
+/// the session lists `sub` alone; the configuration naming `sub` with no flag allows nothing.
+#[test]
+fn the_configuration_narrows_the_allowed_directories_and_never_widens_them() {
+    let base = out("narrow");
+    let top = base.join("top");
+    for sub in ["sub", "sibling"] {
+        std::fs::create_dir_all(top.join(sub)).unwrap();
+        for name in ["candidate-64x48.png", "source-64x48.png"] {
+            std::fs::copy(
+                repo_root().join("fixtures/images").join(name),
+                top.join(sub).join(name),
+            )
+            .unwrap();
+        }
+    }
+    let narrowed = format!(
+        "serve.allow_dirs=[{:?}]",
+        top.join("sub").display().to_string()
+    );
+    let pair = |dir: &str| {
+        json!({ "candidate": { "path": top.join(dir).join("candidate-64x48.png") },
+                "source": { "path": top.join(dir).join("source-64x48.png") } })
+    };
+    let status = |c: &mut Client, dir: &str| {
+        c.call("source_fidelity", pair(dir))
+            .unwrap()
+            .structured
+            .unwrap()["status"]
+            .clone()
+    };
+    let session = |c: &mut Client| -> serde_json::Value {
+        serde_json::from_str(&c.read_resource("squint://session").unwrap()).unwrap()
+    };
+    let mut c = Client::start(&mut server_allowing(
+        &base.join("runs"),
+        &[&narrowed],
+        &[&top],
+    ))
+    .unwrap();
+    assert_eq!(status(&mut c, "sub"), "completed");
+    assert_eq!(status(&mut c, "sibling"), "invalid");
+    let sub = top.join("sub").canonicalize().unwrap();
+    assert_eq!(session(&mut c)["allowed_dirs"], json!([sub]));
+    let mut c = Client::start(&mut server_allowing(
+        &base.join("runs-none"),
+        &[&narrowed],
+        &[],
+    ))
+    .unwrap();
+    assert_eq!(status(&mut c, "sub"), "invalid");
+    assert_eq!(session(&mut c)["allowed_dirs"], json!([]));
+}
+
+/// No argument chooses where squint writes (table-manners 5.2): a check reads its images from an
+/// allowed directory and writes only its run directory under `--out`; the allowed directory is
+/// as it was.
+#[test]
+fn a_check_writes_nothing_where_its_images_are() {
+    let (base, allowed, _) = path_rule_dirs("writes");
+    let tree = |dir: &Path| {
+        let mut all: Vec<PathBuf> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        all.sort();
+        all
+    };
+    let before = tree(&allowed);
+    let runs = base.join("runs");
+    let mut c = Client::start(&mut server_allowing(&runs, &[], &[&allowed])).unwrap();
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": { "path": allowed.join("candidate-64x48.png") },
+                    "source": { "path": allowed.join("source-64x48.png") } }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_eq!(r["status"], "completed", "{r}");
+    assert_eq!(tree(&allowed), before);
+    let dir = PathBuf::from(r["run"]["dir"].as_str().unwrap());
+    assert!(dir.starts_with(&runs), "{dir:?}");
+}
+
+/// squint never asks for roots (table-manners 5.2): a client that offers the `roots` capability
+/// answers no request, and a whole check completes, so the server sent it none.
+#[test]
+fn a_client_offering_roots_is_never_asked_for_them() {
+    let mut c = Client::start_offering_roots(&mut server(&out("offering-roots"), &[])).unwrap();
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_eq!(r["status"], "completed", "{r}");
+    let e = c.call(
+        "estimate",
+        json!({ "action": "source_fidelity",
+                "arguments": { "candidate": image("candidate-64x48.png"),
+                               "source": image("source-64x48.png") } }),
+    );
+    assert!(e.is_ok(), "{e:?}");
 }

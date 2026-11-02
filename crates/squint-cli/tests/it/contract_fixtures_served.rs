@@ -50,14 +50,12 @@ fn server(out: &Path, script: &Path, overrides: &[&str]) -> Command {
     c
 }
 
-/// A client of `command` whose roots hold the fixture images.
+/// A client of `command`, allowed the fixture images' directory.
 fn start(command: &mut Command) -> Client {
-    let mut client = Client::start(command).unwrap();
-    client.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
-    client
+    command
+        .arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"));
+    Client::start(command).unwrap()
 }
 
 fn script(name: &str) -> PathBuf {
@@ -135,6 +133,12 @@ fn fix(doc: &Value, out: &Path, session: &str, names: &[(String, String)]) -> Va
                         "duration_ms" => *value = 0.into(),
                         "input_identity" | "binding" | "config_identity" if value.is_string() => {
                             *value = format!("sha256:{}", "0".repeat(64)).into();
+                        }
+                        // The session's allowed directories are this checkout's: `/allowed`.
+                        "allowed_dirs" if value.is_array() => {
+                            for dir in value.as_array_mut().into_iter().flatten() {
+                                *dir = "/allowed".into();
+                            }
                         }
                         "tool" if value.get("version").is_some() => {
                             value["version"] = "0.0.0".into();

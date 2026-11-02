@@ -57,4 +57,4 @@ dir = "./squint-out"
 [serve]
 concurrency = 2
 session_budget_usd = 5.0
-roots = ["/srv/images"]
+allow_dirs = ["/srv/images"]

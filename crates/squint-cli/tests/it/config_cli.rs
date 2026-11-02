@@ -248,3 +248,39 @@ fn check_without_a_config_names_the_lookup() {
     assert!(stderr.contains("./squint.toml"), "{stderr}");
     assert_eq!(std::fs::read_dir(dir.join("work")).unwrap().count(), 0);
 }
+
+/// `[serve] roots` is gone with MCP roots (table-manners 5.2, task 10.2), with no fallback: a
+/// configuration that still names it does not load, and `describe` reports it `invalid` naming
+/// the key, while `[serve] allow_dirs` loads.
+#[test]
+fn the_old_serve_roots_key_makes_the_configuration_invalid_naming_it() {
+    let dir = tempdir("old-roots");
+    let minimal =
+        std::fs::read_to_string(repo_root().join("fixtures/config/minimal.toml")).unwrap();
+    let describe = |key: &str| {
+        let config = dir.join(format!("{key}.toml"));
+        std::fs::write(
+            &config,
+            format!("{minimal}\n[serve]\n{key} = [\"/srv/images\"]\n"),
+        )
+        .unwrap();
+        let o = squint()
+            .args(["describe", "--json", "--config"])
+            .arg(&config)
+            .output()
+            .unwrap();
+        assert_eq!(
+            o.status.code(),
+            Some(0),
+            "{}",
+            String::from_utf8_lossy(&o.stderr)
+        );
+        let d: serde_json::Value = serde_json::from_slice(&o.stdout).unwrap();
+        d["actions"][0]["readiness"]["requirements"][0].clone()
+    };
+    let old = describe("roots");
+    assert_eq!(old["kind"], "config");
+    assert_eq!(old["state"], "invalid", "{old}");
+    assert!(old["setup"].as_str().unwrap().contains("roots"), "{old}");
+    assert_eq!(describe("allow_dirs")["state"], "present");
+}

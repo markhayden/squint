@@ -21,8 +21,6 @@ pub struct Client {
     pub server: serde_json::Value,
     /// Every notification the server sent, in order.
     pub notifications: Vec<serde_json::Value>,
-    /// The roots the client answers `roots/list` with, as `file://` URIs.
-    pub roots: Vec<String>,
     /// Responses that arrived while the client waited for another, by request id.
     pending: std::collections::BTreeMap<u64, serde_json::Value>,
 }
@@ -78,12 +76,14 @@ impl Client {
     /// `server` whatever revision it names, and `notifications/initialized` follows only when it
     /// names the one offered.
     pub fn start_at(command: &mut Command, protocol: &str) -> Result<Client, Failure> {
-        Client::open(command, protocol, serde_json::json!({ "roots": {} }))
+        Client::open(command, protocol, serde_json::json!({}))
     }
 
-    /// Starts the server as a client that offers no roots at all (no `roots` capability).
-    pub fn start_without_roots(command: &mut Command) -> Result<Client, Failure> {
-        Client::open(command, PROTOCOL, serde_json::json!({}))
+    /// Starts the server as a client that offers the `roots` capability, which a v0.4 tool must
+    /// never use (table-manners 5.2): the client still answers no request, so a `roots/list`
+    /// fails the call it arrives during.
+    pub fn start_offering_roots(command: &mut Command) -> Result<Client, Failure> {
+        Client::open(command, PROTOCOL, serde_json::json!({ "roots": {} }))
     }
 
     fn open(
@@ -114,7 +114,6 @@ impl Client {
             next_id: 1,
             server: serde_json::Value::Null,
             notifications: Vec::new(),
-            roots: Vec::new(),
             pending: std::collections::BTreeMap::new(),
         };
         let server = client.request(
@@ -288,7 +287,7 @@ impl Client {
     }
 
     /// Sends a request and reads lines until its response, keeping notifications and responses
-    /// to other requests; a request from the server (`roots/list`) is answered with `roots`.
+    /// to other requests; a request from the server fails it.
     pub fn request(
         &mut self,
         method: &str,
@@ -308,22 +307,15 @@ impl Client {
         }
     }
 
-    /// Answers a request from the server, keeps a notification, or keeps a response for later.
+    /// Keeps a notification or a response for later. squint never sends a client a request (it
+    /// asks for no roots, table-manners 5.2, and uses no other client feature), so one is a
+    /// failure of whatever the client was waiting for.
     fn dispatch(&mut self, message: serde_json::Value) -> Result<(), Failure> {
         if message.get("method").is_some() {
             if message.get("id").is_some() {
-                // `roots/list` is the only request a client offering roots must answer.
-                let roots: Vec<serde_json::Value> = self
-                    .roots
-                    .iter()
-                    .map(|uri| serde_json::json!({ "uri": uri }))
-                    .collect();
-                let reply = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "id": message["id"],
-                    "result": { "roots": roots }
-                });
-                return self.send(&reply);
+                return Err(Failure::Transport(format!(
+                    "the server sent a request, which squint never does: {message}"
+                )));
             }
             self.notifications.push(message);
             return Ok(());

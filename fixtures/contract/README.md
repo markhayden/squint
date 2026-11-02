@@ -35,7 +35,7 @@ what squint emits now:
 
 The volatile fields are fixed: times and expiries, run ids, `/runs` paths, the session id
 `00000000-0000-4000-8000-000000000001`, versions `0.0.0`, zeroed input identities, bindings and
-(in the served fixtures) configuration identities, and `/home/user/.config` for the configuration lookup. The test fails
+(in the served fixtures) configuration identities, allowed directories as `/allowed`, and `/home/user/.config` for the configuration lookup. The test fails
 when squint emits something else; after a deliberate change, regenerate with
 `UPDATE_CONTRACT_FIXTURES=1` (both generators: the CLI one needs `--features testkit`) and copy the
 directory to table-manners `fixtures/squint/`, removing files squint no longer produces.

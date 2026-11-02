@@ -1313,7 +1313,7 @@ pub fn invocation(
 }
 
 /// The result of a check refused before its decision was allocated (its arguments, a path outside
-/// the roots, its provider): the header with no spend and no images or locations; `error` sets
+/// the allowed directories, its provider): the header with no spend and no images or locations; `error` sets
 /// the status from its class. The input identity is a digest of the call's arguments. `invoked`
 /// is none when squint refused the call before reading its images, so its arguments never
 /// resolved (table-manners 4.8: null only on such an `invalid` run).

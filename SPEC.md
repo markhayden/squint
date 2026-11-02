@@ -1266,7 +1266,7 @@ dir = "./squint-out"
 [serve]                       # squint serve only (table-manners 4.5, 10.1)
 concurrency = 1               # checks at once; serial by default
 session_budget_usd = 20.0     # across every call one server process serves; default ten checks at the default cap
-roots = ["/srv/images"]       # image paths must sit inside these as well as the client's MCP roots; empty: the client's alone, and with neither, inline images only
+allow_dirs = ["/srv/images"]  # narrows `serve --allow-dir`, never widens: only a flag inside one of these, or one of these inside a flag; empty: the flags stand
 ```
 
 Loading: parse, validate against the config schema, resolve the profile, check the model in the
@@ -1476,14 +1476,14 @@ names and schemas are the contract's; this section says what squint does with th
   item id). Crop, view and aligned frames never leave squint.
 - **`squint serve`**: an MCP server over stdio at revision `2025-11-25`, under the contract's
   server conventions. Tools: one per use case, as `describe` lists them (`source_fidelity`, …: one
-  decision each; images by path or inline bytes in any slot; paths only inside the client's MCP
-  roots narrowed by config; inline bytes bounded), the reserved `estimate` (below), and
+  decision each; images by path or inline bytes in any slot; paths only inside the directories
+  `--allow-dir` gives, narrowed by config; inline bytes bounded), the reserved `estimate` (below), and
   `describe`. It reads
   its configuration once, at start, and never reloads it (table-manners 4.6). Without one that
   loads it still starts, needs no output directory and writes nothing: `describe`, `estimate` and
   the resources answer, and a check is refused before any run as JSON-RPC `-32602` with
   `{"reason": "not_ready", "run": null, "requirements": [the config]}`, which releases its
-  `client_run_id`. Any check is refused the same way, before roots, the permit or any directory,
+  `client_run_id`. Any check is refused the same way, before its paths, the permit or any directory,
   when a requirement it needs (`readiness::Inspection::unmet`) is `missing` or `invalid` now,
   this session's provider answers included, naming only those: the configuration, the
   credential, the model and, when one of its tools runs it, the segmenter file. An `estimate` is
@@ -1504,11 +1504,23 @@ names and schemas are the contract's; this section says what squint does with th
   against before its first request. The limits check, after the decision's directory exists and
   before its reservation, refuses in this order with zero spend: a call whose named estimate no
   longer binds it (`stale_estimate`, below), the envelope over the per-call cap (`cap`, as is a
-  retry the envelope can no longer cover), the session unable to hold it (`budget`). Paths: when the client offers roots, squint asks for them on
-  every check and estimate and refuses (`input`) a path outside them, or outside
-  `[serve] roots` when the config names any; a client that offers no roots, under a config that
-  names none, can send images only inline (closed by default). A refusal says nothing about the
-  file, not even whether it exists. A check over `serve` is an ordinary decision: its directory, journal,
+  retry the envelope can no longer cover), the session unable to hold it (`budget`). Paths (the
+  path rule, table-manners 5.2): squint never asks a client for MCP roots and never sends a
+  client a request. `squint serve --allow-dir <abs>` (repeatable) names the directories the
+  session reads caller paths from; at start each is resolved by `canonicalize` (`.`, `..` and
+  symlinks), and one that is relative, missing or not a directory ends `serve` with exit 64
+  naming it, before `initialize`. The configuration only narrows: when `[serve] allow_dirs`
+  names any directory, the allowed set is every flag inside one of them plus every configured
+  directory inside a flag, deduplicated; when it names none, the flags stand; a configured
+  directory alone grants nothing, so with no `--allow-dir` every path is refused and images come
+  inline (closed by default). The set is fixed for the session. Each caller path (on a check and
+  on `estimate`) is canonicalised and accepted only when it lies inside an allowed directory by
+  path components, never by string prefix, so neither `..` nor a symlink leads out; the checked
+  real path is the one read. A refused path is `invalid`, `input` on a check, and the
+  `invalid_arguments` refusal (`input`) on `estimate`, and the refusal reads the same whether or
+  not the file exists ("a path outside the directories this session allows"), never "not found".
+  squint writes only inside its own directories (the runs directory, the cache): no argument
+  chooses where it writes. A check over `serve` is an ordinary decision: its directory, journal,
   report and `run.json`, with the action's name.
 - **Estimates** (table-manners 4.5): a control, never a run: no directory, journal, runs entry or
   `run.json`, no permit, no `client_run_id` claimed, no provider call. The `estimate` tool takes
@@ -1533,7 +1545,7 @@ names and schemas are the contract's; this section says what squint does with th
   `effective.config_identity` null, never a made-up zero. A wrong request is a JSON-RPC error,
   since there is no run: arguments the input schema rejects are plain `-32602`; any other
   (`max_spend_usd` above the configured cap, an `expect` that does not match, an unknown action,
-  a path outside the roots) is `-32602` with `{"reason": "invalid_arguments", "run": null,
+  a path outside the allowed directories) is `-32602` with `{"reason": "invalid_arguments", "run": null,
   "error": {"code": "usage" | "input", "retryable": false, "reason": …}}`. `squint estimate
   --json` prints the same document from the command line, priced from the catalog with no
   credential, with `session_id` and `session` null, so no server accepts its binding; a wrong
@@ -1553,8 +1565,7 @@ names and schemas are the contract's; this section says what squint does with th
   `_meta["table-manners/client_run_id"]` (`^[A-Za-z0-9._:-]{1,128}$`): claimed for the session
   when the request is accepted, written into the run's directory when it is made, and a reuse is
   `-32602` with the earlier request's run (null while it has none). A request that ends in a
-  JSON-RPC error with no run (arguments refused, a `not_ready` refusal, a failed `roots/list`, a
-  server error) releases its id, so the corrected request may use it; one that got a run, or was cancelled before
+  JSON-RPC error with no run (arguments refused, a `not_ready` refusal, a server error) releases its id, so the corrected request may use it; one that got a run, or was cancelled before
   allocation, keeps it for the session (4.4). The server keeps one small entry per kept id for
   the session's life, unbounded: fine over stdio with one trusted host, to bound before any
   networked transport. `notifications/cancelled` stops the
@@ -1564,8 +1575,8 @@ names and schemas are the contract's; this section says what squint does with th
 - **The session**: `squint://session` (table-manners 4.6), one atomic observation of the serving
   process's ledger: a random UUID (v4) made at start, when it started, the budget
   (`[serve] session_budget_usd`), spent with its unresolved part, reserved and remaining, and
-  `allowed_dirs`, fixed at start: until the path rule (task 10.2) the configured `[serve] roots`
-  that resolve, canonicalised (a client's roots are per call and not the session's); every amount
+  `allowed_dirs`, the canonical directories the path rule allows, fixed at start (`[]` with no
+  `--allow-dir`); every amount
   in a result or the session is written to at most six decimals.
 - **Runs as resources**: `squint://runs` (the newest page of runs, newest first by start time and
   id, `running` included; `squint://runs?cursor=<next_cursor>` the next, fifty to a page, the
@@ -1706,7 +1717,7 @@ squint tools list --config squint.toml      # manifests as the model will see th
 squint describe --json [--config squint.toml] # the contract's description document (ADR 0018); works with no config
 squint estimate --json --config squint.toml --job job.toml [--max-spend-usd 0.10]   # the estimate of one check; nothing sent
 squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check; above it, exit 64
-squint serve [--config squint.toml] [--out runs/]   # MCP over stdio, protocol 2025-11-25 (table-manners 5); starts with no config
+squint serve [--config squint.toml] [--out runs/] [--allow-dir /abs/dir]…   # MCP over stdio, protocol 2025-11-25 (table-manners 5); starts with no config
 squint sets check evalsets/
 squint sets fetch --set reference-consistency/pets-v1
 squint sets seal --set <set> --attest "…"    # writes seal.toml; a blind set's labels move out (--labels-out)

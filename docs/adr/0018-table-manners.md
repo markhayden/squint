@@ -147,6 +147,29 @@ Where the contract leaves the choice to the tool, squint chooses:
   (`frame-ancestors 'none'`). A render never modifies the run directory, so `report export`
   writes to `$XDG_CACHE_HOME/squint/reports/<run id>.html` unless `--out` says otherwise.
 
+*Amended 2026-11-01 for table-manners v0.4 (PLAN.md M10; takes effect as each task lands).*
+- **No operations profile.** squint keeps `profiles: ["images"]`: a check is the unit an agent
+  wants (Surfaces, above), and squint has no native artifacts that leave a run (its findings
+  leave as contract locations, it makes no masks, its report is a render). So it emits no
+  `artifact_types`, `ports`, `artifacts`, artifact resource or `binding` refusal, and serves
+  neither reserved `export` nor `import`: a call of either is an unknown tool, and no action
+  takes a reserved name. `squint report export` is a render's subcommand, not the reserved
+  command.
+- **Kinds.** Every action is `kind: "task"` (each check is a whole job), with no `group`: five
+  tasks of one kind need no sorting a host cannot do by title.
+- **The invocation** (task 10.1, with 10.3 folded in) is recorded on every result from the images
+  squint read, `effective` shared with the estimate, and the requirements by name (a file by its
+  file name). A job file's image ids and reference labels have no call argument and are left out
+  with a note.
+- **The path rule replaces MCP roots** (task 10.2). The earlier text (paths "only inside the
+  client's MCP roots, narrowed by config") is superseded: squint never asks for roots; `squint
+  serve --allow-dir <abs>` names the directories caller paths are read from, resolved at start (a
+  relative, missing or non-directory one exits 64 before `initialize`), compared after resolving
+  symlinks and by path components. `[serve] roots` is renamed `[serve] allow_dirs`, with no
+  old-name fallback (an old file is `invalid`, naming the key), and it only narrows the flags: a
+  configured directory alone grants nothing. Before 1.0 this breaks a v0.3 configuration that
+  granted paths by itself; the release notes say so.
+
 ## Alternatives
 
 - **squint stays the origin of the shared schemas.** It is how rascal's copies went stale, and it
