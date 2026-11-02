@@ -3,6 +3,7 @@
 
 mod aggregation_run;
 mod boundary_types;
+mod bundle;
 mod cache;
 mod checklist;
 mod config_schema;
