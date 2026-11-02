@@ -364,16 +364,12 @@ fn why(report: &Report) -> String {
 /// What the decision spent against its cap, and what the envelope reserved.
 fn spend(report: &Report) -> String {
     let cost = &report.cost;
+    // An empty f64 sum is -0.0; adding +0.0 prints it as $0.0000.
+    let spent = cost.spent_usd + 0.0;
     let mut line = if report.cache.is_hit() {
-        format!(
-            "spent: $0 now (a cache hit; the decision it copies spent ${:.4})",
-            cost.spent_usd
-        )
+        format!("spent: $0 now (a cache hit; the decision it copies spent ${spent:.4})")
     } else {
-        format!(
-            "spent: ${:.4} of the ${:.2} cap",
-            cost.spent_usd, cost.cap_usd
-        )
+        format!("spent: ${spent:.4} of the ${:.2} cap", cost.cap_usd)
     };
     if cost.estimated {
         line.push_str(" (estimated: an answer reported no usage, so its bound counts)");

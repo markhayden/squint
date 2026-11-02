@@ -1,11 +1,59 @@
-//! Starter configuration files: what `squint rules init` writes beside its rules file (task
-//! 11.3). A starter never holds a secret: the credential is read from the profile's variable at
+//! Starter configuration files: `squint init`'s personal default config (task 11.4) and what
+//! `squint rules init` writes beside its rules file (task 11.3). A starter never holds a secret: the credential is read from the profile's variable at
 //! run time, and the account id behind `[privacy] account` from `SQUINT_<VENDOR>_ACCOUNT`.
 
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
 
 use squint_providers::catalog::Catalog;
+
+use crate::EXIT_USAGE;
+
+#[derive(clap::Args)]
+pub(crate) struct InitArgs {
+    /// The provider profile: `anthropic` (default), `google-ai-studio` or `openai`.
+    #[arg(long)]
+    provider: Option<String>,
+    /// The model, one the profile serves (`squint catalog list`); default a mid-tier one.
+    #[arg(long)]
+    model: Option<String>,
+}
+
+/// `squint init`: the personal default config at the path the lookup reads after
+/// `./squint.toml`, never overwritten, holding no secret.
+pub(crate) fn run(args: &InitArgs) -> i32 {
+    let usage = |e: String| {
+        eprintln!("squint: {e}");
+        EXIT_USAGE
+    };
+    let choice = match choose(args.provider.as_deref(), args.model.as_deref()) {
+        Ok(c) => c,
+        Err(e) => return usage(e),
+    };
+    let Some(path) = squint_core::config::Config::user_file() else {
+        return usage(
+            "neither XDG_CONFIG_HOME nor HOME names an absolute directory to put the config in"
+                .into(),
+        );
+    };
+    let text = config_text(&choice, None, "squint init");
+    if let Err(e) = write_new(&[(path.clone(), text)]) {
+        return usage(e);
+    }
+    println!("wrote {}", path.display());
+    eprintln!(
+        "squint finds it without --config (a ./squint.toml where you run squint wins).\n\
+         Set in your environment, never in the file:\n  \
+         {}  the {} API key\n  \
+         {}  your account id, which [privacy] account attests to (`{}:<id>`)\n\
+         Then: squint check --use-case <use-case> --candidate <image> …",
+        choice.key_env,
+        choice.profile,
+        choice.account_env(),
+        choice.account_prefix
+    );
+    0
+}
 
 /// The model a starter config names for each shipped profile when none is asked for: a mid-tier
 /// or cheap model, since most checks need no more.
@@ -102,7 +150,7 @@ pub(crate) fn config_text(
          # It holds no secret: the API key is read from {key} at run time, and the account id\n\
          # [privacy] account attests to from {account}.\n\
          # Another provider without editing: --set provider.profile=… --set provider.model=…\n\
-         # (`squint catalog list` names the models).\n\
+         # --set privacy.account=<vendor>:${{SQUINT_<VENDOR>_ACCOUNT}} (`squint catalog list`).\n\
          \n\
          [provider]\n\
          profile = \"{profile}\"\n\
@@ -151,7 +199,7 @@ fn toml_string(s: &str) -> String {
 pub(crate) fn write_new(files: &[(PathBuf, String)]) -> Result<(), String> {
     if let Some((path, _)) = files.iter().find(|(p, _)| p.exists()) {
         return Err(format!(
-            "{} exists; squint never overwrites it (move it away, or choose another directory)",
+            "{} exists; squint never overwrites it (move it away first)",
             path.display()
         ));
     }

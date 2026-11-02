@@ -3,6 +3,7 @@
 
 mod call;
 mod catalog;
+mod cost;
 mod describe;
 mod eval;
 mod init;
@@ -65,6 +66,9 @@ enum Command {
     Call(call::CallArgs),
     /// Open Wafflery, the shared local workspace, on squint (`wafflery --tool squint`).
     Playground(playground::PlaygroundArgs),
+    /// Write a personal default config ($XDG_CONFIG_HOME/squint/squint.toml) so checks need no
+    /// --config; it holds no secret and is never overwritten.
+    Init(init::InitArgs),
 }
 
 #[derive(clap::Args)]
@@ -267,12 +271,13 @@ fn main() {
         Some(Command::Serve(args)) => serve::run(&args),
         Some(Command::Call(args)) => call::run(&args),
         Some(Command::Playground(args)) => playground::run(&args),
+        Some(Command::Init(args)) => init::run(&args),
     };
     std::process::exit(code);
 }
 
 fn check(args: &CheckArgs) -> i32 {
-    let (mut config, config_identity) = match load_config(&args.input) {
+    let (mut config, config_identity, configured_cap) = match load_config(&args.input) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("squint: {e}");
@@ -419,13 +424,20 @@ fn check(args: &CheckArgs) -> i32 {
             eprintln!("decision: {}", o.dir.display());
             if !args.quiet {
                 match squint_core::report::Report::read(&o.dir) {
-                    Ok(report) => eprintln!(
-                        "{}",
-                        squint_core::artifacts::redact(
-                            &summary::render(&report, &o.dir),
-                            &config.secrets
-                        )
-                    ),
+                    Ok(report) => {
+                        eprintln!(
+                            "{}",
+                            squint_core::artifacts::redact(
+                                &summary::render(&report, &o.dir),
+                                &config.secrets
+                            )
+                        );
+                        if let Some(why) =
+                            cost::cap_refusal(&report, &config, configured_cap, &out_dir, &o.dir)
+                        {
+                            eprintln!("{}", squint_core::artifacts::redact(&why, &config.secrets));
+                        }
+                    }
                     Err(e) => eprintln!("squint: no summary: {e}"),
                 }
             }
@@ -670,18 +682,19 @@ fn estimate(args: &EstimateArgs) -> i32 {
 }
 
 /// The config the lookup finds, with `--set` overrides and a `--max-spend-usd` that lowers the
-/// cap (above the configured cap, a usage error), and the identity of the configuration as loaded
-/// (before the cap is lowered, as `squint estimate` computes it, table-manners 4.5, 4.8); none
-/// found is a usage error naming where squint looked.
-fn load_config(args: &JobArgs) -> Result<(Config, String), String> {
+/// cap (above the configured cap, a usage error), the identity of the configuration as loaded
+/// (before the cap is lowered, as `squint estimate` computes it, table-manners 4.5, 4.8), and the
+/// configured cap before any lowering; none found is a usage error naming where squint looked.
+fn load_config(args: &JobArgs) -> Result<(Config, String, f64), String> {
     let mut config = Config::open(args.config.as_deref(), &args.overrides)
         .require()
         .map_err(|e| e.to_string())?;
     let identity = squint_core::contract::config_identity(&config);
+    let configured_cap = config.budget.spend_cap_usd;
     if let Some(max) = args.max_spend_usd {
         config.call_cap(max).map_err(|e| e.to_string())?;
     }
-    Ok((config, identity))
+    Ok((config, identity, configured_cap))
 }
 
 /// The job from `--job` or the shorthand, with the requirements `--must-hold`, `--must-not` and

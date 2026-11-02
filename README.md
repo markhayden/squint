@@ -69,6 +69,11 @@ every location, viewable offline. Details: [`SPEC.md`](SPEC.md).
 
 ## Usage
 
+`squint init` writes a personal default config (`~/.config/squint/squint.toml`, or under
+`$XDG_CONFIG_HOME`) so no check needs `--config`; it holds no secret and prints the environment
+variables to set (the API key, and the account id the config attests to). `--provider` and
+`--model` pick another provider or model from the catalog (`squint catalog list`).
+
 ```
 squint check --use-case reference-consistency --candidate scene.png --ref dog=dog.jpg
 ```
@@ -96,6 +101,11 @@ prints one set's rules. To change them for good, `squint rules init reference-co
 a starter `squint.toml` and a `rules.toml` with every built-in rule commented out: uncomment one
 to replace it (same id), add `disabled = true` to remove it, or add your own. Writing rules:
 [`docs/rules.md`](docs/rules.md).
+
+Before the first request a check reserves its worst case against the spend cap: every tool turn,
+the final turn and the repair at full output, plus a reserve for retries. That bound can be
+far above what a check spends; when it is over the cap the refusal shows how it was built,
+which price tier applies and why, and the settings that bring it down.
 
 ## How it is built
 

@@ -2733,6 +2733,33 @@ unit tests for the tier explanation in `squint-providers`, `just check`.
 `crates/squint-core/src/config.rs` (the user config path), `SPEC.md` ("Config", "Commands"),
 `README.md`. **Size.** M.
 
+**As built** (2026-11-02): (i) `crates/squint-cli/src/cost.rs` `cap_refusal` runs after the
+summary when any run of the decision ended in `cap` and the report has the planned envelope. It
+groups the envelope's requests by kind (count, output allowance, the planned input-token span,
+their bound), derives the retry count from the reserve over the largest bound, multiplies by the
+decision runs, and says whether anything was sent (`cost.attempts`: none for the limits check,
+some for a refused retry). The tier comes from `squint_providers::catalog::Model::bound_tier`,
+which `Pricing::bound` now uses itself, so the explanation and the bound cannot disagree; a model
+the catalog lacks (the scripted one) says so. The owner's case reproduces exactly from
+`examples/reference-consistency.toml` and a refused `--replay` (no request is made): Haiku's
+$0.6285 is four tool turns ($0.0502), the final turn ($0.0179) and the repair ($0.1401, the only
+request over Haiku's 100k-token threshold, so at $0.50/$2.50 per million), plus three retries at
+that largest bound ($0.4203). The "real spend" is the output directory's own record: the newest
+completed decisions (by the time in `decision-<ms>-<pid>`, at most 200 read, five shown) with the
+same model and use case, not cache hits; with none, no figure is printed. `--quiet` leaves the
+explanation out with the summary, as it promises the M10 output. `load_config` also returns the
+configured cap, so the knob line can say how far `--max-spend-usd` may go. (ii) `squint init` is
+`init::run`: `init::choose` checks the profile and model against the catalog (a model must speak
+the profile's adapter; defaults `claude-haiku-5-5`, `gemini-3.8-flash`, `gpt-6.1-terra`, a test
+pins each), `Config::user_file` is the lookup's own personal path, and `write_new` creates with
+`create_new`. The account id stays in `SQUINT_<VENDOR>_ACCOUNT` as the examples have it, so the
+file holds no id or key; stdout is `wrote <path>`, stderr names both variables. Tests:
+`budget_cli.rs` (the breakdown, worst-case sentence and knobs with no figure, then the real $0.09
+of an earlier scripted decision; Haiku's long-prompt line through a refused replay),
+`init_cli.rs` (written where the lookup finds it, `check --dry-run` with no `--config`, no
+overwrite, `--provider openai`, refusals), `catalog.rs` `the_bound_tier_is_the_one_the_bound_uses`,
+unit tests in `init.rs` and `cost.rs`.
+
 ### Checkpoint M11
 - [ ] The owner's dog check repeated with `--replay` or a scripted script: the reason, the intent
       flags and the cap explanation read as the owner asked.

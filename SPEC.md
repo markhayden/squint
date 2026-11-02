@@ -1017,6 +1017,18 @@ settled to actual cost and the difference returned to the envelope; when usage i
 decision the unallocated balance is released. A request whose bound cannot be computed is
 refused.
 
+When the per-call cap refuses a command-line `check` (task 11.4), stderr explains the envelope
+from the decision's report: the requests one run plans by kind (count, output allowance, planned
+input tokens, bound), the retry reserve, the decision runs, the price tier the catalog bounds
+them at and why (a model's long-prompt tier applies to every request whose planned prompt, images
+at their maximum token cost, passes its threshold), that the envelope is a worst-case bound and
+not an expected cost, and the settings that shrink it or raise the cap with their values now
+(`--max-spend-usd` up to `[budget] spend_cap_usd`, `budget.tool_turns`,
+`provider.max_output_tokens`, `budget.repairs`, `budget.repair_output_tokens`, `budget.retries`,
+`budget.decision_runs`). The only spend it shows is real: the settled spend of up to five of the
+newest completed decisions in the same output directory with the same model and use case (cache
+hits left out), and nothing when there are none. No typical cost is estimated.
+
 ### Cache key
 
 Computed after resolve and prepare, over: the canonical resolved job (use case, obligations
@@ -1287,6 +1299,13 @@ report.
 Where it is (`check`, `estimate`, `describe` and `serve`; ADR 0018 amendment): `--config <path>`,
 else `./squint.toml`, else `$XDG_CONFIG_HOME/squint/squint.toml` (`~/.config/squint/squint.toml`
 when that is unset); the first that exists wins, and a given path wins even when it does not.
+`squint init [--provider <profile>] [--model <id>]` (task 11.4) writes that personal file:
+the profile (default `anthropic`) and a model it serves (default a mid-tier one per profile:
+`claude-haiku-5-5`, `gemini-3.8-flash`, `gpt-6.1-terra`), the default cap, `[privacy]
+cloud_calls = true` with `account = "<vendor>:${SQUINT_<VENDOR>_ACCOUNT}"`, and `[output] dir`.
+It holds no secret, refuses to overwrite an existing file (exit 64), refuses a profile or model
+the catalog lacks or a model of another adapter, and names on stderr the variables a run reads
+(the key's and the account's).
 None found is not an error for `describe` or `serve` (table-manners 3.1): the description names
 the configuration as a `missing` requirement at the path the lookup would use (the user file),
 or `invalid` when it does not load (a parse error, an unreadable file, an unset `${VAR}` named
@@ -1773,6 +1792,7 @@ squint report view ./squint-out/<run-id>    # prints only its URL; Ctrl-C or end
 squint report export ./squint-out/<run-id>  # one self-contained page in ~/.cache/squint/reports/
 squint report rebuild ./squint-out/<run-id>
 squint report prune --older-than 30d
+squint init [--provider anthropic|google-ai-studio|openai] [--model <id>]   # writes $XDG_CONFIG_HOME/squint/squint.toml (no secrets; never overwrites); names the key's variable
 squint tools list --config squint.toml      # manifests as the model will see them
 squint rules list [<use-case>] [--profile architecture]   # the shipped sets; or one set's rules (id, kind, scope, evidence, text) and how to change them
 squint rules init <use-case> [--out <dir>]  # writes squint.toml and rules.toml (header, every base rule commented out); never overwrites

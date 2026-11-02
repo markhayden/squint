@@ -20,6 +20,7 @@ mod examples_cli;
 mod exit_codes;
 mod final_turn_cli;
 mod images_cli;
+mod init_cli;
 mod intent_cli;
 mod isolation;
 mod mcp_cli;
