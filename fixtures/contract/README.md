@@ -5,9 +5,11 @@ github.com/markhayden/table-manners), copied unchanged. `digests.json` records e
 `file_sha256`, so the copy checks itself; `crates/squint-core/tests/it/image_reference.rs`
 reproduces every `pixel_sha256` through squint's own decode path (task 7.2).
 
-`squint/`: squint's conformance fixtures (tasks 7.10, 8.6, 9.10) for table-manners
-`fixtures/squint/`, at contract v0.3.0 (the unpublished `v0.3` branch until its release), per
-CONTRACT.md 7 item 7. Two generators write them, and the same tests hold the committed copy to
+`squint/`: squint's conformance fixtures (tasks 7.10, 8.6, 9.10, 10.1) for table-manners
+`fixtures/squint/`, at contract v0.4.0 (the unpublished `v0.4` branch until its release), per
+CONTRACT.md 7 item 7. Every action is of kind `task`; every result carries `invocation`, null
+only in `run-invalid.json`, whose image did not resolve. squint lists no operations profile, so
+there is no `run-op-*`, `refusal-binding-*`, `artifact-*`, `export-*` or `import-*` file. Two generators write them, and the same tests hold the committed copy to
 what squint emits now:
 
 - `crates/squint-core/tests/it/contract_fixtures.rs`, from squint's own code: the descriptions
@@ -33,14 +35,15 @@ what squint emits now:
 
 The volatile fields are fixed: times and expiries, run ids, `/runs` paths, the session id
 `00000000-0000-4000-8000-000000000001`, versions `0.0.0`, zeroed input identities, bindings and
-configuration identities, and `/home/user/.config` for the configuration lookup. The test fails
+(in the served fixtures) configuration identities, and `/home/user/.config` for the configuration lookup. The test fails
 when squint emits something else; after a deliberate change, regenerate with
 `UPDATE_CONTRACT_FIXTURES=1` (both generators: the CLI one needs `--features testkit`) and copy the
 directory to table-manners `fixtures/squint/`, removing files squint no longer produces.
 `every_fixture_validates_as_table_manners_reads_it` (in `contract_fixtures.rs`) checks the
 directory the way table-manners' `tests/fixtures.rs` does, with the crate's embedded schemas: the
 schema by file name (`describe*.json`, `estimate-*.json`, `run-*.json`, `runs*.json`,
-`session.json`, `refusal-*.json`), contract `0.3.0`, tool `squint`, every amount to at most six
-decimals. squint's proof that `describe` and `estimate` make no provider call and write nothing
+`session.json`, `refusal-*.json`), contract `0.4.0`, tool `squint`, every result with an
+`invocation` key holding no locator or delivery-only argument, every action with `kind`, every
+amount to at most six decimals. squint's proof that `describe` and `estimate` make no provider call and write nothing
 (7 item 7) is `describing_and_estimating_call_no_provider` in
 `crates/squint-cli/tests/it/serve_session_cli.rs`.

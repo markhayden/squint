@@ -1,7 +1,8 @@
 //! Task 7.7a: `squint serve` under the contract's server conventions (table-manners 5), driven by
 //! the independent test client: the handshake at `2025-11-25` only, the tools listed through the
 //! cursor, `describe` equal to `squint describe --json`, unknown tools as JSON-RPC errors, and
-//! nothing but the protocol on stdout. Task 9.4: `estimate`, the reserved tool, never a run.
+//! nothing but the protocol on stdout. Task 9.4: `estimate`, the reserved tool, never a run. Task
+//! 10.1: the reserved `export` and `import` are unknown tools.
 #![allow(clippy::unwrap_used)]
 
 use std::path::{Path, PathBuf};
@@ -86,6 +87,30 @@ fn describe_is_a_tool_and_equals_the_command() {
         .unwrap();
     let expected: serde_json::Value = serde_json::from_slice(&command.stdout).unwrap();
     assert_eq!(described.structured.unwrap(), expected);
+}
+
+/// `export` and `import` are reserved (table-manners 3, 5) and served only by a tool that
+/// declares a portable artifact type; squint declares none (v0.4, task 10.1), so neither is listed
+/// and a call of either is an unknown tool, the same JSON-RPC error as any other name.
+#[test]
+fn export_and_import_are_unknown_tools() {
+    let mut client = Client::start(&mut server(&out("reserved"))).unwrap();
+    let names: Vec<String> = client
+        .list_tools()
+        .unwrap()
+        .into_iter()
+        .map(|t| t.name)
+        .collect();
+    for reserved in ["export", "import"] {
+        assert!(!names.contains(&reserved.to_string()), "{names:?}");
+        let r = client.call(reserved, json!({}));
+        let Err(Failure::Rpc { code, message, .. }) = r else {
+            panic!("{reserved}: {r:?}");
+        };
+        assert_eq!(code, -32602, "{reserved}");
+        assert!(message.contains("no tool"), "{reserved}: {message}");
+    }
+    assert!(client.close().unwrap().success());
 }
 
 /// Every file and directory under `dir`, recursively, so "unchanged" means unchanged.

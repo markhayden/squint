@@ -52,6 +52,11 @@ pub trait Factories {
     fn lock_digests(&self, _config: &Config) -> BTreeMap<String, String> {
         BTreeMap::new()
     }
+    /// The names of the readiness requirements a decision under `config` with `tools` needs,
+    /// for its invocation (table-manners 4.8): never a value, a file by its name. None by default.
+    fn requirements(&self, _config: &Config, _tools: &ToolRegistry) -> Vec<String> {
+        Vec::new()
+    }
 }
 
 /// One decision's outcome, as `result.json` in its directory and as a row of the summary.
@@ -354,8 +359,13 @@ pub fn run(plan: &Plan, factories: &dyn Factories, cancel: Option<&Cancel>) -> R
                     }
                     std::fs::create_dir_all(&dir).map_err(|e| io(&dir, e))?;
                     ledger.begin(&id);
-                    let mut services =
-                        Services::new(provider.as_ref(), &tools).with_shared_ledger(Some(&ledger));
+                    let mut services = Services::new(provider.as_ref(), &tools)
+                        .with_shared_ledger(Some(&ledger))
+                        .with_call(squint_core::contract::CallFacts {
+                            config_identity: None,
+                            max_spend_usd: None,
+                            requirements: factories.requirements(&config, &tools),
+                        });
                     services.evaluation = true;
                     services.cancel = cancel;
                     let started = Instant::now();

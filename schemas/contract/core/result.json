@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:table-manners:core:result",
-  "title": "Result (CONTRACT.md 2; the images profile's fields, 11.1)",
+  "title": "Result (CONTRACT.md 2; the invocation, 4.8; the operations profile's artifacts, 4.7; the images profile's fields, 11.1)",
   "description": "One shape everywhere: the MCP result's structuredContent, the run resource and run.json. The header is the contract's; body is the tool's.",
   "type": "object",
   "additionalProperties": false,
@@ -16,6 +16,7 @@
     "finished",
     "duration_ms",
     "input_identity",
+    "invocation",
     "spend",
     "cache",
     "notes",
@@ -80,6 +81,17 @@
     "input_identity": {
       "type": "string",
       "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "invocation": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/invocation"
+        }
+      ],
+      "description": "What the call resolved to, so it can be run again elsewhere (4.8); null only on an invalid run whose arguments did not resolve."
     },
     "spend": {
       "type": "object",
@@ -160,6 +172,29 @@
       },
       "description": "Images profile: required in every result of an images tool."
     },
+    "artifacts": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "in",
+        "out"
+      ],
+      "properties": {
+        "in": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifact_entry"
+          }
+        },
+        "out": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifact_entry"
+          }
+        }
+      },
+      "description": "Operations profile (4.7): required in every result of an operations tool, tasks included; each artifact the run took through a port and each it made."
+    },
     "notes": {
       "type": "array",
       "items": {
@@ -172,30 +207,54 @@
       "description": "The tool's own."
     }
   },
-  "if": {
-    "properties": {
-      "status": {
-        "enum": [
-          "error",
-          "invalid"
-        ]
+  "allOf": [
+    {
+      "description": "error is present exactly when status is error or invalid (2.2).",
+      "if": {
+        "properties": {
+          "status": {
+            "enum": [
+              "error",
+              "invalid"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "error": {
+            "type": "object"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "error": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "description": "invocation is null only on an invalid run (2.3, 4.8).",
+      "if": {
+        "not": {
+          "properties": {
+            "status": {
+              "const": "invalid"
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "invocation": {
+            "type": "object"
+          }
+        }
       }
     }
-  },
-  "then": {
-    "properties": {
-      "error": {
-        "type": "object"
-      }
-    }
-  },
-  "else": {
-    "properties": {
-      "error": {
-        "type": "null"
-      }
-    }
-  },
+  ],
   "$defs": {
     "version": {
       "type": "string",
@@ -295,6 +354,69 @@
           "retryable": {
             "const": false
           }
+        }
+      }
+    },
+    "invocation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "action",
+        "arguments",
+        "effective",
+        "requirements"
+      ],
+      "description": "What a call resolved to (4.8): its arguments with defaults applied, each image as {expect} with no locator, each artifact as its reference, delivery-only arguments left out; what it used; the names of the requirements it used.",
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/action_name"
+        },
+        "arguments": {
+          "type": "object",
+          "description": "Nothing in it depends on where files were."
+        },
+        "effective": {
+          "$ref": "urn:table-manners:core:estimate#/$defs/effective"
+        },
+        "requirements": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256,
+            "pattern": "^[^/\\\\]+$"
+          },
+          "description": "The name of each readiness requirement (3.1) the call used; never a value, and for a file or config requirement its file name only, never a path."
+        }
+      }
+    },
+    "artifact_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "port",
+        "artifact",
+        "preview"
+      ],
+      "description": "Operations profile (4.7): an artifact a run took or made, the port (or a task's output) it went through, and its preview: required on an out entry whose type declares preview: true, null otherwise; optional on an in entry.",
+      "properties": {
+        "port": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        },
+        "artifact": {
+          "$ref": "urn:table-manners:operations:artifact-ref"
+        },
+        "preview": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "$ref": "urn:table-manners:operations:artifact#/$defs/preview"
+            }
+          ]
         }
       }
     }

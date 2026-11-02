@@ -10,12 +10,12 @@ use sha2::{Digest, Sha256};
 use table_manners::images::{
     BboxPart, ImageReference, ImageSlot, ImageTaken, Images, Limits, Location,
     LocationKind as ContractKind, LocationOutput, Locations, Outputs, Part, PolygonPart,
-    Projection as ContractProjection, Source, Topology, Vocabulary,
+    Projection as ContractProjection, Source, Topology,
 };
 use table_manners::{
-    Action, CONTRACT_VERSION, Cache, Cost, DescribedTool, Description, Duration, ErrorCode,
-    ErrorInfo, Profile, Readiness, Render, RenderKind, Run, RunResult, Spend, SpendBasis, Status,
-    Tool,
+    Action, ActionKind, CONTRACT_VERSION, Cache, Cost, DescribedTool, Description, Duration,
+    ErrorCode, ErrorInfo, Profile, Readiness, Render, RenderKind, Run, RunResult, Spend,
+    SpendBasis, Status, Tool, Vocabulary,
 };
 
 use crate::aggregate::Confidence;
@@ -272,8 +272,14 @@ pub const EXIT_INVALID: i32 = 64;
 
 /// The contract's result for a decision directory, from its report: the header the contract owns
 /// and squint's body (the verdict, the exit code and the report's path). `started_ms` is when the
-/// decision began; the result is finished now.
-pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
+/// decision began; the result is finished now. `invoked` is the decision's invocation (table-manners
+/// 4.8), none only when its arguments did not resolve (an image that could not be read).
+pub fn run_result(
+    report: &Report,
+    dir: &Path,
+    started_ms: u64,
+    invoked: Option<&Invoked>,
+) -> RunResult {
     let finished_ms = now_ms();
     let association = Association::read(dir);
     let id = dir
@@ -336,6 +342,7 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
         })
         .unwrap_or_default();
     let mut notes: Vec<String> = images.iter().flat_map(|i| i.warnings.clone()).collect();
+    notes.extend(invoked.and_then(|i| i.note.clone()));
     for run in &report.runs {
         for repair in &run.repairs {
             notes.push(format!(
@@ -381,6 +388,7 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
         finished: rfc3339(finished_ms),
         duration_ms: finished_ms.saturating_sub(started_ms),
         input_identity: input_identity(report, images),
+        invocation: invoked.map(|i| i.invocation.clone()),
         spend: Spend {
             // A cache hit spends nothing; the cached report's spend was its first run's.
             usd: if cache == Cache::Hit {
@@ -415,6 +423,8 @@ pub fn run_result(report: &Report, dir: &Path, started_ms: u64) -> RunResult {
             used: Vec::new(),
             found,
         }),
+        // squint lists no operations profile, so no result carries `artifacts` (table-manners 1).
+        artifacts: None,
         notes,
         body,
     }
@@ -556,6 +566,10 @@ pub fn description(
             Action {
                 name: base.replace('-', "_"),
                 title: title(base),
+                // Each check is a whole job a person or agent asks for (table-manners 3); squint
+                // sets no `group`: five tasks of one kind need no sorting beyond their titles.
+                kind: ActionKind::Task,
+                group: None,
                 purpose: purpose(base).into(),
                 params_schema: params_schema(),
                 images: Some(images),
@@ -564,6 +578,8 @@ pub fn description(
                     images: Vec::new(),
                     locations: vec![LocationOutput::Found],
                 }),
+                // squint lists no operations profile, so no action has ports (table-manners 1).
+                ports: None,
                 cost: match executor {
                     Executor::Paid => Cost {
                         may_spend: true,
@@ -631,22 +647,31 @@ pub fn description(
             purpose: "Checks an image against what was asked of it.".into(),
         },
         actions,
+        // squint lists no operations profile (table-manners 1, 3.3).
+        artifact_types: None,
+        // The core's object (table-manners 3) holding the images profile's four lists; no
+        // `group`, since no action names one.
         vocabulary: Some(Vocabulary {
-            disposition: [
-                FindingDisposition::Violation,
-                FindingDisposition::AllowedChange,
-                FindingDisposition::CantTell,
-                FindingDisposition::Observed,
-            ]
-            .iter()
-            .map(word)
-            .collect(),
-            confidence: [Confidence::Confident, Confidence::Tentative]
+            group: None,
+            disposition: Some(
+                [
+                    FindingDisposition::Violation,
+                    FindingDisposition::AllowedChange,
+                    FindingDisposition::CantTell,
+                    FindingDisposition::Observed,
+                ]
                 .iter()
                 .map(word)
                 .collect(),
-            evidence: Vec::new(),
-            score_kind: Vec::new(),
+            ),
+            confidence: Some(
+                [Confidence::Confident, Confidence::Tentative]
+                    .iter()
+                    .map(word)
+                    .collect(),
+            ),
+            evidence: Some(Vec::new()),
+            score_kind: Some(Vec::new()),
         }),
         limits: Some(Limits {
             inline_bytes: config.map_or_else(
@@ -1096,7 +1121,7 @@ pub fn estimate(
     job_base: &Path,
     max_spend_usd: Option<f64>,
 ) -> crate::Result<table_manners::Estimate> {
-    use table_manners::{Effective, Estimate, EstimateRefusal, ReadinessState};
+    use table_manners::{Estimate, EstimateRefusal, ReadinessState};
     // With no configuration, squint's defaults stand for the cap and the image bounds.
     let configured_cap = ctx.config.map_or_else(
         || crate::config::BudgetConfig::default().spend_cap_usd,
@@ -1136,17 +1161,13 @@ pub fn estimate(
         Some(w) if remaining.is_some_and(|r| w > r + EPSILON) => Some(EstimateRefusal::Budget),
         Some(_) => None,
     };
-    let mut extensions = std::collections::BTreeMap::new();
-    if let Some(e) = &envelope {
-        extensions.insert(
-            "x-squint".into(),
-            serde_json::json!({
-                "decision_runs": e.decision_runs,
-                "requests": e.requests.len(),
-                "attempts": e.attempts,
-            }),
-        );
-    }
+    let effective = effective(
+        ctx.config,
+        ctx.binder.config_identity,
+        setup.as_ref().map(|s| &s.prepared.summary),
+        envelope.as_ref(),
+        ctx.pricing,
+    );
     Ok(Estimate {
         contract: CONTRACT_VERSION.into(),
         tool: Tool {
@@ -1158,14 +1179,7 @@ pub fn estimate(
             .binder
             .binding(action, job, &file_digests, max_spend_usd),
         session_id: ctx.binder.session_id.map(str::to_string),
-        effective: Effective {
-            model: envelope
-                .as_ref()
-                .and(ctx.config)
-                .map(|c| c.provider.model.clone()),
-            config_identity: ctx.binder.config_identity.map(str::to_string),
-            extensions,
-        },
+        effective,
         worst_case_usd: worst,
         cap_usd: Some(usd(cap)),
         allowed: refused.is_none(),
@@ -1176,9 +1190,133 @@ pub fn estimate(
     })
 }
 
+/// What one call ran under (table-manners 4.5 `effective`, 4.8), one function for the estimate
+/// and the run so the two agree for the same call: the configured model once the call is priced,
+/// the configuration's identity, and under `x-squint` the versions of the rule sets the call
+/// resolved, the catalog version its prices came from, and the envelope's decision runs, requests
+/// and attempts. A part the call never reached is left out, never made up.
+pub fn effective(
+    config: Option<&Config>,
+    config_identity: Option<&str>,
+    rules: Option<&crate::run::RulesSummary>,
+    envelope: Option<&crate::ledger::Envelope>,
+    pricing: Option<&dyn crate::ledger::Pricing>,
+) -> table_manners::Effective {
+    let mut squint = serde_json::Map::new();
+    if let Some(rules) = rules {
+        squint.insert("rules".into(), serde_json::json!(rules.versions));
+    }
+    if let Some(version) = pricing.and_then(|p| p.catalog_version()) {
+        squint.insert("catalog_version".into(), version.into());
+    }
+    if let Some(e) = envelope {
+        squint.insert("decision_runs".into(), e.decision_runs.into());
+        squint.insert("requests".into(), e.requests.len().into());
+        squint.insert("attempts".into(), e.attempts.into());
+    }
+    let mut extensions = std::collections::BTreeMap::new();
+    if !squint.is_empty() {
+        extensions.insert("x-squint".into(), serde_json::Value::Object(squint));
+    }
+    table_manners::Effective {
+        model: envelope.and(config).map(|c| c.provider.model.clone()),
+        config_identity: config_identity.map(str::to_string),
+        extensions,
+    }
+}
+
+/// What a call's invocation needs that its decision cannot see (table-manners 4.8): the identity
+/// of the configuration as the caller loaded it (before `max_spend_usd` lowered its cap, so it is
+/// the estimate's), the call's `max_spend_usd`, and the names of the readiness requirements it
+/// needed ([`crate::readiness::Inspection::used`]). Without one, the identity is the decision's
+/// configuration's and no requirement is named.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CallFacts {
+    pub config_identity: Option<String>,
+    pub max_spend_usd: Option<f64>,
+    pub requirements: Vec<String>,
+}
+
+/// A call's invocation, and the note its result carries when the job had more than a call's
+/// arguments can say (its own image ids or reference labels).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Invoked {
+    pub invocation: table_manners::Invocation,
+    pub note: Option<String>,
+}
+
+/// The invocation of one decision (table-manners 4.8): the action, the arguments the call
+/// resolved to, `effective` and the requirements it needed. `candidate`, `source` and each of
+/// `references` (in order) are `{ "expect": <image reference> }` computed from the file squint
+/// read, with no locator; `brief`, `requirements` and `max_spend_usd` as given; the delivery-only
+/// `return_images` and `image_blocks` left out, as the binding leaves them (4.5). `images` are the
+/// job's, loaded, in its order. A job whose image ids or reference labels are not the ones a call
+/// gives (`candidate`, `source`, `ref:<n>` labelled `<n>`, as a job file may name them) has no
+/// argument for them: they are left out, and the note says so.
+pub fn invocation(
+    action: &str,
+    job: &crate::job::Job,
+    images: &[CanonicalImage],
+    effective: table_manners::Effective,
+    facts: &CallFacts,
+) -> Invoked {
+    let expect = |image: &CanonicalImage| serde_json::json!({ "expect": image_reference(image) });
+    let mut arguments = serde_json::Map::new();
+    let mut references = Vec::new();
+    let mut renamed = false;
+    for (spec, image) in job.images.iter().zip(images) {
+        match spec.role {
+            Role::Candidate => {
+                renamed |= spec.id != "candidate";
+                arguments.insert("candidate".into(), expect(image));
+            }
+            Role::Source => {
+                renamed |= spec.id != "source";
+                arguments.insert("source".into(), expect(image));
+            }
+            Role::Reference => {
+                let n = references.len() + 1;
+                renamed |= spec.id != format!("ref:{n}")
+                    || spec.label.as_deref() != Some(n.to_string().as_str());
+                references.push(expect(image));
+            }
+        }
+    }
+    if !references.is_empty() {
+        arguments.insert("references".into(), references.into());
+    }
+    if let Some(brief) = &job.brief {
+        arguments.insert("brief".into(), brief.clone().into());
+    }
+    if !job.requirements.is_empty() {
+        arguments.insert(
+            "requirements".into(),
+            serde_json::to_value(&job.requirements).unwrap_or_default(),
+        );
+    }
+    if let Some(max) = facts.max_spend_usd {
+        arguments.insert("max_spend_usd".into(), max.into());
+    }
+    Invoked {
+        invocation: table_manners::Invocation {
+            action: action.into(),
+            arguments,
+            effective,
+            requirements: facts.requirements.clone(),
+        },
+        note: renamed.then(|| {
+            "invocation: the job's own image ids and reference labels have no call argument, so \
+             they are left out; a call of it runs the same images under the call's ids"
+                .to_string()
+        }),
+    }
+}
+
 /// The result of a check refused before its decision was allocated (its arguments, a path outside
 /// the roots, its provider): the header with no spend and no images or locations; `error` sets
-/// the status from its class. The input identity is a digest of the call's arguments.
+/// the status from its class. The input identity is a digest of the call's arguments. `invoked`
+/// is none when squint refused the call before reading its images, so its arguments never
+/// resolved (table-manners 4.8: null only on such an `invalid` run).
 #[allow(clippy::too_many_arguments)]
 pub fn action_result(
     dir: &Path,
@@ -1188,6 +1326,7 @@ pub fn action_result(
     started_ms: u64,
     input: &serde_json::Value,
     error: Option<&crate::Error>,
+    invoked: Option<&Invoked>,
     body: serde_json::Map<String, serde_json::Value>,
 ) -> RunResult {
     let finished_ms = now_ms();
@@ -1232,6 +1371,7 @@ pub fn action_result(
             "sha256:{}",
             hex(&Sha256::digest(input.to_string().as_bytes()))
         ),
+        invocation: invoked.map(|i| i.invocation.clone()),
         spend: Spend {
             usd: 0.0,
             unresolved_usd: 0.0,
@@ -1246,7 +1386,8 @@ pub fn action_result(
             used: Vec::new(),
             found: Vec::new(),
         }),
-        notes: Vec::new(),
+        artifacts: None,
+        notes: invoked.and_then(|i| i.note.clone()).into_iter().collect(),
         body,
     }
 }

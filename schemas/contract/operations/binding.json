@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:operations:binding",
+  "title": "Binding entry (CONTRACT.md 4.7, operations profile)",
+  "description": "One reference that did not bind, in the `bindings` of a `binding` refusal: the port it came through (null for an artifact read), its 0-based index within a `many` port, the problem, what the port takes and what it was given, and what a person can do.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "port",
+    "problem",
+    "expected",
+    "got"
+  ],
+  "properties": {
+    "port": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*$"
+        }
+      ],
+      "description": "The in-port, `artifact` for export, null for a read of the artifact resource."
+    },
+    "index": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "The item's 0-based position; present only for items of a `many` port."
+    },
+    "problem": {
+      "enum": [
+        "wrong_type",
+        "wrong_version",
+        "wrong_frame",
+        "unresolved"
+      ]
+    },
+    "expected": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What the port takes, for people (a type and version)."
+    },
+    "got": {
+      "type": "string",
+      "minLength": 1,
+      "description": "What it was given, for people (a type and version, or an identity)."
+    },
+    "remedy": {
+      "type": "string",
+      "minLength": 1,
+      "description": "A sentence a person can act on; required for `unresolved`."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "problem"
+        ],
+        "properties": {
+          "problem": {
+            "const": "unresolved"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "remedy"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "port": {
+            "type": "null"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "index": false
+        }
+      }
+    }
+  ]
+}

@@ -1454,8 +1454,12 @@ Schemas (the source of truth), test vectors, a fixture per tool and a Rust crate
 The contract has a core every tool follows and profiles a kind of tool adds; squint implements the
 core and the images profile, and lists `images` in its description's `profiles`. squint pins a
 tagged release, keeps a hash-checked copy of its schemas under `schemas/contract/`, and warns in CI
-when a newer tag exists. squint conforms to v0.3.0, pinned `=0.3.0` from crates.io (M9). Field names and schemas are the contract's; this section says what squint does
-with them.
+when a newer tag exists. squint conforms to v0.4.0 (M10), built against the contract's `v0.4`
+branch by path until v0.4.0 is published (task 10.7 moves it to `=0.4.0` from crates.io). It lists
+no operations profile, so it emits none of that profile's fields (`artifact_types`, `ports`,
+`artifacts`, the artifact resource, the `binding` refusal), no action is of kind `operation`, and
+it serves neither reserved `export` nor `import` (a call of either is an unknown tool). Field
+names and schemas are the contract's; this section says what squint does with them.
 
 - **Image reference**: `file_sha256`, width and height of the caller's file (enforced), projection
   and topology, an optional `pixel_sha256` in the contract's canonical form. squint computes the
@@ -1516,7 +1520,10 @@ with them.
   then `cap`, then `budget` (the session cannot hold it); the action's `readiness`; `session`, the
   same observation as `squint://session`; `effective.model` (the configured model),
   `effective.config_identity` (sha256 of the redacted configuration's canonical JSON) and under
-  `x-squint` the decision runs, requests per run and billable attempts; `expires`, one hour on;
+  `x-squint` the versions of the rule sets the call resolved (`rules`), the catalog version its
+  prices came from (`catalog_version`, absent for the scripted provider's) and the decision runs,
+  requests per run and billable attempts, each only once the call reached it
+  (`contract::effective`, the function the run's invocation uses too); `expires`, one hour on;
   and `binding`, sha256 over the canonical JSON of the action, the arguments with each image
   replaced by its file digest (a path and inline bytes of one file bind equal) and its `expect`
   kept, the tool version, the configuration's identity and the session id (`return_images` and
@@ -1556,8 +1563,10 @@ with them.
   decision cache and says so.
 - **The session**: `squint://session` (table-manners 4.6), one atomic observation of the serving
   process's ledger: a random UUID (v4) made at start, when it started, the budget
-  (`[serve] session_budget_usd`), spent with its unresolved part, reserved and remaining; every
-  amount in a result or the session is written to at most six decimals.
+  (`[serve] session_budget_usd`), spent with its unresolved part, reserved and remaining, and
+  `allowed_dirs`, fixed at start: until the path rule (task 10.2) the configured `[serve] roots`
+  that resolve, canonicalised (a client's roots are per call and not the session's); every amount
+  in a result or the session is written to at most six decimals.
 - **Runs as resources**: `squint://runs` (the newest page of runs, newest first by start time and
   id, `running` included; `squint://runs?cursor=<next_cursor>` the next, fifty to a page, the
   cursor opaque base64url; a run started during a walk is seen by reading page one again),
@@ -1575,7 +1584,22 @@ with them.
   than `measured`), cache, the images taken in with their
   slots and roles, every finding's location, notes for image warnings and repairs) and squint's
   body (verdict, exit code, whether two runs agreed, the report's path). The result's `action` is
-  the use case's as `describe` names it (`source_fidelity`), from the command line as from MCP. A
+  the use case's as `describe` names it (`source_fidelity`), from the command line as from MCP.
+  Every result carries the `invocation` (table-manners 4.8, `contract::invocation`), the same on
+  every surface (a command-line check, a served one, an evaluation decision, a cache hit, a
+  cancelled or failed run): `action`; `arguments`, what the call resolved to, with `candidate`,
+  `source` and each of `references` (in order) as `{"expect": <image reference>}` computed from
+  the file squint read and no locator, so a check by path and the same check by inline bytes
+  record equal invocations, `brief`, `requirements` and `max_spend_usd` as given, and the
+  delivery-only `return_images` and `image_blocks` left out; `effective`, the estimate's object
+  for the same call (`contract::effective`; its configuration identity is the configuration's as
+  loaded, before `max_spend_usd` lowered its cap); and `requirements`, the name of each readiness
+  requirement the call needed (`readiness::Inspection::used`: the configuration and the segmenter
+  file by file name only, the credential variable and the model by name, never a value). A job
+  file's own image ids and reference labels have no call argument: they are left out and a note
+  says so. `invocation` is null only on an `invalid` run whose arguments did not resolve: an
+  image that could not be read or does not match its `expect`, a path refused, or a call refused
+  before squint read its images. A
   failed image is `completed` with verdict `fail`. squint's error classes map to the contract in one table
   (`contract::status_of`): `resolve` is `invalid` with code `usage`; `input` and
   `image_limit` are `invalid` with code `input`; `credential` (a provider's 401 or 403 during the
@@ -1597,8 +1621,10 @@ with them.
   sets bind the rule files byte for byte), taking `candidate`, the `source` when the
   rule set requires one, and `references`, a `many` slot (a non-empty list of images in, which
   `images.in` lists once per image in the order given), with the brief, requirements and a lower spend cap as parameters
-  (`estimate` is a reserved tool, never an action); every disposition and confidence word a
-  finding can carry (`vocabulary`), the renders (`report view` of kind `server` with a ten-second
+  (`estimate` is a reserved tool, never an action); each action of kind `task` (a whole job a
+  person or agent asks for), with no `group`; every disposition and confidence word a finding can
+  carry (`vocabulary`, the core's object, holding the images profile's four lists and no
+  `group`), the renders (`report view` of kind `server` with a ten-second
   `ready_timeout_s`, `report export` of kind `document`, each with `command[0]` `squint` and the
   placeholders `{run.dir}` and `{frame_ancestor}` only as whole arguments), the cost notice (a check on the
   scripted fake, under the `fake` profile or `--provider-script`, declares `may_spend: false`;
@@ -1831,8 +1857,9 @@ published, obligation ids as above, instance ids `<obligation>@<target>`, checkl
   allowed and refused for each reason and from the command line, a `run.json` per status and per
   error code a run can end with, the runs page, the session and each refusal) are generated by
   squint's own code and a running `squint serve`, must equal what squint emits now, and are
-  validated as table-manners validates them (schema by file name, contract `0.3.0`, tool
-  `squint`, amounts to six decimals); `UPDATE_CONTRACT_FIXTURES=1` rewrites them for the copy
+  validated as table-manners validates them (schema by file name, contract `0.4.0`, tool
+  `squint`, every result with an `invocation` and every action with a `kind`, amounts to six
+  decimals); `UPDATE_CONTRACT_FIXTURES=1` rewrites them for the copy
   into table-manners `fixtures/squint/`. `describe` and `estimate` are proved to call no provider
   and write nothing (`serve_session_cli.rs`).
 - **Isolation** (`cargo test`): instruction-like text in images, filenames, labels, the brief and

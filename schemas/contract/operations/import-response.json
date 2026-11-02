@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:operations:import-response",
+  "title": "Import response (CONTRACT.md 5.1, operations profile)",
+  "description": "What the reserved import tool returns as structuredContent, and `<tool> import --json` prints: the reference of the artifact now in the tool's store, and whether it was already there. Never a run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "tool",
+    "artifact",
+    "already_present"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "urn:table-manners:core:result#/$defs/version"
+    },
+    "tool": {
+      "$ref": "urn:table-manners:core:result#/$defs/tool"
+    },
+    "artifact": {
+      "$ref": "urn:table-manners:operations:artifact-ref"
+    },
+    "already_present": {
+      "type": "boolean",
+      "description": "True when the store already held the identity and nothing new was recorded."
+    }
+  }
+}

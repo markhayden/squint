@@ -26,6 +26,7 @@
           "slot": "references"
         }
       ],
+      "kind": "task",
       "locations": [],
       "name": "source_fidelity",
       "outputs": {
@@ -216,6 +217,7 @@
           "slot": "references"
         }
       ],
+      "kind": "task",
       "locations": [],
       "name": "reference_consistency",
       "outputs": {
@@ -406,6 +408,7 @@
           "slot": "references"
         }
       ],
+      "kind": "task",
       "locations": [],
       "name": "reality_checks",
       "outputs": {
@@ -596,6 +599,7 @@
           "slot": "references"
         }
       ],
+      "kind": "task",
       "locations": [],
       "name": "brief_compliance",
       "outputs": {
@@ -786,6 +790,7 @@
           "slot": "references"
         }
       ],
+      "kind": "task",
       "locations": [],
       "name": "product_fidelity",
       "outputs": {
@@ -956,7 +961,7 @@
       "title": "Product fidelity"
     }
   ],
-  "contract": "0.3.0",
+  "contract": "0.4.0",
   "limits": {
     "inline_bytes": 67108864
   },

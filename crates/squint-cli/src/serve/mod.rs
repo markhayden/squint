@@ -158,6 +158,15 @@ pub fn run(args: &ServeArgs) -> i32 {
         .clone()
         .or_else(|| config.as_ref().map(|c| c.output.dir.clone()));
     let serve = config.as_ref().map(|c| c.serve.clone()).unwrap_or_default();
+    // The directories squint itself names for the session (table-manners 4.6): until the path
+    // rule (task 10.2), the configured `[serve] roots` that resolve, canonicalised; a client's
+    // roots are per call and not the session's.
+    let allowed_dirs = serve
+        .roots
+        .iter()
+        .filter_map(|root| root.canonicalize().ok())
+        .map(|root| root.to_string_lossy().into_owned())
+        .collect();
     // How long an estimate's binding is honoured. A testkit build may shorten it, the clock seam
     // a test expires a binding with, without waiting an hour.
     #[cfg(feature = "testkit")]
@@ -174,6 +183,7 @@ pub fn run(args: &ServeArgs) -> i32 {
             estimate_ttl_ms,
             session_id: uuid_v4(),
             session_started_ms: contract::now_ms(),
+            allowed_dirs,
             claims: Default::default(),
             session: CapLedger::new(serve.session_budget_usd),
             permits: Arc::new(Semaphore::new(serve.concurrency as usize)),
@@ -238,6 +248,8 @@ struct Inner {
     /// process (squint never reloads its config), and when it started.
     session_id: String,
     session_started_ms: u64,
+    /// The session's `allowed_dirs` (table-manners 4.6), fixed at start, canonical.
+    allowed_dirs: Vec<String>,
     /// Every `client_run_id` this session has accepted (table-manners 4.4), with its run once one
     /// is allocated: claimed on acceptance, so a reuse is refused even before the first runs.
     claims: std::sync::Mutex<std::collections::HashMap<String, Option<table_manners::RunRef>>>,
@@ -464,14 +476,10 @@ impl Server {
         }
     }
 
-    /// Whether a check may run (table-manners 3.1, task 9.6): of the requirements it needs (the
-    /// configuration; and, since it sends to the provider and offers this server's tools, the
-    /// credential, the model and the segmenter file when a tool runs it), none is `missing` or
-    /// `invalid` now, the session's provider answers included. Otherwise its `not_ready` refusal
-    /// naming only those, before any run. An `estimate` is never gated here: it answers with its
-    /// own readiness refusal (table-manners 4.5).
-    fn ready_for_check(&self) -> Result<(), ErrorData> {
-        let needs = Needs {
+    /// What a check needs (table-manners 3.1): it sends to the provider and offers this server's
+    /// tools.
+    fn check_needs(&self) -> Needs {
+        Needs {
             provider: true,
             tools: self
                 .inner
@@ -479,8 +487,20 @@ impl Server {
                 .manifests()
                 .map(|m| m.name.clone())
                 .collect(),
-        };
-        let unmet = self.inner.inspection.unmet(&self.inner.answers, &needs);
+        }
+    }
+
+    /// Whether a check may run (table-manners 3.1, task 9.6): of the requirements it needs (the
+    /// configuration; and, since it sends to the provider and offers this server's tools, the
+    /// credential, the model and the segmenter file when a tool runs it), none is `missing` or
+    /// `invalid` now, the session's provider answers included. Otherwise its `not_ready` refusal
+    /// naming only those, before any run. An `estimate` is never gated here: it answers with its
+    /// own readiness refusal (table-manners 4.5).
+    fn ready_for_check(&self) -> Result<(), ErrorData> {
+        let unmet = self
+            .inner
+            .inspection
+            .unmet(&self.inner.answers, &self.check_needs());
         if !unmet.is_empty() {
             return Err(not_ready(unmet));
         }
@@ -516,6 +536,7 @@ impl Server {
                 run: run.clone(),
                 requirements: None,
                 error: None,
+                bindings: None,
             };
             return Err(ErrorData::invalid_params(
                 format!("client_run_id {client_run_id:?} was already used in this session"),
@@ -547,6 +568,7 @@ impl Server {
             unresolved_usd: contract::usd(unresolved),
             reserved_usd: contract::usd(reserved),
             remaining_usd: Some(contract::usd((budget - spent - reserved).max(0.0))),
+            allowed_dirs: self.inner.allowed_dirs.clone(),
         }
     }
 
@@ -638,6 +660,13 @@ impl Server {
             .with_association(hooks.association.clone())
             .with_shared_ledger(Some(&self.inner.session))
             .with_stale_estimate(stale_estimate)
+            // The invocation's identity is the configuration's as the server read it, the
+            // estimate's, not the copy `max_spend_usd` lowered (table-manners 4.8).
+            .with_call(contract::CallFacts {
+                config_identity: self.inner.config_identity.clone(),
+                max_spend_usd,
+                requirements: self.inner.inspection.used(&self.check_needs()),
+            })
             .with_cancel(&hooks.cancel)
             .with_allocated(Arc::new(move |dir: &Path| {
                 if let Ok(mut slot) = told.lock() {
@@ -874,6 +903,8 @@ impl Server {
             started,
             &Value::Object(args.clone()),
             error,
+            // Refused before squint read the call's images: its arguments never resolved.
+            None,
             body,
         );
         contract::write_run_result(&dir, &result)
@@ -916,6 +947,7 @@ fn invalid_arguments(code: table_manners::ErrorCode, reason: String) -> ErrorDat
             retryable: false,
             reason: reason.clone(),
         }),
+        bindings: None,
     };
     ErrorData::invalid_params(reason, serde_json::to_value(refusal).ok())
 }
@@ -943,6 +975,7 @@ fn not_ready(requirements: Vec<table_manners::Requirement>) -> ErrorData {
         run: None,
         requirements: Some(requirements),
         error: None,
+        bindings: None,
     };
     ErrorData::invalid_params(message, serde_json::to_value(refusal).ok())
 }

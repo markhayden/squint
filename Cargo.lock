@@ -1930,9 +1930,7 @@ dependencies = [
 
 [[package]]
 name = "table-manners"
-version = "0.3.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9bec37d99d246d9b9d2a05da9c9be30ca3951773e3f762c3b8f5c14fa2360c79"
+version = "0.4.0"
 dependencies = [
  "serde",
  "serde_json",

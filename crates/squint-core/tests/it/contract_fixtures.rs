@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 use squint_core::config::{Config, ConfigFile, ConfigState};
-use squint_core::contract::Executor;
+use squint_core::contract::{CallFacts, Executor};
 use squint_core::job::Job;
 use squint_core::readiness::{Answer, Answers, Credential, Inspection, config_requirement};
 use squint_core::run;
@@ -52,7 +52,13 @@ fn run_case(case: &str, script: &str, job: &str, overrides: &[&str], cancelled: 
     let tools = ToolRegistry::new(tools, &["fake_regions".into()], &[]).unwrap();
     let job = Job::load(&root().join("fixtures/jobs").join(job)).unwrap();
     let cancel = run::Cancel::new();
-    let mut services = run::Services::new(&provider, &tools);
+    // What `squint check --config fixtures/config/fake-tool.toml` names in the invocation: the
+    // fake profile reads no credential and calls no catalog model, so the configuration alone.
+    let mut services = run::Services::new(&provider, &tools).with_call(CallFacts {
+        config_identity: None,
+        max_spend_usd: None,
+        requirements: vec!["fake-tool.toml".into()],
+    });
     if cancelled {
         // Cancelled once the decision is allocated and reserved, before its first request.
         let trigger = cancel.clone();
@@ -303,8 +309,9 @@ fn the_conformance_fixtures_are_what_squint_emits() {
 /// `fixtures/squint/` passes there first time: the schema chosen by file name (`describe*.json`
 /// a description, `estimate-*.json` an estimate, `run-*.json` a result, `runs*.json` a runs page,
 /// `session.json` a session, `refusal-*.json` refusal data), validated with the crate's embedded
-/// schemas; contract `0.3.0` and tool `squint` wherever a document names them; and every amount
-/// (`usd` or a key ending `_usd`) at most six decimals.
+/// schemas; contract `0.4.0` and tool `squint` wherever a document names them; every result with
+/// an `invocation` key and every action with `kind`; and every amount (`usd` or a key ending
+/// `_usd`) at most six decimals.
 #[test]
 fn every_fixture_validates_as_table_manners_reads_it() {
     struct Embedded;
@@ -359,7 +366,7 @@ fn every_fixture_validates_as_table_manners_reads_it() {
             _ => {}
         }
     }
-    assert_eq!(table_manners::CONTRACT_VERSION, "0.3.0");
+    assert_eq!(table_manners::CONTRACT_VERSION, "0.4.0");
     let mut seen = 0;
     for entry in std::fs::read_dir(dir()).unwrap() {
         let path = entry.unwrap().path();
@@ -379,10 +386,32 @@ fn every_fixture_validates_as_table_manners_reads_it() {
         let errors: Vec<String> = validator.iter_errors(&doc).map(|e| e.to_string()).collect();
         assert!(errors.is_empty(), "{name} ({schema_id}): {errors:?}");
         if let Some(contract) = doc.get("contract") {
-            assert_eq!(contract, "0.3.0", "{name}");
+            assert_eq!(contract, "0.4.0", "{name}");
         }
         if let Some(tool) = doc.get("tool") {
             assert_eq!(tool["name"], "squint", "{name}");
+        }
+        // v0.4: every result carries `invocation` (null only on an `invalid` run, which the
+        // schema holds), with no locator and no delivery-only argument; every action a `kind`.
+        if name.starts_with("run-") {
+            let invocation = doc
+                .get("invocation")
+                .unwrap_or_else(|| panic!("{name}: no invocation"));
+            let text = invocation.to_string();
+            for word in ["\"path\"", "\"inline\"", "return_images", "image_blocks"] {
+                assert!(!text.contains(word), "{name}: invocation holds {word}");
+            }
+        }
+        for action in doc
+            .get("actions")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+        {
+            assert!(
+                action.get("kind").is_some(),
+                "{name}: an action without kind"
+            );
         }
         let mut bad = Vec::new();
         amounts(&doc, "", "", &mut bad);

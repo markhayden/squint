@@ -578,6 +578,10 @@ impl Pricing for Model {
             + shape.images as f64 * self.prices.per_image)
     }
 
+    fn catalog_version(&self) -> Option<u32> {
+        Some(CATALOG_VERSION)
+    }
+
     /// The count per request and the many-image threshold with its stricter long edge.
     fn image_limits(&self) -> Option<RequestImageLimits> {
         Some(RequestImageLimits {

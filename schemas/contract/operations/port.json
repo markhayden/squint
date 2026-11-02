@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:operations:port",
+  "title": "Port (CONTRACT.md 4.7, operations profile)",
+  "description": "A typed input or output of an operation. An in-port is also a property of the operation's MCP input schema, named for the port.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "name",
+    "type",
+    "required",
+    "purpose"
+  ],
+  "properties": {
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Unique within `in` and within `out`; never the name of a parameter."
+    },
+    "type": {
+      "$ref": "urn:table-manners:operations:artifact-type#/$defs/type",
+      "description": "`image`, `location` or one of the description's artifact_types."
+    },
+    "required": {
+      "type": "boolean"
+    },
+    "many": {
+      "type": "boolean",
+      "description": "The port takes or makes a non-empty list; false when absent."
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

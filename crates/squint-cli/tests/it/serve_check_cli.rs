@@ -1,7 +1,8 @@
 //! Task 7.7b: a use case's action over `squint serve` is one decision (table-manners 5, 10):
 //! images by path inside the client's roots or inline, the result the decision's `run.json`,
 //! `invalid` for a path outside the roots, and the session budget refusing before any request;
-//! since task 9.8, `references` a `many` slot: a non-empty list, taken in once per image in order.
+//! since task 9.8, `references` a `many` slot: a non-empty list, taken in once per image in order;
+//! since task 10.1, the invocation on every result.
 #![cfg(feature = "testkit")]
 #![allow(clippy::unwrap_used)]
 
@@ -114,6 +115,96 @@ fn a_check_by_path_and_by_inline_bytes_reaches_the_same_verdict() {
     assert_eq!(by_inline["input_identity"], r["input_identity"]);
 }
 
+/// The invocation (table-manners 4.8, task 10.1): what the call resolved to, with nothing that
+/// depends on where its files were. A check by path and the same check by inline bytes record
+/// equal invocations, each image as `{expect}` only; its `effective` is the estimate's for the
+/// same call; its requirements are names (the configuration by its file name, never a path).
+#[test]
+fn the_invocation_is_the_call_wherever_its_files_were() {
+    let arguments = json!({
+        "candidate": image("candidate-64x48.png"),
+        "source": image("source-64x48.png"),
+        "brief": "Keep the structure.",
+        "return_images": true,
+    });
+    let mut c = client(&out("invocation-path"), &[]);
+    let by_path = c
+        .call("source_fidelity", arguments.clone())
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_eq!(by_path["status"], "completed", "{by_path}");
+    let estimate = c
+        .call(
+            "estimate",
+            json!({ "action": "source_fidelity", "arguments": arguments }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    let mut c = client(&out("invocation-inline"), &[]);
+    let by_inline = c
+        .call(
+            "source_fidelity",
+            json!({
+                "candidate": inline("candidate-64x48.png"),
+                "source": inline("source-64x48.png"),
+                "brief": "Keep the structure.",
+            }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    let invocation = &by_path["invocation"];
+    assert_eq!(invocation, &by_inline["invocation"]);
+    assert_eq!(invocation["action"], "source_fidelity");
+    let args = invocation["arguments"].as_object().unwrap();
+    let mut keys: Vec<&str> = args.keys().map(String::as_str).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, ["brief", "candidate", "source"]);
+    for (slot, n) in [("candidate", 0), ("source", 1)] {
+        assert_eq!(
+            args[slot],
+            json!({ "expect": by_path["images"]["in"][n]["image"] }),
+            "{slot}"
+        );
+    }
+    assert_eq!(invocation["effective"], estimate["effective"]);
+    assert_eq!(invocation["requirements"], json!(["minimal.toml"]));
+    let text = invocation.to_string();
+    assert!(!text.contains(repo_root().to_str().unwrap()), "{text}");
+}
+
+/// An image that is not the one its `expect` names never resolved, so its run's invocation is
+/// null (table-manners 4.8); so is a path refused before it is read.
+#[test]
+fn a_call_whose_images_did_not_resolve_has_no_invocation() {
+    let mut c = client(&out("invocation-expect"), &[]);
+    let first = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    let mut wrong = image("candidate-64x48.png");
+    wrong["expect"] = first["images"]["in"][1]["image"].clone();
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": wrong, "source": image("source-64x48.png") }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_eq!(
+        (&r["status"], &r["error"]["code"]),
+        (&json!("invalid"), &json!("input"))
+    );
+    assert!(r["invocation"].is_null(), "{r}");
+}
+
 #[test]
 fn a_path_outside_the_clients_roots_is_invalid_input_and_spends_nothing() {
     let mut c = client(&out("roots"), &[]);
@@ -132,6 +223,7 @@ fn a_path_outside_the_clients_roots_is_invalid_input_and_spends_nothing() {
     assert_eq!(r["status"], "invalid");
     assert_eq!(r["error"]["code"], "input");
     assert_eq!(r["spend"]["usd"], 0.0);
+    assert!(r["invocation"].is_null(), "{r}");
 }
 
 /// `estimate` reads its images too, so it answers to the same roots as a check (review C1): a

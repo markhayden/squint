@@ -1,6 +1,9 @@
 # The table-manners schemas squint conforms to, copied from the crate pinned in Cargo.toml.
 # Regenerate after a version bump: UPDATE_CONTRACT=1 cargo test -p squint-core --test it contract_schemas
-tag = "v0.3.0"
+tag = "v0.4.0"
+# Copied from an unpublished checkout by path; the registry's release replaces it.
+branch = "v0.4"
+commit = "5becd42e22d26f6eb4449000bd82a81f60a7f7dc"
 
 [[file]]
 path = "images/image-reference.json"
@@ -25,12 +28,12 @@ sha256 = "e1548d853a8724dc1009e7619c68b715e8ba48af8d87a485e37311298af7efd5"
 [[file]]
 path = "core/result.json"
 id = "urn:table-manners:core:result"
-sha256 = "4dfd7c83ca96580b2a47bf59dee60a424ef508aa40ca727bf295157709f2bdf0"
+sha256 = "6e6d6338279582ca2a4ce958350505bdb38506bd8da8e25c52b58dd0dd1767e4"
 
 [[file]]
 path = "core/description.json"
 id = "urn:table-manners:core:description"
-sha256 = "7b3f64b6de7417b998131be841a2eb5d0d7899b12c8023a765bdc32be1491411"
+sha256 = "606b4b2fb65557c2451f45e27647bc1ccc976e4efbfb82bd414dff9915b1d596"
 
 [[file]]
 path = "core/runs.json"
@@ -45,14 +48,64 @@ sha256 = "0b12f2f6656993375d86616e808ca067ddf60ff2247117b2d5377c396c4430ac"
 [[file]]
 path = "core/session.json"
 id = "urn:table-manners:core:session"
-sha256 = "bc1bc784563050ea1145d0a11b8eaa2a51f5e869711b8956813529f2c9366d28"
+sha256 = "6e97b994b64d2423da4ae5587816fe6e69909972c0d0513775bd35fefa6f0a72"
 
 [[file]]
 path = "core/refusal.json"
 id = "urn:table-manners:core:refusal"
-sha256 = "f52d3c2e123e1c71c5a66e1a7d614efe7f3fac06873125a60e788443064f1068"
+sha256 = "bbefbfae23ce7fa2ea5e7636a0751e4d49ed50c82aa11d2cda678ff453cc6a7f"
 
 [[file]]
 path = "core/estimate.json"
 id = "urn:table-manners:core:estimate"
-sha256 = "1f236a0b6ed643f4bab3c542f07884b489cd01a01f84a88fb8f160fe3fb5d48b"
+sha256 = "9fd5e7de54a9e6da53b2d2c2a036e62c3505500b7c701ba9f01e468349bdd46f"
+
+[[file]]
+path = "core/invocation-bundle.json"
+id = "urn:table-manners:core:invocation-bundle"
+sha256 = "4af567f2ae2908b99d3d06c454faa79496a6b2089b8e986e5cc3c80f57881aaa"
+
+[[file]]
+path = "operations/artifact-type.json"
+id = "urn:table-manners:operations:artifact-type"
+sha256 = "9d3ee849a13578fd1c86c16fa28a7aa819d27d3f5bd71677c490c67827cc96cc"
+
+[[file]]
+path = "operations/artifact-ref.json"
+id = "urn:table-manners:operations:artifact-ref"
+sha256 = "b31aa1329dc557e983390e2e1468ce7eb9ecb0206a249128205009cec8ea4366"
+
+[[file]]
+path = "operations/artifact.json"
+id = "urn:table-manners:operations:artifact"
+sha256 = "39fc87fc43a13216b761510307f619436ee62a14c2afff52a9b80a76f411d010"
+
+[[file]]
+path = "operations/port.json"
+id = "urn:table-manners:operations:port"
+sha256 = "99a758a35511e441e3c9d59b23e6a9351d342c924a555b252745f489e38fac76"
+
+[[file]]
+path = "operations/binding.json"
+id = "urn:table-manners:operations:binding"
+sha256 = "c1541784923ea6197f37f96bec1264e1f2f33741aa90d9bff8233d11a6f72739"
+
+[[file]]
+path = "operations/export-request.json"
+id = "urn:table-manners:operations:export-request"
+sha256 = "5d0b825a54e10f93d08fe556a64514f0233c34482ef29f65f3da0ae54d168280"
+
+[[file]]
+path = "operations/export-response.json"
+id = "urn:table-manners:operations:export-response"
+sha256 = "b4b30b864adcdad15cc12b851fd5e6e01b0c0a967f3fae493bf487d9618e53d1"
+
+[[file]]
+path = "operations/import-request.json"
+id = "urn:table-manners:operations:import-request"
+sha256 = "ea2324f097b523a2af08dfd08e40f329750bee94f32f4d0858b062ed3421825a"
+
+[[file]]
+path = "operations/import-response.json"
+id = "urn:table-manners:operations:import-response"
+sha256 = "713da1de0fd4292fa43b9aa33a0ccc9017fe961fff583bc242c0ab552508079a"

@@ -1,8 +1,9 @@
 # squint for agents and pipelines
 
 squint speaks the waffle tools' shared contract, [table-manners](https://github.com/markhayden/table-manners)
-v0.3.0, core and images profile (ADR 0018); until v0.3.0 is published squint builds against the
-contract's `v0.3` branch. An agent or a script that knows the contract can
+v0.4.0, core and images profile (ADR 0018); until v0.4.0 is published squint builds against the
+contract's `v0.4` branch. squint lists no operations profile: it has no artifact types, ports or
+artifacts, and the reserved `export` and `import` are unknown tools. An agent or a script that knows the contract can
 describe squint, estimate a check, run one, follow it, stop it and read it back, the same way it
 does rascal. This page is squint's side; the contract's `CONTRACT.md` is the reference.
 
@@ -19,7 +20,8 @@ the path to create or `invalid` with what to fix (an unset `${VAR}` by name).
 
 The description document: one action per shipped use case (`source_fidelity`,
 `reference_consistency`, `reality_checks`, `brief_compliance`, `product_fidelity`); `estimate` is
-a reserved tool, not an action. Each use case takes `candidate`, a `source` where its rule set
+a reserved tool, not an action. Each action is of kind `task` (a whole check) with no `group`, and
+`vocabulary` lists the disposition and confidence words a finding can carry. Each use case takes `candidate`, a `source` where its rule set
 requires one, and `references` (a `many` slot: a non-empty list, each taken in once, in order), with `brief`, `requirements` (typed by squint's
 obligation schema) and `max_spend_usd`. Each action's `readiness` comes from a local look,
 never a network call: the configuration (`present`, `missing` or `invalid`), then the credential
@@ -56,8 +58,9 @@ and returns the contract's estimate (table-manners 4.5) as `structuredContent`:
 within it), `cap_usd` (the configured per-call cap, lowered by `max_spend_usd`), `allowed`, and
 when not, `refused`: `readiness` (the action is not ready: see its `readiness`), `cap` or
 `budget` (the session cannot hold it; `session` is the same observation as `squint://session`);
-`effective.model` and `effective.config_identity`, with the decision runs, requests and attempts
-under `x-squint`; `expires`, an hour on; and `binding`. The binding covers the action, the
+`effective.model` and `effective.config_identity`, with the rule sets' versions, the catalog
+version and the decision runs, requests and attempts under `x-squint` (the same `effective` the
+run of that call records in its invocation); `expires`, an hour on; and `binding`. The binding covers the action, the
 arguments with each image as its file digest (a path and inline bytes of one file bind equal)
 and its `expect`, squint's version, the configuration and the session; `return_images` and
 `image_blocks` do not change it. A call that cannot be priced (no configuration, or a model the
@@ -119,7 +122,7 @@ ordinary decision (its directory, journal, report and `run.json`).
   `client_run_id` stays claimed.
 - **Resources**: `squint://runs` (newest first, running ones included, fifty to a page; the next
   page is `squint://runs?cursor=<next_cursor>`), `squint://session` (the session id, budget,
-  spent, unresolved, reserved and remaining), and per run `squint://run/<id>/run.json`,
+  spent, unresolved, reserved and remaining, and `allowed_dirs`), and per run `squint://run/<id>/run.json`,
   `…/report.json` and `…/journal`, readable after a timeout or a dropped connection.
 - **Results**: the `run.json` below as `structuredContent`; `isError` for `invalid` and `error`.
   Arguments the input schema rejects and unknown tools are JSON-RPC errors, since no run exists.
@@ -133,6 +136,17 @@ answer settled, counted at its worst case: show it as "at most"; `basis` is `est
 answer reported no usage and counts its worst case), cache, the images taken in with their
 roles, every finding as a contract location on the file as stored) and squint's body (verdict,
 exit code, whether two runs agreed, the report's path). A `fail` verdict is `completed`.
+
+Every result carries `invocation` (table-manners 4.8): what the call resolved to, so it can be run
+again elsewhere. `arguments` hold each image as `{"expect": <image reference>}` with no path or
+inline bytes (a check by path and by inline bytes record the same invocation), with `brief`,
+`requirements` and `max_spend_usd` as given and `return_images` and `image_blocks` left out;
+`effective` is the estimate's object for the same call; `requirements` names what the call needed
+(the configuration and the segmenter file by file name, the credential variable and the model by
+name, never a value). A job file's own image ids and reference labels are not call arguments, so
+they are left out and a note says so. `invocation` is null only on an `invalid` run whose
+arguments did not resolve (an image that could not be read, does not match its `expect`, or a
+path refused).
 
 | squint error class | status | code | retryable |
 |---|---|---|---|

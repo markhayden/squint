@@ -237,7 +237,7 @@ fn main() {
 }
 
 fn check(args: &CheckArgs) -> i32 {
-    let mut config = match load_config(&args.input) {
+    let (mut config, config_identity) = match load_config(&args.input) {
         Ok(c) => c,
         Err(e) => {
             eprintln!("squint: {e}");
@@ -282,10 +282,13 @@ fn check(args: &CheckArgs) -> i32 {
     }
     // What this check needs that is missing or invalid stops it here, before any run directory,
     // naming the requirements as a server's `not_ready` refusal does (table-manners 3.1).
-    if let Err(message) = ready(args, &config, &tools) {
-        eprintln!("squint: {message}");
-        return EXIT_USAGE;
-    }
+    let requirements = match ready(args, &config, &tools) {
+        Ok(requirements) => requirements,
+        Err(message) => {
+            eprintln!("squint: {message}");
+            return EXIT_USAGE;
+        }
+    };
     if args.dry_run {
         return match squint_core::run::resolve_rules(&config, &job, Path::new("."), &tools) {
             Ok(p) => {
@@ -355,7 +358,13 @@ fn check(args: &CheckArgs) -> i32 {
         std::sync::Arc::clone(&cancel),
         std::sync::Arc::clone(&signalled),
     ));
-    let services = Services::new(provider.as_ref(), &tools).with_cancel(&cancel);
+    let services = Services::new(provider.as_ref(), &tools)
+        .with_cancel(&cancel)
+        .with_call(squint_core::contract::CallFacts {
+            config_identity: Some(config_identity),
+            max_spend_usd: args.input.max_spend_usd,
+            requirements,
+        });
     let outcome = runtime.block_on(squint_core::run::check(
         &config, &job, job_base, &services, &out_dir, VERSION,
     ));
@@ -406,14 +415,15 @@ fn check(args: &CheckArgs) -> i32 {
 }
 
 /// Whether a command-line check may run (task 9.6): of what it needs, nothing `missing` or
-/// `invalid` by the same local inspection `describe` makes, else the `not_ready` sentence. A dry
+/// `invalid` by the same local inspection `describe` makes, else the `not_ready` sentence; when
+/// it may, the names of what it needs, for its invocation (table-manners 4.8). A dry
 /// run sends nothing and runs no tool, so it needs only the configuration; a replay sends nothing
 /// to the provider, so it needs no credential.
 fn ready(
     args: &CheckArgs,
     config: &Config,
     tools: &squint_core::tool::ToolRegistry,
-) -> Result<(), String> {
+) -> Result<Vec<String>, String> {
     use squint_core::config::{ConfigFile, ConfigState};
     use squint_core::readiness::{Answers, Needs, config_requirement, not_ready_message};
     let needs = Needs {
@@ -428,9 +438,10 @@ fn ready(
         path: Config::locate(args.input.config.as_deref()).path,
         state: ConfigState::Loaded(Box::new(config.clone())),
     };
-    let unmet = inspect(config, config_requirement(&file)).unmet(&Answers::default(), &needs);
+    let inspection = inspect(config, config_requirement(&file));
+    let unmet = inspection.unmet(&Answers::default(), &needs);
     if unmet.is_empty() {
-        Ok(())
+        Ok(inspection.used(&needs))
     } else {
         Err(not_ready_message(&unmet))
     }
@@ -595,16 +606,18 @@ fn estimate(args: &EstimateArgs) -> i32 {
 }
 
 /// The config the lookup finds, with `--set` overrides and a `--max-spend-usd` that lowers the
-/// cap (above the configured cap, a usage error); none found is a usage error naming where
-/// squint looked.
-fn load_config(args: &JobArgs) -> Result<Config, String> {
+/// cap (above the configured cap, a usage error), and the identity of the configuration as loaded
+/// (before the cap is lowered, as `squint estimate` computes it, table-manners 4.5, 4.8); none
+/// found is a usage error naming where squint looked.
+fn load_config(args: &JobArgs) -> Result<(Config, String), String> {
     let mut config = Config::open(args.config.as_deref(), &args.overrides)
         .require()
         .map_err(|e| e.to_string())?;
+    let identity = squint_core::contract::config_identity(&config);
     if let Some(max) = args.max_spend_usd {
         config.call_cap(max).map_err(|e| e.to_string())?;
     }
-    Ok(config)
+    Ok((config, identity))
 }
 
 fn load_job(args: &JobArgs) -> Result<Job, String> {
