@@ -705,7 +705,8 @@ if it is replayable under the adapter's rules; a non-replayable turn is journale
      result, then the repair.
    - **Non-replayable** (truncated or incomplete, a refusal, or text with no call): the repair.
    - **Provider error** after retries, or a timeout: `error: provider`; a status no retry takes
-     (a 400, 404, 422): `error: provider_rejected`; a 401 or 403: `error: credential`.
+     (a 400, 404, 422; a 400 naming no cause after its one retry): `error: provider_rejected`;
+     a 401 or 403: `error: credential`.
 5. **Final turn.** When `tool_turns` or `tool_calls` are exhausted, send one request with the
    same frozen tool definitions, the full checklist, and an appended instruction that only
    `submit_verdict` will be executed and the model must submit now (see "Final turn mechanics").
@@ -752,9 +753,16 @@ refusal and a call-less text, for each form.
 Transport-level only: connection errors, timeouts before any byte, HTTP 408, 409, 429 and 5xx.
 Exponential backoff with full jitter from 1 s, capped at 30 s, honouring `retry-after` when
 present, at most `budget.retries` attempts after the first. A 401 or 403 is `error: credential`
-immediately, and costs nothing (the provider refused before any work); any other 4xx is
-`error: provider_rejected` immediately, which no identical retry mends. Each attempt is a
-billable attempt in the ledger.
+immediately, and costs nothing (the provider refused before any work). A 400 whose body names no
+cause is retried once per turn, inside the same budget and the envelope's retry reserve, since
+an identical request may pass (Gemini has answered `INVALID_ARGUMENT` to request shapes that
+served every other item); a second one is final. Each adapter reads its provider's error body:
+an empty body names no cause; Anthropic's envelope names none when `error.message` is empty;
+Gemini's `google.rpc.Status` when it has no `details` and its message is empty or exactly
+`Request contains an invalid argument.`; OpenAI's when `error.message`, `param` and `code` are
+all empty. Any other body, a non-JSON one included, names a cause or may. Every other 4xx, and a
+400 naming its cause, is `error: provider_rejected` immediately, which no identical retry mends.
+Each attempt is a billable attempt in the ledger.
 
 ### Final turn mechanics
 
@@ -1522,7 +1530,8 @@ with them.
   `image_limit` are `invalid` with code `input`; `credential` (a provider's 401 or 403 during the
   run, never retried, costing nothing) is an `error` with code `credential`, never retryable; a
   provider or model-output failure is a retryable `error` with code `provider`, except
-  `provider_rejected` (a status the retries never take: a 400, 404, 422), the same code, not
+  `provider_rejected` (a status the retries never take: a 400, 404, 422, or a 400 naming no
+  cause after its one retry), the same code, not
   retryable; `tool` is `tool_process`; `budget`, `io` and anything
   else (`internal`) are not retryable; `cancelled` is its own status.
 - **`squint describe --json [--config <file>]`**: the contract's description document with

@@ -56,8 +56,9 @@ pub enum Error {
     #[error("provider: {0}")]
     Provider(String),
     /// A transport failure from an adapter: status and `retry-after` let the state machine decide
-    /// whether to retry (see `retry`). One the spec never retries (a 400, 404, 422) is the class
-    /// `provider_rejected`, so the result says an identical retry would fail again.
+    /// whether to retry (see `retry`). One the spec never retries (a 400, 404, 422, or a 400
+    /// naming no cause after its one retry) is the class `provider_rejected`, so the result says
+    /// an identical retry would fail again.
     #[error("provider: {0}")]
     Transport(retry::TransportError),
     /// The model's submission did not validate.

@@ -478,3 +478,65 @@ fn gemini_without_usage_reports_none() {
     let r = p.parse_response(&body.to_string(), None).unwrap();
     assert_eq!(r.usage, None);
 }
+
+/// F3: a Gemini 400 names no cause when its body is empty or the `google.rpc.Status` envelope
+/// carries no `details` and only Google's generic invalid-argument message (the arm C failure);
+/// a message naming a field, a details entry, or another body is a cause.
+#[tokio::test]
+async fn gemini_a_400_names_no_cause_only_with_the_generic_message_and_no_details() {
+    let (p, t) = provider("gemini-4-argon", "", json!({}));
+    let h = history("fc_1", vec![call_part(Some("fc_1"))]);
+    let (tl, im) = (tools(), images());
+    let generic = json!({ "error": { "code": 400, "message": "Request contains an invalid argument.", "status": "INVALID_ARGUMENT" } });
+    let cases = [
+        (400, String::new(), true),
+        (400, generic.to_string(), true),
+        (
+            400,
+            json!({ "error": { "code": 400, "message": "Request contains an invalid argument.", "status": "INVALID_ARGUMENT", "details": [] } }).to_string(),
+            true,
+        ),
+        (
+            400,
+            json!({ "error": { "code": 400, "message": "", "status": "INVALID_ARGUMENT" } })
+                .to_string(),
+            true,
+        ),
+        (
+            400,
+            json!({ "error": { "code": 400, "message": "* GenerateContentRequest.contents: contents is not specified\n", "status": "INVALID_ARGUMENT" } }).to_string(),
+            false,
+        ),
+        (
+            400,
+            json!({ "error": { "code": 400, "message": "Request contains an invalid argument.", "status": "INVALID_ARGUMENT", "details": [{ "@type": "type.googleapis.com/google.rpc.BadRequest", "fieldViolations": [{ "field": "contents[0].parts[1]", "description": "unsupported MIME type" }] }] } }).to_string(),
+            false,
+        ),
+        (
+            400,
+            json!({ "error": { "code": 400, "message": "API key not valid. Please pass a valid API key.", "status": "INVALID_ARGUMENT", "details": [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", "reason": "API_KEY_INVALID", "domain": "googleapis.com" }] } }).to_string(),
+            false,
+        ),
+        (
+            400,
+            json!({ "error": { "code": 400, "message": "User location is not supported for the API use.", "status": "FAILED_PRECONDITION" } }).to_string(),
+            false,
+        ),
+        (400, "<html>400. That's an error.</html>".to_string(), false),
+        (404, generic.to_string(), false),
+    ];
+    for (status, body, causeless) in cases {
+        *t.response.lock().unwrap() = Response {
+            status,
+            headers: BTreeMap::new(),
+            body: body.clone(),
+        };
+        match p.send(request(&h, &tl, &im)).await.unwrap_err() {
+            squint_core::Error::Transport(e) => {
+                assert_eq!(e.causeless_rejection(), causeless, "{status} {body:?}");
+                assert!(!e.retryable(), "{status} {body:?}");
+            }
+            other => panic!("{other}"),
+        }
+    }
+}

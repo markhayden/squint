@@ -205,7 +205,7 @@ async fn privacy_http_client_follows_same_origin_redirects_only() {
         .await
         .unwrap();
     assert_eq!(busy.status, 429);
-    match busy.ok().unwrap_err() {
+    match busy.ok(|_| false).unwrap_err() {
         squint_core::Error::Transport(t) => {
             assert_eq!(t.status, Some(429));
             assert_eq!(t.retry_after, Some(Duration::from_secs(7)));

@@ -110,7 +110,7 @@ exit code, whether two runs agreed, the report's path). A `fail` verdict is `com
 | `input`, `image_limit` | invalid | `input` | no |
 | `credential` (a provider's 401 or 403 during the run; never retried, costs nothing) | error | `credential` | no |
 | `provider` (a 5xx, 429 or timeout after the retries ran out), `submission_invalid`, `no_submission`, `model_output` | error | `provider` | yes |
-| `provider_rejected` (any other status the provider refused the request with: a 400, 404, 422) | error | `provider` | no |
+| `provider_rejected` (any other status the provider refused the request with: a 400, 404, 422; a 400 whose body names no cause is retried once first) | error | `provider` | no |
 | `tool` | error | `tool_process` | no |
 | `budget` | error | `budget` | no |
 | `io` | error | `io` | no |

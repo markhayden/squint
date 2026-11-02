@@ -495,7 +495,7 @@ impl OpenAiProvider {
         let headers = self.headers();
         let response = self.transport.post_json(&self.url, &headers, &body).await?;
         let request_id = response.header("x-request-id").map(str::to_string);
-        let response = response.ok()?;
+        let response = response.ok(names_no_cause)?;
         self.parse_response(&response.body, request_id)
     }
 }
@@ -530,4 +530,25 @@ impl Provider for OpenAiProvider {
     fn prepare_image(&self, id: &str, pixels: &image::DynamicImage) -> Result<Prepared> {
         Preparer::new(&self.model.images, self.max_long_edge).prepare(id, pixels)
     }
+}
+
+/// Whether an OpenAI error body names no cause (F3): the envelope
+/// `{"error": {"message": …, "type": …, "param": …, "code": …}}` with no `param`, no `code` and an
+/// empty or missing message. A parameter (`input[0].content[1].image_url`), a code
+/// (`invalid_value`) or any message is a cause; a body that is not the envelope is not read as
+/// causeless either.
+pub fn names_no_cause(body: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<Value>(body) else {
+        return false;
+    };
+    let Some(Value::Object(error)) = v.get("error") else {
+        return false;
+    };
+    ["message", "param", "code"]
+        .iter()
+        .all(|k| match error.get(*k) {
+            None | Some(Value::Null) => true,
+            Some(Value::String(s)) => s.trim().is_empty(),
+            Some(_) => false,
+        })
 }

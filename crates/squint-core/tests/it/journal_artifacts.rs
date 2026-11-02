@@ -245,6 +245,7 @@ fn journal_artifacts_hold_no_secret_a_provider_error_excerpt_echoes() {
                 "HTTP {status}: {{\"error\":{{\"message\":\"account {escaped} rejected\"}}}} (raw: {secret})"
             ),
             sent: true,
+            causeless: false,
         })
     };
     let provider = ScriptedProvider::from_turns(vec![excerpt(503), excerpt(404)]);

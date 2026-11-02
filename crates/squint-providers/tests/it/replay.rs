@@ -121,7 +121,9 @@ async fn replay_serves_a_recording_and_ignores_volatile_headers() {
     // The recorded 429 comes back as a response; `ok` turns it into the transport error.
     let r = player.post_json(URL, &h, &request_two()).await.unwrap();
     assert_eq!(r.status, 429);
-    let err = r.ok().unwrap_err();
+    let err = r
+        .ok(squint_providers::anthropic::names_no_cause)
+        .unwrap_err();
     match err {
         squint_core::Error::Transport(t) => {
             assert_eq!(t.status, Some(429));

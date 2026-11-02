@@ -317,7 +317,7 @@ fn retry_of_a_429_is_journaled_and_counted_as_an_attempt() {
 }
 
 #[test]
-fn retry_is_refused_for_a_400_which_is_a_provider_error() {
+fn retry_is_refused_for_a_400_that_names_its_cause() {
     let r = run_case("bad-request", "bad-request.json", &[]);
     assert_eq!(r.outcome.exit_code, 3);
     // Not retryable either (task 9.6): the provider rejected the request as sent.
@@ -328,6 +328,55 @@ fn retry_is_refused_for_a_400_which_is_a_provider_error() {
         1,
         "the submission was never requested"
     );
+}
+
+/// F3: a 400 that names no cause gets one retry, journaled and charged like any other (8.4).
+#[test]
+fn retry_of_a_causeless_400_happens_once_and_is_charged_like_any_other() {
+    let r = run_case("causeless-400", "causeless-400-then-submit.json", &[]);
+    assert_eq!(r.outcome.exit_code, 0, "{:?}", r.outcome.error);
+    let ev = r.events();
+    let sent = ev.iter().position(|e| e == "turn_sent").unwrap();
+    assert_eq!(&ev[sent..sent + 3], ["turn_sent", "retry", "turn_received"]);
+    let turn = &r.run()["turns"][0];
+    assert_eq!(turn["attempts"], 2);
+    let bound = turn["bound_usd"].as_f64().unwrap();
+    assert!(bound > 0.0);
+    assert!(
+        (turn["cost_usd"].as_f64().unwrap() - bound).abs() < 1e-12,
+        "the failed attempt is charged at its bound"
+    );
+    assert_eq!(r.report()["cost"]["attempts"], 2);
+}
+
+#[test]
+fn retry_of_a_causeless_400_is_not_repeated_so_the_second_is_final() {
+    let r = run_case("causeless-400-twice", "causeless-400-twice.json", &[]);
+    assert_eq!(r.outcome.exit_code, 3);
+    assert_eq!(r.run()["error"]["class"], "provider_rejected");
+    assert_eq!(
+        r.events().iter().filter(|e| *e == "retry").count(),
+        1,
+        "exactly one retry"
+    );
+    assert_eq!(r.provider.remaining(), 1, "no third request");
+    let run_json: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(r.outcome.dir.join("run.json")).unwrap())
+            .unwrap();
+    assert_eq!(run_json["error"]["code"], "provider");
+    assert_eq!(run_json["error"]["retryable"], false);
+}
+
+#[test]
+fn retry_of_a_causeless_400_needs_the_retry_budget() {
+    let r = run_case(
+        "causeless-400-no-retries",
+        "causeless-400-then-submit.json",
+        &["budget.retries=0"],
+    );
+    assert_eq!(r.outcome.exit_code, 3);
+    assert_eq!(r.run()["error"]["class"], "provider_rejected");
+    assert!(!r.events().iter().any(|e| e == "retry"));
 }
 
 #[test]

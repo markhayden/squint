@@ -1,7 +1,8 @@
 //! A scripted fake provider: answers each turn with the next canned response from a JSON file,
 //! so the run loop can be driven through every state offline. An entry may instead be a
 //! transport error (`{"error": {"status": 429, "retry_after_s": 2}}`, with `"sent": false` for a
-//! connection that never carried the request) to drive the retries, or a stall
+//! connection that never carried the request and `"causeless": true` for a 400 whose body names
+//! no cause) to drive the retries, or a stall
 //! (`{"stall_s": 30}`: the next entry comes only after that long, a call in flight). A response
 //! without `usage` reported zero tokens; `"usage": null` is an answer that reported none.
 
@@ -46,6 +47,8 @@ struct ScriptError {
     message: Option<String>,
     #[serde(default)]
     sent: Option<bool>,
+    #[serde(default)]
+    causeless: bool,
 }
 
 /// The stub catalog entry the scripted provider prices with: cheap enough that the default
@@ -114,6 +117,7 @@ impl ScriptedProvider {
                     retry_after: error.retry_after_s.map(Duration::from_secs),
                     message: error.message.unwrap_or_else(|| "scripted failure".into()),
                     sent: error.sent.unwrap_or(true),
+                    causeless: error.causeless,
                 }),
                 Entry::Stall { stall_s } => ScriptTurn::Stall(Duration::from_secs(stall_s)),
             })

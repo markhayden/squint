@@ -498,7 +498,7 @@ impl AnthropicProvider {
         let headers = self.headers();
         let response = self.transport.post_json(&self.url, &headers, &body).await?;
         let request_id = response.header("request-id").map(str::to_string);
-        let response = response.ok()?;
+        let response = response.ok(names_no_cause)?;
         self.parse_response(&response.body, request_id)
     }
 }
@@ -540,5 +540,28 @@ impl Provider for AnthropicProvider {
 
     fn prepare_image(&self, id: &str, pixels: &image::DynamicImage) -> Result<Prepared> {
         Preparer::new(&self.model.images, self.max_long_edge).prepare(id, pixels)
+    }
+}
+
+/// Whether an Anthropic error body names no cause (F3): the envelope
+/// `{"type": "error", "error": {"type": …, "message": …}}` with an empty or missing message.
+/// Anthropic's messages name what was wrong (`messages.0.content: Field required`), so any
+/// message is a cause; a body that is not the envelope is not read as causeless either.
+pub fn names_no_cause(body: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<Value>(body) else {
+        return false;
+    };
+    match v.get("error") {
+        Some(Value::Object(error)) => blank(error.get("message")),
+        _ => false,
+    }
+}
+
+/// A missing, null or whitespace-only string field.
+fn blank(v: Option<&Value>) -> bool {
+    match v {
+        None | Some(Value::Null) => true,
+        Some(Value::String(s)) => s.trim().is_empty(),
+        Some(_) => false,
     }
 }
