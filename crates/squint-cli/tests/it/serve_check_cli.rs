@@ -572,3 +572,50 @@ fn a_cap_below_the_envelope_is_a_cap_error_before_any_request() {
     assert_eq!(r["error"]["retryable"], false);
     assert_eq!(r["spend"]["usd"], 0.0);
 }
+
+/// Task 9.6 (table-manners 3.1): a model the catalog lacks makes the configuration `invalid`, and
+/// a check needs the configuration: it is refused before any run as `-32602` `not_ready` naming
+/// the configuration alone (the key is set, so it is not named), and nothing is written.
+#[test]
+fn a_config_made_invalid_by_an_unknown_model_refuses_a_check_not_ready() {
+    let out = out("unknown-model");
+    let mut command = server(
+        &out,
+        &["provider.profile=anthropic", "provider.model=claude-opus-9"],
+    );
+    command.env("ANTHROPIC_API_KEY", "sk-unknown-model-not-a-key");
+    let mut c = Client::start(&mut command).unwrap();
+    c.roots = vec![format!(
+        "file://{}",
+        repo_root().join("fixtures/images").display()
+    )];
+    let refused = c.call(
+        "source_fidelity",
+        json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+    );
+    let Err(Failure::Rpc {
+        code,
+        message,
+        data,
+    }) = refused
+    else {
+        panic!("expected a JSON-RPC error, got {refused:?}");
+    };
+    assert_eq!(code, -32602);
+    assert!(!message.contains("sk-unknown-model-not-a-key"), "{message}");
+    let data = data.unwrap();
+    assert_eq!(data["reason"], "not_ready", "{data}");
+    assert_eq!(data["run"], serde_json::Value::Null);
+    let requirements = data["requirements"].as_array().unwrap();
+    assert_eq!(requirements.len(), 1, "{data}");
+    assert_eq!(requirements[0]["kind"], "config");
+    assert_eq!(requirements[0]["state"], "invalid");
+    assert!(
+        requirements[0]["setup"]
+            .as_str()
+            .unwrap()
+            .contains("claude-opus-9"),
+        "{data}"
+    );
+    assert!(!out.exists(), "a refusal writes nothing");
+}

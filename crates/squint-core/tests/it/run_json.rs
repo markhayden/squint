@@ -480,7 +480,8 @@ fn a_call_that_never_left_costs_nothing() {
     assert_eq!(refused.spend.unresolved_usd, 0.0);
 }
 
-/// An authentication rejection is an answer that refuses before any work: zero, not unresolved.
+/// An authentication rejection is an answer that refuses before any work: zero, not unresolved;
+/// its code is `credential`, never retryable (task 9.6).
 #[test]
 fn an_auth_rejection_costs_nothing() {
     let (_, r) = scripted(
@@ -489,6 +490,8 @@ fn an_auth_rejection_costs_nothing() {
         None,
     );
     assert_eq!(r.status, Status::Error);
+    let e = r.error.unwrap();
+    assert_eq!((e.code, e.retryable), (ErrorCode::Credential, false));
     assert_eq!((r.spend.usd, r.spend.unresolved_usd), (0.0, 0.0));
 }
 
@@ -608,6 +611,44 @@ fn a_refused_retry_adds_no_charge() {
         "{:?} vs {charges:?}",
         r.spend
     );
+}
+
+/// The one retry of a 400 that names no cause (F3) draws on the envelope like any retry: when
+/// the envelope cannot cover it, it is refused, never sent, and the run ends `cap`, not
+/// `provider` (table-manners 4.5).
+#[test]
+fn a_causeless_400_retry_the_envelope_cannot_cover_is_cap() {
+    let invalid: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("fixtures/scripts/invalid-then-submit.json")).unwrap(),
+    )
+    .unwrap();
+    let causeless: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("fixtures/scripts/causeless-400-then-submit.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    let mut first = invalid[0].clone();
+    first["usage"] = serde_json::json!({ "input_tokens": 50_000_000, "output_tokens": 0 });
+    let (dir, r) = scripted(
+        "refused-causeless-retry",
+        serde_json::json!([first, causeless[0].clone(), submission()]),
+        None,
+    );
+    assert_eq!(r.status, Status::Error, "{:?}", r.error);
+    let e = r.error.unwrap();
+    assert_eq!(
+        (e.code, e.retryable),
+        (ErrorCode::Cap, false),
+        "{}",
+        e.reason
+    );
+    let journal = std::fs::read_to_string(dir.join("run-1/journal.jsonl")).unwrap();
+    let retries = journal
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|e| e["event"] == "retry")
+        .count();
+    assert_eq!(retries, 1, "the one retry was asked for, then refused");
 }
 
 /// A successful answer that reports no usage is not free: it counts the turn's bound, the

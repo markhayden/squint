@@ -20,7 +20,7 @@ use serde_json::{Map, Value, json};
 use squint_core::config::Config;
 use squint_core::contract;
 use squint_core::ledger::{CapLedger, Ledger};
-use squint_core::readiness::{Answers, Inspection};
+use squint_core::readiness::{self, Answers, Inspection, Needs};
 use squint_core::tool::ToolRegistry;
 use table_manners::Description;
 use table_manners::images::ImageSlot;
@@ -464,6 +464,29 @@ impl Server {
         }
     }
 
+    /// Whether a check may run (table-manners 3.1, task 9.6): of the requirements it needs (the
+    /// configuration; and, since it sends to the provider and offers this server's tools, the
+    /// credential, the model and the segmenter file when a tool runs it), none is `missing` or
+    /// `invalid` now, the session's provider answers included. Otherwise its `not_ready` refusal
+    /// naming only those, before any run. An `estimate` is never gated here: it answers with its
+    /// own readiness refusal (table-manners 4.5).
+    fn ready_for_check(&self) -> Result<(), ErrorData> {
+        let needs = Needs {
+            provider: true,
+            tools: self
+                .inner
+                .tools
+                .manifests()
+                .map(|m| m.name.clone())
+                .collect(),
+        };
+        let unmet = self.inner.inspection.unmet(&self.inner.answers, &needs);
+        if !unmet.is_empty() {
+            return Err(not_ready(unmet));
+        }
+        self.configured().map(|_| ())
+    }
+
     /// The association a run of this server carries: its session, the request's `client_run_id`
     /// when it sent one, and the action.
     fn association(&self, action: &str, client_run_id: Option<String>) -> contract::Association {
@@ -582,8 +605,10 @@ impl Server {
         };
         let provider = match crate::provider_for(&mut config, &opts) {
             Ok(p) => p,
+            // What `ready_for_check` cannot see (an adapter this build lacks) is the request's
+            // to fix.
             Err(m) => {
-                let e = squint_core::Error::Auth(m);
+                let e = squint_core::Error::Config(m);
                 return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
             }
         };
@@ -909,42 +934,24 @@ fn refused_estimate(e: &squint_core::Error) -> ErrorData {
 /// 3.1): `-32602` with `{"reason": "not_ready", "run": null, "requirements": [...]}`, before any
 /// run, so it writes nothing, spends nothing and releases its `client_run_id` (4.4).
 fn not_ready(requirements: Vec<table_manners::Requirement>) -> ErrorData {
-    let names: Vec<String> = requirements
-        .iter()
-        .map(|r| format!("{} {}", r.name, word_of(&r.state)))
-        .collect();
+    let message = format!(
+        "{}; call describe for every action's readiness",
+        readiness::not_ready_message(&requirements)
+    );
     let refusal = table_manners::Refusal {
         reason: table_manners::RefusalReason::NotReady,
         run: None,
         requirements: Some(requirements),
         error: None,
     };
-    ErrorData::invalid_params(
-        format!(
-            "not ready: {}; call describe for what to set up",
-            names.join(", ")
-        ),
-        serde_json::to_value(refusal).ok(),
-    )
-}
-
-/// A requirement state's word.
-fn word_of(state: &table_manners::RequirementState) -> &'static str {
-    use table_manners::RequirementState as S;
-    match state {
-        S::Missing => "missing",
-        S::Present => "present",
-        S::Valid => "valid",
-        S::Invalid => "invalid",
-        S::Unknown => "unknown",
-    }
+    ErrorData::invalid_params(message, serde_json::to_value(refusal).ok())
 }
 
 /// A request's hold on its `client_run_id` (table-manners 4.4, squint's M8 review S3). Dropped
 /// when the request ends: a request that got a run keeps the id (the claim names the run), and so
 /// does one cancelled before allocation (the client retries under a new id); any other request
-/// that ends with no run (a JSON-RPC error: arguments refused, a failed `roots/list`, a server
-/// error) releases it, so the corrected request may use it.
+/// that ends with no run (a JSON-RPC error: arguments refused, a `not_ready` refusal, a failed
+/// `roots/list`, a server error) releases it, so the corrected request may use it.
 struct Claim {
     inner: Arc<Inner>,
     id: String,
@@ -1318,10 +1325,11 @@ impl ServerHandler for Server {
             _ => None,
         };
         let association = self.association(&name, client_run_id);
-        // A call that makes a run needs the configuration; without one it is refused here,
-        // before roots, the permit or any directory (table-manners 3.1).
-        if makes_run {
-            self.configured()?;
+        // A check needs the configuration, the credential, the model and the files its tools
+        // run; one that is `missing` or `invalid` refuses the call here, before roots, the permit
+        // or any directory, releasing its claim (table-manners 3.1).
+        if is_check {
+            self.ready_for_check()?;
         }
         // A client that offers roots is asked for them on every call that reads images: they may
         // have changed.

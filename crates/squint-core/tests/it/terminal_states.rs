@@ -360,3 +360,110 @@ fn an_expected_reference_that_does_not_match_is_input_before_anything_else() {
     assert_eq!(names(&events(&o.dir)), ["error"]);
     assert_eq!(p.remaining(), 1, "the provider was never called");
 }
+
+/// A scripted case from inline JSON, with the decision's `run.json`.
+fn inline_case(
+    tag: &str,
+    script: serde_json::Value,
+    overrides: &[&str],
+) -> (run::Outcome, ScriptedProvider, serde_json::Value) {
+    let out = tempdir(tag);
+    let p = ScriptedProvider::from_json(&script.to_string()).unwrap();
+    let t = tools("empty.json");
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let o = block_on(run::check(
+        &config(overrides),
+        &job,
+        &root(),
+        &run::Services::new(&p, &t),
+        &out,
+        "test",
+    ))
+    .unwrap();
+    let result =
+        serde_json::from_str(&std::fs::read_to_string(o.dir.join("run.json")).unwrap()).unwrap();
+    (o, p, result)
+}
+
+/// The held submission, the turn a script ends with when it gets that far.
+fn held_turn() -> serde_json::Value {
+    let held: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(root().join("fixtures/scripts/held.json")).unwrap(),
+    )
+    .unwrap();
+    held[0].clone()
+}
+
+/// Task 9.6: a provider's 401 or 403 during a run is `credential` (table-manners 2.2): `error`,
+/// never retryable, no retry attempted, costing nothing (the answer refused before any work).
+#[test]
+fn a_rejected_credential_is_credential_never_retried_and_costs_nothing() {
+    for status in [401, 403] {
+        let (o, p, r) = inline_case(
+            &format!("credential-{status}"),
+            serde_json::json!([{ "error": { "status": status, "message": "invalid x-api-key" } }, held_turn()]),
+            &["budget.retries=3"],
+        );
+        assert_eq!(o.exit_code, 3, "{status}");
+        assert_eq!(error_class(&o), "credential", "{status}");
+        assert_eq!(r["status"], "error", "{status}");
+        assert_eq!(r["error"]["code"], "credential", "{status}");
+        assert_eq!(r["error"]["retryable"], false, "{status}");
+        assert_eq!(r["spend"]["usd"], 0.0, "{status}");
+        assert_eq!(r["spend"]["unresolved_usd"], 0.0, "{status}");
+        assert!(
+            !names(&events(&o.dir)).contains(&"retry"),
+            "{status}: no retry"
+        );
+        assert_eq!(
+            p.remaining(),
+            1,
+            "{status}: nothing sent after the rejection"
+        );
+    }
+}
+
+/// Task 9.6: `retryable` is the tool's judgement per occurrence. A 529 the retries could not get
+/// past may pass later: `provider`, retryable.
+#[test]
+fn a_529_after_the_retries_is_a_retryable_provider_error() {
+    let overloaded = serde_json::json!({ "error": { "status": 529, "retry_after_s": 0 } });
+    let (o, p, r) = inline_case(
+        "overloaded",
+        serde_json::json!([overloaded, overloaded, overloaded, held_turn()]),
+        &["budget.retries=2"],
+    );
+    assert_eq!(error_class(&o), "provider");
+    assert_eq!(r["status"], "error");
+    assert_eq!(r["error"]["code"], "provider");
+    assert_eq!(r["error"]["retryable"], true);
+    assert_eq!(
+        names(&events(&o.dir))
+            .iter()
+            .filter(|e| **e == "retry")
+            .count(),
+        2
+    );
+    assert_eq!(p.remaining(), 1);
+}
+
+/// Task 9.6: a 400 is the provider rejecting the request as sent; the same request fails again,
+/// so it is `provider`, not retryable, and never retried.
+#[test]
+fn a_400_is_a_provider_error_no_retry_can_mend() {
+    let (o, p) = run_case(
+        "bad-request",
+        "bad-request.json",
+        "empty.json",
+        &["budget.retries=2"],
+        "pair.toml",
+    );
+    assert_eq!(error_class(&o), "provider_rejected");
+    let r: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(o.dir.join("run.json")).unwrap()).unwrap();
+    assert_eq!(r["status"], "error");
+    assert_eq!(r["error"]["code"], "provider");
+    assert_eq!(r["error"]["retryable"], false);
+    assert!(!names(&events(&o.dir)).contains(&"retry"));
+    assert_eq!(p.remaining(), 1);
+}

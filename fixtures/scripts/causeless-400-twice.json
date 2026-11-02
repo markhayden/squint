@@ -1,0 +1,53 @@
+[
+  {
+    "error": {
+      "status": 400,
+      "message": "{\"error\":{\"code\":400,\"message\":\"Request contains an invalid argument.\",\"status\":\"INVALID_ARGUMENT\"}}",
+      "causeless": true
+    }
+  },
+  {
+    "error": {
+      "status": 400,
+      "message": "{\"error\":{\"code\":400,\"message\":\"Request contains an invalid argument.\",\"status\":\"INVALID_ARGUMENT\"}}",
+      "causeless": true
+    }
+  },
+  {
+    "tool_calls": [
+      {
+        "id": "c_submit",
+        "name": "submit_verdict",
+        "arguments": {
+          "schema_version": 1,
+          "items": [
+            {
+              "id": "chk:ob:SF1@candidate",
+              "disposition": "held",
+              "confidence": "confident",
+              "reason": "scripted",
+              "allowed_by": null,
+              "location": null,
+              "evidence": []
+            },
+            {
+              "id": "chk:ob:SF2@candidate",
+              "disposition": "held",
+              "confidence": "confident",
+              "reason": "scripted",
+              "allowed_by": null,
+              "location": null,
+              "evidence": []
+            }
+          ],
+          "findings": [],
+          "opinion": {
+            "verdict": "pass",
+            "reason": "r"
+          }
+        }
+      }
+    ],
+    "stop_reason": "tool_use"
+  }
+]

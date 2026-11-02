@@ -511,7 +511,7 @@ impl GeminiProvider {
         let headers = self.headers();
         let response = self.transport.post_json(&self.url, &headers, &body).await?;
         let request_id = response.header("x-request-id").map(str::to_string);
-        let response = response.ok()?;
+        let response = response.ok(names_no_cause)?;
         self.parse_response(&response.body, request_id)
     }
 }
@@ -566,4 +566,37 @@ pub fn host_of(base_url: &str) -> String {
         .next()
         .unwrap_or_default()
         .to_string()
+}
+
+/// The message Google's APIs give an `INVALID_ARGUMENT` without saying which argument.
+pub const GENERIC_INVALID_ARGUMENT: &str = "Request contains an invalid argument.";
+
+/// Whether a Gemini error body names no cause (F3): the `google.rpc.Status` envelope
+/// `{"error": {"code": …, "message": …, "status": …, "details": […]}}` with no `details` (no
+/// field violation, no error info) and a message that is empty or exactly
+/// [`GENERIC_INVALID_ARGUMENT`]. A message naming a field
+/// (`* GenerateContentRequest.contents: contents is not specified`), any `details` entry (an
+/// invalid key is a 400 with `ErrorInfo` reason `API_KEY_INVALID`), and a body that is not the
+/// envelope all name a cause, or may, and stay final.
+pub fn names_no_cause(body: &str) -> bool {
+    let Ok(v) = serde_json::from_str::<Value>(body) else {
+        return false;
+    };
+    let Some(Value::Object(error)) = v.get("error") else {
+        return false;
+    };
+    let no_details = match error.get("details") {
+        None | Some(Value::Null) => true,
+        Some(Value::Array(d)) => d.is_empty(),
+        Some(_) => false,
+    };
+    let generic = match error.get("message") {
+        None | Some(Value::Null) => true,
+        Some(Value::String(m)) => {
+            let m = m.trim();
+            m.is_empty() || m == GENERIC_INVALID_ARGUMENT
+        }
+        Some(_) => false,
+    };
+    no_details && generic
 }

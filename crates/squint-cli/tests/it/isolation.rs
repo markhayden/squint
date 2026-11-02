@@ -275,3 +275,78 @@ fn an_image_id_that_is_not_a_plain_token_is_a_usage_error() {
     assert_eq!(o.status.code(), Some(64));
     assert!(String::from_utf8_lossy(&o.stderr).contains("ids are ASCII letters"));
 }
+
+/// Every file under `dir`, recursively.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            out.extend(files_under(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// F5: a provider's error excerpt that echoes the expanded secret, raw and JSON-escaped, reaches
+/// neither stderr nor any file of the decision.
+#[test]
+fn a_provider_error_excerpt_never_carries_the_secret_to_stderr_or_the_decision() {
+    // A quote and a backslash, so the JSON-escaped form differs from the raw one.
+    let secret = "SYNTHETIC-isolation\"acct\\5d20";
+    let escaped = serde_json::to_string(secret).unwrap();
+    let escaped = escaped.trim_matches('"').to_string();
+    let tmp = std::env::temp_dir().join(format!("squint-isolation-excerpt-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(&tmp).unwrap();
+    let message = format!("{{\"error\":{{\"message\":\"account {escaped}\"}}}} raw {secret}");
+    let script = tmp.join("excerpt.json");
+    std::fs::write(
+        &script,
+        serde_json::to_string(&serde_json::json!([
+            {"error": {"status": 503, "retry_after_s": 0, "message": message}},
+            {"error": {"status": 404, "message": message}},
+        ]))
+        .unwrap(),
+    )
+    .unwrap();
+    let out = tmp.join("out");
+    let o = Command::new(env!("CARGO_BIN_EXE_squint"))
+        .current_dir(repo_root())
+        .env("SQUINT_TEST_ACCOUNT", secret)
+        .args([
+            "check",
+            "--config",
+            "fixtures/config/secret.toml",
+            "--job",
+            "fixtures/jobs/pair.toml",
+            "--provider-script",
+            script.to_str().unwrap(),
+            "--out",
+            out.to_str().unwrap(),
+        ])
+        .output()
+        .unwrap();
+    let stderr = String::from_utf8_lossy(&o.stderr);
+    assert!(stderr.contains("[redacted]"), "{stderr}");
+    let dir = std::fs::read_dir(&out)
+        .unwrap()
+        .map(|e| e.unwrap().path())
+        .find(|p| p.is_dir())
+        .unwrap();
+    assert!(events(&dir).iter().any(|e| e == "retry"));
+    for needle in [secret, escaped.as_str()] {
+        assert!(!stderr.contains(needle), "stderr: {stderr}");
+        assert!(!String::from_utf8_lossy(&o.stdout).contains(needle));
+        for f in files_under(&dir) {
+            let bytes = std::fs::read(&f).unwrap();
+            assert!(
+                !bytes.windows(needle.len()).any(|w| w == needle.as_bytes()),
+                "{} carries the secret",
+                f.display()
+            );
+        }
+    }
+}

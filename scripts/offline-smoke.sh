@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # The offline smoke for an installed `squint` binary: version, the two inspection commands and a
-# live check with no credential, which must stop with the auth error before anything leaves the
-# machine. Runs from a scratch directory, never from the repository tree.
+# live check with no credential, which must stop `not ready`, naming the key, before anything
+# leaves the machine. Runs from a scratch directory, never from the repository tree.
 #
 #   scripts/offline-smoke.sh /path/to/squint
 set -euo pipefail
@@ -37,8 +37,8 @@ set +e
 err="$(env -u ANTHROPIC_API_KEY "$bin" check --config smoke.toml --candidate a.png --source b.png --use-case source-fidelity 2>&1 >/dev/null)"
 code=$?
 set -e
-if [ "$code" -ne 64 ] || ! grep -q 'auth:' <<< "$err"; then
-  echo "check without a credential: expected exit 64 with an auth error, got exit $code: $err" >&2; exit 1
+if [ "$code" -ne 64 ] || ! grep -q 'not ready: ANTHROPIC_API_KEY missing' <<< "$err"; then
+  echo "check without a credential: expected exit 64 not ready for ANTHROPIC_API_KEY, got exit $code: $err" >&2; exit 1
 fi
 # The report viewer, run as a host runs a server render (table-manners 3.2): its stdin held open
 # by a pipe from a sleeping writer (a background job's stdin is /dev/null, and end of file stops

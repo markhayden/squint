@@ -243,13 +243,17 @@ impl Association {
 
 /// How a squint error class reads in the contract (table-manners 2.1, 2.2): the status, and for
 /// `invalid` and `error` the code and whether an identical retry may succeed. A request that
-/// could not be resolved (the job, the config, a credential) or an image that is not the one
-/// named is the caller's to fix; a model or provider failure may pass on a retry.
+/// could not be resolved (the job, the config) or an image that is not the one named is the
+/// caller's to fix; a credential the provider rejected is a person's to replace; a model or
+/// provider failure may pass on a retry, unless the provider rejected the request as sent
+/// (`provider_rejected`: a 400, 404 or 422).
 pub fn status_of(class: &str) -> (Status, Option<(ErrorCode, bool)>) {
     match class {
         "cancelled" => (Status::Cancelled, None),
         "input" | "image_limit" => (Status::Invalid, Some((ErrorCode::Input, false))),
-        "resolve" | "auth" => (Status::Invalid, Some((ErrorCode::Usage, false))),
+        "resolve" => (Status::Invalid, Some((ErrorCode::Usage, false))),
+        "credential" => (Status::Error, Some((ErrorCode::Credential, false))),
+        "provider_rejected" => (Status::Error, Some((ErrorCode::Provider, false))),
         "provider" | "submission_invalid" | "no_submission" | "model_output" => {
             (Status::Error, Some((ErrorCode::Provider, true)))
         }
@@ -1258,13 +1262,14 @@ mod tests {
             Error::Input(_) | Error::ImageLimit(_) => {
                 (Status::Invalid, Some((ErrorCode::Input, false)))
             }
-            Error::Config(_)
-            | Error::Job(_)
-            | Error::Image(_)
-            | Error::Toml(_)
-            | Error::Auth(_) => (Status::Invalid, Some((ErrorCode::Usage, false))),
+            Error::Config(_) | Error::Job(_) | Error::Image(_) | Error::Toml(_) => {
+                (Status::Invalid, Some((ErrorCode::Usage, false)))
+            }
+            Error::Credential(_) => (Status::Error, Some((ErrorCode::Credential, false))),
+            // The tool's judgement for this occurrence (2.2): a failure the spec retries (a 5xx,
+            // 429 or timeout, after the retries ran out) may pass on a retry; a 400 never will.
+            Error::Transport(t) => (Status::Error, Some((ErrorCode::Provider, t.retryable()))),
             Error::Provider(_)
-            | Error::Transport(_)
             | Error::Submission(_)
             | Error::NoSubmission(_)
             | Error::ModelOutput(_) => (Status::Error, Some((ErrorCode::Provider, true))),
@@ -1287,13 +1292,28 @@ mod tests {
             Error::Job(s()),
             Error::Image(s()),
             Error::Toml(toml::from_str::<toml::Value>("=").unwrap_err()),
-            Error::Auth(s()),
+            Error::Credential(s()),
             Error::Provider(s()),
             Error::Transport(crate::retry::TransportError {
                 status: Some(503),
                 retry_after: None,
                 message: s(),
                 sent: true,
+                causeless: false,
+            }),
+            Error::Transport(crate::retry::TransportError {
+                status: None,
+                retry_after: None,
+                message: s(),
+                sent: true,
+                causeless: false,
+            }),
+            Error::Transport(crate::retry::TransportError {
+                status: Some(400),
+                retry_after: None,
+                message: s(),
+                sent: true,
+                causeless: false,
             }),
             Error::Submission(s()),
             Error::NoSubmission(s()),

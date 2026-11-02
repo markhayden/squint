@@ -280,6 +280,12 @@ fn check(args: &CheckArgs) -> i32 {
         eprintln!("squint: {e}");
         return EXIT_USAGE;
     }
+    // What this check needs that is missing or invalid stops it here, before any run directory,
+    // naming the requirements as a server's `not_ready` refusal does (table-manners 3.1).
+    if let Err(message) = ready(args, &config, &tools) {
+        eprintln!("squint: {message}");
+        return EXIT_USAGE;
+    }
     if args.dry_run {
         return match squint_core::run::resolve_rules(&config, &job, Path::new("."), &tools) {
             Ok(p) => {
@@ -362,7 +368,10 @@ fn check(args: &CheckArgs) -> i32 {
                         .unwrap_or_default()
                         .trim_matches('"')
                 ),
-                (None, Some(e)) => eprintln!("error: {}", redacted(e, &config)),
+                (None, Some(e)) => eprintln!(
+                    "error: {}",
+                    squint_core::artifacts::redact(e, &config.secrets)
+                ),
                 (None, None) => eprintln!("error: run ended without a verdict or an error"),
             }
             if o.cache.is_hit() {
@@ -383,13 +392,47 @@ fn check(args: &CheckArgs) -> i32 {
             }
         }
         Err(e) => {
-            eprintln!("squint: {}", redacted(&e.to_string(), &config));
+            eprintln!(
+                "squint: {}",
+                squint_core::artifacts::redact(&e.to_string(), &config.secrets)
+            );
             // A signal that landed before the decision was allocated still exits as signalled.
             match signalled.load(std::sync::atomic::Ordering::SeqCst) {
                 0 => squint_core::run::EXIT_ERROR,
                 code => code,
             }
         }
+    }
+}
+
+/// Whether a command-line check may run (task 9.6): of what it needs, nothing `missing` or
+/// `invalid` by the same local inspection `describe` makes, else the `not_ready` sentence. A dry
+/// run sends nothing and runs no tool, so it needs only the configuration; a replay sends nothing
+/// to the provider, so it needs no credential.
+fn ready(
+    args: &CheckArgs,
+    config: &Config,
+    tools: &squint_core::tool::ToolRegistry,
+) -> Result<(), String> {
+    use squint_core::config::{ConfigFile, ConfigState};
+    use squint_core::readiness::{Answers, Needs, config_requirement, not_ready_message};
+    let needs = Needs {
+        provider: !args.dry_run && args.replay.is_none(),
+        tools: if args.dry_run {
+            Vec::new()
+        } else {
+            tools.manifests().map(|m| m.name.clone()).collect()
+        },
+    };
+    let file = ConfigFile {
+        path: Config::locate(args.input.config.as_deref()).path,
+        state: ConfigState::Loaded(Box::new(config.clone())),
+    };
+    let unmet = inspect(config, config_requirement(&file)).unmet(&Answers::default(), &needs);
+    if unmet.is_empty() {
+        Ok(())
+    } else {
+        Err(not_ready_message(&unmet))
     }
 }
 
@@ -447,17 +490,6 @@ async fn cancel_on_signal(
     };
     signalled.store(code, std::sync::atomic::Ordering::SeqCst);
     cancel.cancel();
-}
-
-/// Error text never carries an expanded secret.
-fn redacted(text: &str, config: &Config) -> String {
-    let mut out = text.to_string();
-    for s in &config.secrets {
-        if !s.is_empty() {
-            out = out.replace(s, "[redacted]");
-        }
-    }
-    out
 }
 
 /// `squint estimate --json`: the contract's estimate of one check (table-manners 4.5), the same

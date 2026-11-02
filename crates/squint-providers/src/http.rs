@@ -3,8 +3,8 @@
 //! timeout, same-origin redirects only: another host, scheme or port is `error: provider`); the
 //! replay player and recorder in `replay` implement it for fixtures. A response of any status
 //! comes back as `Response`; `Response::ok` turns a non-2xx into `Error::Transport` with the
-//! status and `retry-after`, so the run loop decides about retries. Messages never carry the URL
-//! or headers.
+//! status, `retry-after` and, for a 400, whether the adapter reads the body as naming no cause,
+//! so the run loop decides about retries. Messages never carry the URL or headers.
 
 use std::collections::BTreeMap;
 use std::future::Future;
@@ -58,17 +58,22 @@ impl Response {
     }
 
     /// 2xx is `Ok`; anything else is a transport error carrying the status, `retry-after` and the
-    /// start of the body, for the run loop's retry decision.
-    pub fn ok(self) -> Result<Response> {
+    /// start of the body, for the run loop's retry decision. `names_no_cause` is the adapter's
+    /// reading of its provider's error body; it is asked only about a 400 with a non-empty body
+    /// (an empty one names no cause whoever sent it).
+    pub fn ok(self, names_no_cause: fn(&str) -> bool) -> Result<Response> {
         if (200..300).contains(&self.status) {
             return Ok(self);
         }
+        let causeless =
+            self.status == 400 && (self.body.trim().is_empty() || names_no_cause(&self.body));
         let excerpt: String = self.body.chars().take(ERROR_BODY_BYTES).collect();
         Err(Error::Transport(TransportError {
             status: Some(self.status),
             retry_after: self.retry_after(),
             message: format!("HTTP {}: {excerpt}", self.status),
             sent: true,
+            causeless,
         }))
     }
 }
@@ -119,6 +124,7 @@ impl Client {
                 retry_after: None,
                 message: format!("reading the response body: {}", strip_url(e)),
                 sent: true,
+                causeless: false,
             })
         })?;
         Ok(Response {
@@ -142,6 +148,7 @@ impl Client {
                 retry_after: None,
                 message: format!("reading the response body: {}", strip_url(e)),
                 sent: true,
+                causeless: false,
             })
         })?;
         if !(200..300).contains(&status) {
@@ -150,6 +157,7 @@ impl Client {
                 retry_after: None,
                 message: format!("HTTP {status}"),
                 sent: true,
+                causeless: false,
             }));
         }
         Ok(bytes.to_vec())
@@ -206,6 +214,7 @@ fn map_send_error(e: reqwest::Error) -> Error {
         message,
         // A connection that failed carried no request; a timeout may have.
         sent: !connect,
+        causeless: false,
     })
 }
 

@@ -43,9 +43,11 @@ pub enum Error {
     /// pinned SHA-256 or its expected reference (table-manners `input`).
     #[error("input: {0}")]
     Input(String),
-    /// A credential the configured auth scheme needs is missing.
-    #[error("auth: {0}")]
-    Auth(String),
+    /// A provider rejected the credential (HTTP 401 or 403) during a run (table-manners
+    /// `credential`): never retried. A credential missing before a run never reaches one: the
+    /// call is refused `not_ready` (3.1).
+    #[error("credential: {0}")]
+    Credential(String),
     /// An image exceeds a limit: the decode bound, or a provider's image limits (count, size,
     /// bytes); never downscaled silently. The caller's input (table-manners `input`).
     #[error("image_limit: {0}")]
@@ -54,7 +56,9 @@ pub enum Error {
     #[error("provider: {0}")]
     Provider(String),
     /// A transport failure from an adapter: status and `retry-after` let the state machine decide
-    /// whether to retry (see `retry`).
+    /// whether to retry (see `retry`). One the spec never retries (a 400, 404, 422, or a 400
+    /// naming no cause after its one retry) is the class `provider_rejected`, so the result says
+    /// an identical retry would fail again.
     #[error("provider: {0}")]
     Transport(retry::TransportError),
     /// The model's submission did not validate.
@@ -98,6 +102,7 @@ impl Error {
     pub fn class(&self) -> &'static str {
         match self {
             Error::Config(_) | Error::Job(_) | Error::Image(_) | Error::Toml(_) => "resolve",
+            Error::Transport(t) if !t.retryable() => "provider_rejected",
             Error::Provider(_) | Error::Transport(_) => "provider",
             Error::Tool(_) => "tool",
             Error::Budget(_) => "budget",
@@ -106,7 +111,7 @@ impl Error {
             Error::Input(_) => "input",
             Error::Cancelled(_) => "cancelled",
             Error::ImageLimit(_) => "image_limit",
-            Error::Auth(_) => "auth",
+            Error::Credential(_) => "credential",
             Error::Submission(_) => "submission_invalid",
             Error::NoSubmission(_) => "no_submission",
             Error::ModelOutput(_) => "model_output",

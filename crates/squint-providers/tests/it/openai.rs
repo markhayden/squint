@@ -442,3 +442,58 @@ fn openai_without_usage_reports_none() {
     let r = p.parse_response(&body.to_string(), None).unwrap();
     assert_eq!(r.usage, None);
 }
+
+/// F3: an OpenAI 400 names no cause only when its body is empty or the error envelope has no
+/// message, no `param` and no `code`; any of them is a cause.
+#[tokio::test]
+async fn openai_a_400_names_no_cause_only_without_message_param_or_code() {
+    let (p, t) = provider("gpt-6.1-sol", "", json!({}));
+    let (h, tl, im) = (history(), tools(), images());
+    let envelope = |message: &str, param: Value, code: Value| {
+        json!({ "error": { "message": message, "type": "invalid_request_error", "param": param, "code": code } }).to_string()
+    };
+    let cases = [
+        (400, String::new(), true),
+        (400, envelope("", Value::Null, Value::Null), true),
+        (
+            400,
+            envelope(
+                "Invalid image.",
+                json!("input[0].content[1].image_url"),
+                json!("invalid_value"),
+            ),
+            false,
+        ),
+        (400, envelope("", json!("input"), Value::Null), false),
+        (
+            400,
+            envelope("", Value::Null, json!("invalid_value")),
+            false,
+        ),
+        (
+            400,
+            envelope(
+                "We could not parse the JSON body of your request.",
+                Value::Null,
+                Value::Null,
+            ),
+            false,
+        ),
+        (400, "Bad Request".to_string(), false),
+        (422, String::new(), false),
+    ];
+    for (status, body, causeless) in cases {
+        *t.response.lock().unwrap() = Response {
+            status,
+            headers: BTreeMap::new(),
+            body: body.clone(),
+        };
+        match p.send(request(&h, &tl, &im)).await.unwrap_err() {
+            squint_core::Error::Transport(e) => {
+                assert_eq!(e.causeless_rejection(), causeless, "{status} {body:?}");
+                assert!(!e.retryable(), "{status} {body:?}");
+            }
+            other => panic!("{other}"),
+        }
+    }
+}
