@@ -160,8 +160,10 @@ pub trait Provider: Send + Sync {
     fn pricing(&self) -> Option<&dyn crate::ledger::Pricing> {
         None
     }
-    /// The image preparation this provider applies (SPEC "Image preparation"); part of the cache
-    /// key. `canonical` means the canonical pixels are sent as they are.
+    /// The image preparation this provider applies (SPEC "Image preparation"); with the
+    /// decision's [`ImagePlan`](crate::image::ImagePlan) it makes the recorded `prep_version`,
+    /// part of the cache key and the input identity. `canonical` means the canonical pixels are
+    /// sent as they are.
     fn prep_version(&self) -> &str {
         "canonical"
     }
@@ -170,10 +172,16 @@ pub trait Provider: Send + Sync {
     fn recipient(&self) -> Option<crate::report::Recipient> {
         None
     }
-    /// Prepares one image for this provider (SPEC "Image preparation"): the bytes the adapter
-    /// attaches for the content-block id. The default sends the canonical pixels as lossless PNG.
-    fn prepare_image(&self, id: &str, pixels: &image::DynamicImage) -> Result<Prepared> {
-        crate::image::canonical_png(id, pixels)
+    /// Prepares one image for this provider (SPEC "Image preparation") under the decision's plan:
+    /// the bytes the adapter attaches for the content-block id. The default sends the canonical
+    /// pixels as lossless PNG, fitted to the plan's long edge when it names one.
+    fn prepare_image(
+        &self,
+        id: &str,
+        pixels: &image::DynamicImage,
+        plan: crate::image::ImagePlan,
+    ) -> Result<Prepared> {
+        crate::image::canonical_png(id, pixels, plan)
     }
 }
 

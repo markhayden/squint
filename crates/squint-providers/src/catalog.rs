@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use squint_core::config::Config;
+use squint_core::image::{ManyImages, RequestImageLimits};
 use squint_core::ledger::{Pricing, RequestShape};
 use squint_core::provider::Usage;
 use squint_core::{Error, Result};
@@ -575,6 +576,21 @@ impl Pricing for Model {
         Ok(input as f64 * in_price / 1e6
             + shape.output_tokens as f64 * out_price / 1e6
             + shape.images as f64 * self.prices.per_image)
+    }
+
+    /// The count per request and the many-image threshold with its stricter long edge.
+    fn image_limits(&self) -> Option<RequestImageLimits> {
+        Some(RequestImageLimits {
+            max_per_request: self.images.max_per_request,
+            many: self
+                .images
+                .many_image_threshold
+                .zip(self.images.many_image_max_dimension_px)
+                .map(|(threshold, max_long_edge)| ManyImages {
+                    threshold,
+                    max_long_edge,
+                }),
+        })
     }
 
     /// Settled usage: uncached input at the input rate, cache reads at the cached rate, cache

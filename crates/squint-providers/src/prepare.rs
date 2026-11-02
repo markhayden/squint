@@ -3,11 +3,13 @@
 //! native size (never upscaled), encoded as JPEG at a pinned quality, or as PNG when the image has
 //! an alpha channel, with no metadata, and hashed. Preflight runs over a whole outgoing request,
 //! counting every image in the history including tool results, and refuses a request that would
-//! exceed any catalog limit with `error: image_limit`; nothing is ever downscaled silently.
+//! exceed any catalog limit with `error: image_limit`; nothing is ever downscaled silently. When a
+//! conversation can pass the many-image threshold, resolve plans every image at the many-image
+//! size from the start ([`ImagePlan::Many`]), so preflight never meets it mid-run.
 
 use std::io::Cursor;
 
-use squint_core::image::{CanonicalImage, Prepared, hex};
+use squint_core::image::{CanonicalImage, ImagePlan, Prepared, fit, hex};
 use squint_core::provider::{ContentBlock, TurnRequest};
 
 use image::codecs::jpeg::JpegEncoder;
@@ -24,21 +26,28 @@ use crate::catalog::Images;
 pub const PREP_VERSION: &str = "1";
 pub const JPEG_QUALITY: u8 = 90;
 
-/// Prepares images for one model.
+/// Prepares images for one model under one decision's plan.
 pub struct Preparer<'a> {
     images: &'a Images,
     long_edge: u32,
+    prep_version: String,
 }
 
 impl<'a> Preparer<'a> {
     /// `max_long_edge` is the config's `images.max_long_edge`, already checked against the native
-    /// size by the catalog; the smaller of the two wins.
-    pub fn new(images: &'a Images, max_long_edge: Option<u32>) -> Preparer<'a> {
-        let long_edge = max_long_edge
-            .map(|m| m.min(images.native_long_edge_px))
-            .unwrap_or(images.native_long_edge_px)
+    /// size by the catalog; the smaller of the two wins, and a many-image plan's edge lowers it
+    /// further. The plan is recorded in every prepared image's `prep_version`.
+    pub fn new(images: &'a Images, max_long_edge: Option<u32>, plan: ImagePlan) -> Preparer<'a> {
+        let long_edge = [max_long_edge, plan.long_edge()]
+            .into_iter()
+            .flatten()
+            .fold(images.native_long_edge_px, u32::min)
             .max(1);
-        Preparer { images, long_edge }
+        Preparer {
+            images,
+            long_edge,
+            prep_version: plan.prep_version(PREP_VERSION),
+        }
     }
 
     /// The long edge prepared images are fitted to.
@@ -110,24 +119,9 @@ impl<'a> Preparer<'a> {
             source_width: sw,
             source_height: sh,
             sha256: hex(&Sha256::digest(&bytes)),
-            prep_version: PREP_VERSION.to_string(),
+            prep_version: self.prep_version.clone(),
             bytes,
         })
-    }
-}
-
-/// The dimensions that fit the long edge, never upscaling, never below 1 pixel.
-pub fn fit(w: u32, h: u32, long_edge: u32) -> (u32, u32) {
-    let long = w.max(h);
-    if long <= long_edge {
-        return (w, h);
-    }
-    let scale = f64::from(long_edge) / f64::from(long);
-    let scaled = |v: u32| ((f64::from(v) * scale).round() as u32).max(1);
-    if w >= h {
-        (long_edge, scaled(h))
-    } else {
-        (scaled(w), long_edge)
     }
 }
 

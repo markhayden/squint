@@ -6,11 +6,11 @@ use std::io::Cursor;
 
 use image::{DynamicImage, ImageEncoder, Rgb, Rgba};
 use squint_core::image::Prepared;
-use squint_core::image::{DecodeBounds, base64_encode, load};
+use squint_core::image::{DecodeBounds, ImagePlan, base64_encode, fit, load};
 use squint_core::job::{ImageSource, ImageSpec, Role};
 use squint_core::provider::{ContentBlock, Message, MessageRole, TurnRequest};
 use squint_providers::catalog::{Catalog, Images};
-use squint_providers::prepare::{PREP_VERSION, Preparer, fit, preflight};
+use squint_providers::prepare::{PREP_VERSION, Preparer, preflight};
 use std::collections::BTreeMap;
 
 fn root() -> std::path::PathBuf {
@@ -52,7 +52,7 @@ fn prepare_is_deterministic_and_fits_the_native_size_exactly() {
     // exercises the same path.
     let mut lim = limits("claude-opus-5-5");
     lim.native_long_edge_px = 320;
-    let p = Preparer::new(&lim, None);
+    let p = Preparer::new(&lim, None, ImagePlan::Standard);
     let big = gradient(500, 375);
     let a = p.prepare("candidate", &big).unwrap();
     let b = p.prepare("candidate", &big).unwrap();
@@ -72,17 +72,74 @@ fn prepare_is_deterministic_and_fits_the_native_size_exactly() {
     // Never upscaled; the config may only lower the target.
     let small = p.prepare("s", &gradient(64, 48)).unwrap();
     assert!(!small.resized());
-    let lower = Preparer::new(&lim, Some(160)).prepare("c", &big).unwrap();
+    let lower = Preparer::new(&lim, Some(160), ImagePlan::Standard)
+        .prepare("c", &big)
+        .unwrap();
     assert_eq!((lower.width, lower.height), (160, 120));
-    assert_eq!(Preparer::new(&lim, Some(99_999)).long_edge(), 320);
+    assert_eq!(
+        Preparer::new(&lim, Some(99_999), ImagePlan::Standard).long_edge(),
+        320
+    );
     assert_eq!(fit(3000, 4000, 1536), (1152, 1536));
     assert_eq!(fit(4000, 3000, 2576), (2576, 1932));
+}
+
+/// F1: a many-image plan lowers the long edge further and is recorded in `prep_version`; the
+/// standard plan is the preparation as it always was.
+#[test]
+fn a_many_image_plan_fits_the_smaller_edge_and_names_itself() {
+    let mut lim = limits("claude-opus-5-5");
+    lim.native_long_edge_px = 320;
+    let big = gradient(500, 375);
+    let usual = Preparer::new(&lim, None, ImagePlan::Standard)
+        .prepare("c", &big)
+        .unwrap();
+    let many = Preparer::new(&lim, None, ImagePlan::Many { long_edge: 200 });
+    assert_eq!(many.long_edge(), 200);
+    let smaller = many.prepare("c", &big).unwrap();
+    assert_eq!((smaller.width, smaller.height), (200, 150));
+    assert_eq!(smaller.prep_version, format!("{PREP_VERSION}+many200"));
+    assert_ne!(smaller.sha256, usual.sha256);
+    // The config's lower edge still wins; the plan is recorded all the same.
+    let lower = Preparer::new(&lim, Some(160), ImagePlan::Many { long_edge: 200 })
+        .prepare("c", &big)
+        .unwrap();
+    assert_eq!((lower.width, lower.height), (160, 120));
+    assert_eq!(lower.prep_version, format!("{PREP_VERSION}+many200"));
+    // An image already within the edge is never upscaled.
+    let small = many.prepare("s", &gradient(64, 48)).unwrap();
+    assert!(!small.resized());
+}
+
+/// The catalog hands resolve each model's per-request count and many-image rule.
+#[test]
+fn catalog_prices_carry_the_models_request_image_limits() {
+    use squint_core::image::{ManyImages, RequestImageLimits};
+    use squint_core::ledger::Pricing;
+    let catalog = Catalog::shipped().unwrap();
+    assert_eq!(
+        catalog.model("claude-opus-5-5").unwrap().image_limits(),
+        Some(RequestImageLimits {
+            max_per_request: 600,
+            many: Some(ManyImages {
+                threshold: 20,
+                max_long_edge: 2000
+            }),
+        })
+    );
+    assert_eq!(
+        catalog.model("gemini-4-argon").unwrap().image_limits(),
+        Some(RequestImageLimits {
+            max_per_request: 3600,
+            many: None,
+        })
+    );
 }
 
 #[test]
 fn prepare_keeps_png_with_alpha_and_drops_metadata() {
     let lim = limits("gemini-4-argon");
-    let p = Preparer::new(&lim, None);
+    let p = Preparer::new(&lim, None, ImagePlan::Standard);
     // An RGBA image with a transparent corner, loaded through the canonical loader.
     let rgba = image::RgbaImage::from_fn(80, 40, |x, y| {
         Rgba([x as u8, y as u8, 7, if x < 20 && y < 20 { 0 } else { 255 }])

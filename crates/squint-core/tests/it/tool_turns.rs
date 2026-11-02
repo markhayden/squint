@@ -6,8 +6,9 @@
 use std::path::PathBuf;
 
 use squint_core::config::Config;
+use squint_core::image::{ImagePlan, ManyImages, RequestImageLimits};
 use squint_core::job::Job;
-use squint_core::provider::{ContentBlock, MessageRole, TurnResponse};
+use squint_core::provider::{ContentBlock, MessageRole, Provider, TurnResponse};
 use squint_core::run;
 use squint_core::tool::{Envelope, Tool, ToolRegistry};
 use squint_testkit::{ScriptedProvider, ScriptedTool};
@@ -694,4 +695,194 @@ fn a_projected_tool_adds_no_evidence_and_the_report_names_the_projection() {
         !shown.contains("chk:ev:"),
         "no evidence item reached the model: {shown}"
     );
+}
+
+// ---- F1: images that can pass the many-image threshold, decided at resolve ------------------
+
+/// The scripted model's limits: `max` images per request, and at most 32 pixels per side once a
+/// request carries more than `threshold`. The pair's images are 64x48 and the crop 32x24.
+fn limits(max: u32, threshold: u32) -> RequestImageLimits {
+    RequestImageLimits {
+        max_per_request: max,
+        many: Some(ManyImages {
+            threshold,
+            max_long_edge: 32,
+        }),
+    }
+}
+
+/// One tool call returning a crop, then the submission, against a model with `limits`: the
+/// default budget of 8 calls of one image each puts the worst case at 2 + 8 = 10 images.
+fn check_limited(
+    tag: &str,
+    limits: Option<RequestImageLimits>,
+) -> (run::Outcome, ScriptedProvider) {
+    let out = tempdir(tag);
+    let p = provider("one-call-cite.json");
+    let p = match limits {
+        Some(l) => p.with_image_limits(l),
+        None => p,
+    };
+    let t = tools("crop-image.json");
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let o = block_on(run::check(
+        &config(&[]),
+        &job,
+        &root(),
+        &run::Services::new(&p, &t),
+        &out,
+        "test",
+    ))
+    .unwrap();
+    (o, p)
+}
+
+fn run_json(dir: &std::path::Path) -> serde_json::Value {
+    serde_json::from_str(&std::fs::read_to_string(dir.join("run.json")).unwrap()).unwrap()
+}
+
+#[test]
+fn a_run_that_can_pass_the_many_image_threshold_is_prepared_smaller_from_the_first_request() {
+    // Threshold 2: the second request carries three images. Prepared at the usual size, the 64x48
+    // job images fail that request mid-run, after the first was paid for.
+    let (o, p) = check_limited("many-images", Some(limits(20, 2)));
+    assert_eq!(o.exit_code, 0, "{:?}", o.error);
+    let recorded = p.recorded.lock().unwrap();
+    assert_eq!(recorded.len(), 2);
+    assert_eq!(
+        recorded[0].image_sizes["candidate"],
+        (32, 24),
+        "smaller from the first request"
+    );
+    assert_eq!(recorded[0].image_sizes["source"], (32, 24));
+    assert_eq!(
+        recorded[1].image_sizes.len(),
+        3,
+        "the crop crossed the threshold"
+    );
+    let r = report(&o.dir);
+    assert_eq!(r["runs"][0]["prep_version"], "canonical+many32");
+    // The spend stays within the reservation the estimate made.
+    assert_eq!(r["cost"]["overrun_usd"], 0.0);
+    assert!(
+        r["cost"]["spent_usd"].as_f64().unwrap() <= r["cost"]["envelope"]["usd"].as_f64().unwrap()
+    );
+}
+
+#[test]
+fn a_run_whose_worst_case_cannot_fit_the_per_request_count_is_refused_before_any_spend() {
+    let (o, p) = check_limited("too-many-images", Some(limits(5, 2)));
+    assert_ne!(o.exit_code, 0);
+    assert!(p.recorded.lock().unwrap().is_empty(), "no request was sent");
+    assert_eq!(p.remaining(), 2);
+    let r = report(&o.dir);
+    let error = &r["runs"][0]["error"];
+    assert_eq!(error["class"], "image_limit", "{error}");
+    assert!(
+        error["message"]
+            .as_str()
+            .unwrap()
+            .contains("can carry 10 images (2 from the job and up to 1 from each of 8 tool calls), over the model's limit of 5 per request"),
+        "{error}"
+    );
+    assert_eq!(r["cost"]["spent_usd"], 0.0);
+    assert_eq!(r["cost"]["attempts"], 0);
+    let events = journal_events(&o.dir);
+    assert!(
+        !events.iter().any(|e| e == "reserved" || e == "turn_sent"),
+        "{events:?}"
+    );
+    assert_eq!(run_json(&o.dir)["error"]["code"], "input");
+}
+
+#[test]
+fn a_run_that_cannot_pass_the_threshold_prepares_exactly_as_before() {
+    // A worst case of 10 against a threshold of 10: the usual preparation, the same requests as a
+    // model with no limits at all, and the same input identity.
+    let (o, p) = check_limited("at-threshold", Some(limits(20, 10)));
+    let (plain, q) = check_limited("no-limits", None);
+    assert_eq!(o.exit_code, 0, "{:?}", o.error);
+    assert_eq!(plain.exit_code, 0, "{:?}", plain.error);
+    let (a, b) = (p.recorded.lock().unwrap(), q.recorded.lock().unwrap());
+    assert_eq!(a[0].image_sizes["candidate"], (64, 48));
+    assert_eq!(*a, *b);
+    assert_eq!(report(&o.dir)["runs"][0]["prep_version"], "canonical");
+    assert_eq!(
+        run_json(&o.dir)["input_identity"],
+        run_json(&plain.dir)["input_identity"]
+    );
+}
+
+#[test]
+fn the_prep_version_is_part_of_the_input_identity_and_the_cache_key() {
+    // The same config, job and tools: only the model's limits differ, so only the preparation.
+    let (many, _) = check_limited("identity-many", Some(limits(20, 2)));
+    let (usual, _) = check_limited("identity-usual", None);
+    assert_ne!(
+        run_json(&many.dir)["input_identity"],
+        run_json(&usual.dir)["input_identity"]
+    );
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let t = tools("crop-image.json");
+    let key = |p: &ScriptedProvider| {
+        let setup = run::setup(&config(&[]), &job, &root(), &t, p.pricing()).unwrap();
+        let plan = setup.image_plan().unwrap();
+        squint_core::cache::KeyInput::gather(&config(&[]), &job, &setup, plan, &t, p, "test")
+            .key()
+            .unwrap()
+    };
+    let plain = ScriptedProvider::new(vec![]);
+    let limited = ScriptedProvider::new(vec![]).with_image_limits(limits(20, 2));
+    assert_ne!(key(&plain), key(&limited));
+}
+
+#[test]
+fn the_estimate_reflects_the_image_plan() {
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let t = tools("crop-image.json");
+    let pricing = |l: Option<RequestImageLimits>| squint_testkit::ScriptedPricing {
+        prices: squint_testkit::FAKE_PRICES,
+        image_limits: l,
+    };
+    // Prepared smaller: planned over the worst case of ten images, the count the plan decided on.
+    let many = pricing(Some(limits(20, 2)));
+    let setup = run::setup(&config(&[]), &job, &root(), &t, Some(&many)).unwrap();
+    assert_eq!(
+        setup.image_plan().unwrap(),
+        ImagePlan::Many { long_edge: 32 }
+    );
+    let envelope = run::envelope(&config(&[]), &job, &root(), &t, &many).unwrap();
+    assert_eq!(envelope.requests.last().unwrap().shape.images, 10);
+    // Refused: the estimate is refused with the run's own error, before any envelope.
+    let err = run::envelope(
+        &config(&[]),
+        &job,
+        &root(),
+        &t,
+        &pricing(Some(limits(5, 2))),
+    )
+    .unwrap_err();
+    assert_eq!(err.class(), "image_limit");
+    let config = config(&[]);
+    let refusing = pricing(Some(limits(5, 2)));
+    let ctx = squint_core::contract::EstimateContext {
+        binder: squint_core::contract::Binder {
+            version: "test",
+            config_identity: None,
+            session_id: None,
+        },
+        config: Some(&config),
+        tools: &t,
+        readiness: table_manners::Readiness {
+            state: table_manners::ReadinessState::Ready,
+            requirements: Vec::new(),
+        },
+        pricing: Some(&refusing),
+        session: None,
+        now_ms: 0,
+        ttl_ms: 1,
+    };
+    let err =
+        squint_core::contract::estimate(&ctx, "source_fidelity", &job, &root(), None).unwrap_err();
+    assert_eq!(err.class(), "image_limit");
 }
