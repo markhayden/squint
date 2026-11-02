@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "input",
+    "reason": "input: candidate: /outside/candidate-64x48.png is a path outside the directories this session allows; send the image inline, or give its directory with --allow-dir",
+    "retryable": false
+  },
+  "reason": "invalid_arguments",
+  "run": null
+}

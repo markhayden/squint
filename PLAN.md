@@ -2415,6 +2415,20 @@ squint's runs root and cache.
 
 ### Task 10.6: Fixtures, docs and the hand-off
 
+**As built** (2026-11-01): beside the list below, `session-narrowed.json` (an `--allow-dir`
+narrowed by `[serve] allow_dirs` to its subdirectory, `/allowed/sub`) and
+`refusal-invalid-arguments-path-outside.json` (the path rule on `estimate`); the path refusals'
+outside directory is written `/outside`. `run-call.json` and `bundle-check/` are made from the
+committed `run-completed.json` (the fake tool's configuration, offline on the scripted provider),
+and the two runs keep the invocation as squint wrote it, equal to `run-completed.json`'s; their
+input identity is zeroed like every served fixture's, since it carries squint's version. The
+validator holds every rule of table-manners' `tests/fixtures.rs` at `v0.4` (`d9e6058`) that
+applies to a tool without operations (schema and type by name; a bundle's members and digests;
+every contract and tool name, steps included; each invocation of its result's action with no
+locator), plus squint's own: no operations field or file, `invocation` null only on `invalid`,
+requirement names never paths, nothing unlisted in a bundle directory. table-manners' own test
+passes on a copy of the directory at that commit.
+
 **Description.** `fixtures/contract/squint/` regenerated for v0.4 by `contract_fixtures.rs` and
 `contract_fixtures_served.rs` with `UPDATE_CONTRACT_FIXTURES=1`, per CONTRACT 7 item 7's v0.4
 list as it applies to a tool without the operations profile:

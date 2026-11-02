@@ -112,13 +112,15 @@ squint is one tool in a chain an agent drives (generate, check with squint, mask
 external interface as its siblings, defined by the shared contract
 [table-manners](https://github.com/markhayden/table-manners): `squint serve` (MCP over stdio),
 `squint describe --json`, `squint estimate --json`, `squint call <action> --arguments <file>` (any
-action from exactly its MCP arguments; `--bundle <path>` replays an invocation bundle), and a `run.json` in every decision directory (ADR
-0018, milestones M7 to M10). It conforms to table-manners v0.4.0 (built against the contract's
-unpublished `v0.4` branch until its release): it describes itself and serves with no
-configuration, each action saying what it still needs (`readiness`); an estimate is a control
-bound to the exact call, never a run; every result records the call it resolved to
-(`invocation`), so it can be run again elsewhere; and its report renders (`report view`, `report
-export`) are ones a host can embed. `squint playground` opens Wafflery, the shared local workspace, on squint. How an agent or a pipeline uses it: [`docs/agents.md`](docs/agents.md).
+action from exactly its MCP arguments; `--bundle <path>` replays an invocation bundle), and a
+`run.json` in every decision directory (ADR 0018, milestones M7 to M10). It conforms to
+table-manners v0.4.0, core and images profile (built against the contract's unpublished `v0.4`
+branch until its release): it describes itself and serves with no configuration, each action a
+`task` saying what it still needs (`readiness`); an estimate is a control bound to the exact call,
+never a run; every result records the call it resolved to (`invocation`), so it can be run again
+elsewhere or replayed from a bundle with the original files gone; image paths are read only inside
+the directories `--allow-dir` names (with none, images come inline); and its report renders
+(`report view`, `report export`) are ones a host can embed. `squint playground` opens Wafflery, the shared local workspace, on squint. How an agent or a pipeline uses it: [`docs/agents.md`](docs/agents.md).
 
 Plan: [`PLAN.md`](PLAN.md). Decisions: [`docs/adr/`](docs/adr/). Reviews of the spec, the plan and
 each milestone: [`docs/reviews/`](docs/reviews/). Developer setup: [`docs/bootstrap.md`](docs/bootstrap.md).

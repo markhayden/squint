@@ -147,7 +147,11 @@ Where the contract leaves the choice to the tool, squint chooses:
   (`frame-ancestors 'none'`). A render never modifies the run directory, so `report export`
   writes to `$XDG_CACHE_HOME/squint/reports/<run id>.html` unless `--out` says otherwise.
 
-*Amended 2026-11-01 for table-manners v0.4 (PLAN.md M10; takes effect as each task lands).*
+*Amended 2026-11-01 for table-manners v0.4 (PLAN.md M10, tasks 10.1 to 10.6; on the contract's
+unpublished `v0.4` branch until v0.4.0 is published, task 10.7).* squint conforms to the core and
+the images profile at v0.4.0. Where the contract leaves the choice to the tool, or a part of it
+does not apply, squint chooses:
+
 - **No operations profile.** squint keeps `profiles: ["images"]`: a check is the unit an agent
   wants (Surfaces, above), and squint has no native artifacts that leave a run (its findings
   leave as contract locations, it makes no masks, its report is a render). So it emits no
@@ -168,7 +172,26 @@ Where the contract leaves the choice to the tool, squint chooses:
   symlinks and by path components. `[serve] roots` is renamed `[serve] allow_dirs`, with no
   old-name fallback (an old file is `invalid`, naming the key), and it only narrows the flags: a
   configured directory alone grants nothing. Before 1.0 this breaks a v0.3 configuration that
-  granted paths by itself; the release notes say so.
+  granted paths by itself; the release notes say so. A failed `roots/list` is no longer a case of
+  a refusal releasing its `client_run_id`, since none is ever sent.
+- **`squint call` and bundle replay** (tasks 10.4, 10.5a, 10.5b). `squint call <action>
+  --arguments <file>` builds its job with the function `serve` uses and the same path rule, so the
+  command and the server cannot drift; a call of a run's invocation, with a locator beside each
+  image's `expect`, records the same invocation and input identity (an image's `expect` and how it
+  arrived are left out of the identity). `squint call --bundle <path>` reads the archive or its
+  unpacked directory with an in-house ustar reader (no new dependency), checks it whole before any
+  step, and refuses what squint cannot replay faithfully: a step another tool made (a host replays
+  a mixed bundle itself), any `artifacts` or `unportable` entry (squint takes no native inputs),
+  and any `reference_only` entry (`call` has no way to supply one). It copies the inputs into a
+  directory of its own under the cache, which needs no `--allow-dir` since squint chose it. Several
+  steps print one result per line, stop at the first that does not complete, and otherwise exit
+  with the most serious step's code (error or `invalid`, then `fail`, `unsure`, `pass`), so a
+  later `pass` never hides an earlier `fail`. squint ships no bundle builder: no tool builds one,
+  and its tests use a test-only writer.
+- **Fixtures** (task 10.6): v0.4's list without the operations profile's items (no `run-op-*`,
+  `refusal-binding-*`, `artifact-*`, `export-*` or `import-*`), plus a session narrowed by
+  configuration, and the path refusal on `estimate`, checked as table-manners' own test checks
+  them.
 
 ## Alternatives
 
