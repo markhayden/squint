@@ -2382,7 +2382,9 @@ no run, since no action is known to write one under; the path refusal uses the p
 and says nothing about the file. The check of each step's `inputs` against its invocation's image
 arguments, left over from 10.5a, is in the reader (`squint_core::bundle`), which also gives each
 step's arguments with the locators (`Bundle::arguments`). When every step of several completes,
-the replay exits with the last step's code (a completed `fail` does not stop it). squint has no
+the replay exits with the most serious step's code (a completed `fail` does not stop it, and is
+not hidden by a later `pass`): error (3) and `invalid` (64) first, then `fail` (1), `unsure` (2),
+`pass` (0) (the coordinator, 2026-11-01; the last step's code at first). squint has no
 operations, so 4.9's binding of a later step to an earlier step's output by port does not arise.
 
 **Description.** `squint call --bundle <path> [--config …] [--allow-dir …]…` replays a bundle

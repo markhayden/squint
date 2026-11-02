@@ -1,0 +1,93 @@
+[
+  {
+    "tool_calls": [
+      {
+        "id": "call_1",
+        "name": "submit_verdict",
+        "arguments": {
+          "schema_version": 1,
+          "items": [
+            {
+              "id": "chk:ob:SF1@candidate",
+              "disposition": "held",
+              "confidence": "confident",
+              "reason": "No protected feature named by the job changed.",
+              "allowed_by": null,
+              "location": null,
+              "evidence": []
+            },
+            {
+              "id": "chk:ob:SF2@candidate",
+              "disposition": "held",
+              "confidence": "confident",
+              "reason": "Same scene, same camera, same projection.",
+              "allowed_by": null,
+              "location": null,
+              "evidence": []
+            },
+            {
+              "id": "chk:ob:RQ1@candidate",
+              "disposition": "held",
+              "confidence": "confident",
+              "reason": "The sky is kept.",
+              "allowed_by": null,
+              "location": null,
+              "evidence": []
+            }
+          ],
+          "findings": [],
+          "opinion": {
+            "verdict": "pass",
+            "reason": "recorded only"
+          }
+        }
+      }
+    ],
+    "stop_reason": "tool_use"
+  },
+  {
+    "tool_calls": [
+      {
+        "id": "call_1",
+        "name": "submit_verdict",
+        "arguments": {
+          "schema_version": 1,
+          "items": [
+            {
+              "id": "chk:ob:SF1@candidate",
+              "disposition": "held",
+              "confidence": "confident",
+              "reason": "No protected feature named by the job changed.",
+              "allowed_by": null,
+              "location": null,
+              "evidence": []
+            },
+            {
+              "id": "chk:ob:SF2@candidate",
+              "disposition": "violation",
+              "confidence": "confident",
+              "reason": "The camera moved: the horizon is a third higher than in the source.",
+              "allowed_by": null,
+              "location": {
+                "frame": "raw:candidate",
+                "kind": "whole_image",
+                "bbox": null,
+                "polygon": null,
+                "yaw": null,
+                "pitch": null,
+                "fov": null
+              },
+              "evidence": []
+            }
+          ],
+          "findings": [],
+          "opinion": {
+            "verdict": "fail",
+            "reason": "recorded only"
+          }
+        }
+      }
+    ],
+    "stop_reason": "tool_use"
+  }
+]

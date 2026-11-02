@@ -881,10 +881,23 @@ fn a_bundle_squint_cannot_replay_is_refused_before_any_step() {
 /// A bundle of several steps prints one result per line, in order, each step a run of its own;
 /// it stops at the first step that does not complete and exits with that step's code. A step that
 /// completes with a failing verdict is still completed: the replay goes on, and when every step
-/// completes it exits with the last step's code.
+/// completes it exits with the most serious step's code, so an earlier `fail` (or `unsure`) is not
+/// hidden by a later `pass`.
+///
+/// Each step reads the provider script afresh, so the steps differ by their checklists: `check`
+/// has items SF1 and SF2, `required` adds RQ1. The `requirement-held-then-*` scripts open with a
+/// passing verdict over all three, which `required` takes; `check` is told its RQ1 is unknown and
+/// takes the second turn, a `fail` (a violation of SF2) or an `unsure` (SF1 can't tell).
 #[test]
 fn several_steps_print_a_line_each_and_stop_at_the_first_that_does_not_complete() {
     let base = scratch("bundle-steps");
+    let mut with_requirement = pair();
+    with_requirement["requirements"] = json!([{
+        "id": "RQ1",
+        "kind": "must_hold",
+        "scope": ["candidate"],
+        "text": "The sky is kept.",
+    }]);
     let served = served_runs(
         &base,
         &[
@@ -896,11 +909,16 @@ fn several_steps_print_a_line_each_and_stop_at_the_first_that_does_not_complete(
                     "references": [image("source-64x48.png"), image("candidate-64x48.png")],
                 }),
             ),
+            ("source_fidelity", with_requirement),
         ],
     );
-    let (check, refs) = (&served[0], &served[1]);
+    let (check, refs, required) = (&served[0], &served[1], &served[2]);
     assert_eq!(check["status"], "completed", "{check}");
     assert_eq!(refs["status"], "error", "{refs}");
+    assert!(
+        required["invocation"]["arguments"]["requirements"].is_array(),
+        "{required}"
+    );
     let unknown = {
         let mut r = check.clone();
         r["invocation"]["action"] = json!("no_such_check");
@@ -926,6 +944,20 @@ fn several_steps_print_a_line_each_and_stop_at_the_first_that_does_not_complete(
             "fixtures/scripts/violation.json",
             1,
             vec![check, check],
+        ),
+        (
+            "fail-then-pass",
+            vec![check, required],
+            "fixtures/scripts/requirement-held-then-violation.json",
+            1,
+            vec![check, required],
+        ),
+        (
+            "unsure-then-pass",
+            vec![check, required],
+            "fixtures/scripts/requirement-held-then-cant-tell.json",
+            2,
+            vec![check, required],
         ),
         (
             "stops-at-error",
@@ -969,6 +1001,9 @@ fn several_steps_print_a_line_each_and_stop_at_the_first_that_does_not_complete(
         assert_eq!(lines.len(), printed.len(), "{tag}: {stdout}");
         for (line, want) in lines.iter().zip(&printed) {
             valid(RESULT, line);
+            if code < 3 {
+                assert_eq!(line["status"], "completed", "{tag}: {line}");
+            }
             assert_eq!(line["invocation"], want["invocation"], "{tag}");
             assert_eq!(line["input_identity"], want["input_identity"], "{tag}");
         }

@@ -167,9 +167,10 @@ it yet), and a step whose inputs are not the images its invocation names. It the
 inputs into its own cache (`$XDG_CACHE_HOME/squint/bundles/<sha256 of invocation.json>/inputs/`)
 and runs each step as `squint call` with its invocation's arguments pointed there. One step
 prints its result and exits as a call does. Several print one result per line and stop at the
-first step that does not complete, exiting with its code (else with the last step's). The call
-repeats exactly; a live model's verdict may not, so replays that must match use the scripted
-provider. squint has no operations, so no step takes an earlier step's output.
+first step that does not complete, exiting with its code; when every step completes, the exit is
+the most serious step's (error or invalid, then fail, then unsure, then pass), so an earlier `fail`
+is never hidden by a later `pass`. The call repeats exactly; a live model's verdict may not, so
+replays that must match use the scripted provider. squint has no operations, so no step takes an earlier step's output.
 
 ## run.json
 

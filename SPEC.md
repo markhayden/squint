@@ -1563,8 +1563,10 @@ names and schemas are the contract's; this section says what squint does with th
   `invocation.arguments` plus a `path` beside each image's `expect`, each step a command-line run
   with its own run directory and `run.json`. One step prints its result and exits as a call does;
   several print one result per line (compact JSON) and stop at the first step whose result is not
-  `completed` (or that is refused before a run), exiting with that step's code, else with the last
-  step's (a completed `fail` is completed: the replay goes on). squint has no operations, so no
+  `completed` (or that is refused before a run), exiting with that step's code; when every step
+  completes (a completed `fail` is completed: the replay goes on), it exits with the most serious
+  step's code: an error (3) or `invalid` (64) first, then `fail` (1), then `unsure` (2), then
+  `pass` (0), so a `fail` early in the bundle is never hidden by a later `pass`. squint has no operations, so no
   step names an earlier step's output and 4.9's binding by port does not arise. A live model's
   verdict is not promised to repeat, only the call; offline, the scripted provider replays it.
   Replay writes only under the runs directory and the cache.

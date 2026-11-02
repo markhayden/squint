@@ -37,7 +37,8 @@ pub struct CallArgs {
     pub arguments: Option<PathBuf>,
     /// Replay an invocation bundle instead (table-manners 4.9): the archive or its unpacked
     /// directory, inside an `--allow-dir`. Each step runs as a call of its own; several print one
-    /// result per line and stop at the first that does not complete.
+    /// result per line, stop at the first that does not complete, and otherwise exit with the most
+    /// serious step's code.
     #[arg(long, value_name = "PATH")]
     pub bundle: Option<PathBuf>,
     /// Path to the config file; without it, squint looks for ./squint.toml, then
@@ -123,9 +124,10 @@ impl Step {
 /// into `$XDG_CACHE_HOME/squint/bundles/<sha256 of invocation.json>/inputs/`, a directory only
 /// squint writes, and each step is called in order through [`one`] with its arguments pointed
 /// there. A single step prints its result and exits as a call does; several print one result per
-/// line, stop at the first step that does not complete, and exit with that step's code (the last
-/// step's when every step completes). squint has no operations, so no step names an earlier
-/// step's output (4.9's binding by port does not arise): every image is a member of the bundle.
+/// line, stop at the first step that does not complete, and exit with that step's code; when every
+/// step completes, with the most serious of their codes ([`most_serious`]), so an earlier `fail`
+/// is not hidden by a later `pass`. squint has no operations, so no step names an earlier step's
+/// output (4.9's binding by port does not arise): every image is a member of the bundle.
 fn replay(args: &CallArgs, path: &Path) -> i32 {
     let refused = |reason: String| {
         eprintln!("squint: invalid (input): {reason}");
@@ -172,7 +174,7 @@ fn replay(args: &CallArgs, path: &Path) -> i32 {
     } else {
         Print::Line
     };
-    let mut code = EXIT_USAGE;
+    let mut code = None;
     for (i, step) in bundle.manifest.steps.iter().enumerate() {
         let action = &step.invocation.action;
         let Some(call) = bundle.arguments(i, &inputs) else {
@@ -182,12 +184,31 @@ fn replay(args: &CallArgs, path: &Path) -> i32 {
             eprintln!("step {}/{steps}: {action}", i + 1);
         }
         let done = one(args, action, call, Dirs::Own(&inputs), print);
-        code = done.code;
         if !done.completed {
-            break;
+            return done.code;
+        }
+        code = Some(code.map_or(done.code, |c| most_serious(c, done.code)));
+    }
+    code.unwrap_or(EXIT_USAGE)
+}
+
+/// The more serious of two completed steps' exit codes (table-manners 6): an error (3) or
+/// `invalid` (64) first, then `fail` (1), then `unsure` (2), then `pass` (0). Of two equally
+/// serious codes the earlier stands; a code outside these ranks with the most serious.
+fn most_serious(earlier: i32, later: i32) -> i32 {
+    fn rank(code: i32) -> u8 {
+        match code {
+            0 => 0,
+            2 => 1,
+            1 => 2,
+            _ => 3,
         }
     }
-    code
+    if rank(later) > rank(earlier) {
+        later
+    } else {
+        earlier
+    }
 }
 
 /// Copies the bundle's input members into the directory squint keeps for it,
