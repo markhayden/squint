@@ -2020,8 +2020,9 @@ prepares at the smaller dimension from the first request and completes; one that
 `max_per_request` is refused with zero spend and no request sent; runs that cannot reach the
 threshold prepare exactly as before (recordings replay byte for byte).
 
-**Verification.** `crates/squint-providers/tests/it/{prepare,replay}.rs`,
-`crates/squint-core/tests/it/tool_turns.rs`, `just check`. **Dependencies.** none (sequence against 9.5). **Files.**
+**Verification.** `crates/squint-providers/tests/it/{prepare,many_images}.rs` (the Anthropic
+adapter's own preflight, through `run::check`), `crates/squint-core/tests/it/tool_turns.rs`, the
+recorded conversations replaying unchanged, `just check`. **Dependencies.** none (sequence against 9.5). **Files.**
 `crates/squint-providers/src/prepare.rs`, `crates/squint-core/src/run.rs`. **Size.** S.
 
 ### Task F2: Image arguments say what they take

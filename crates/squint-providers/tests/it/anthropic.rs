@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 use squint_core::config::Config;
-use squint_core::image::Prepared;
+use squint_core::image::{ImagePlan, Prepared};
 use squint_core::provider::{
     ContentBlock, Message, MessageRole, Provider, StopReason, ToolDefinition, TurnRequest,
 };
@@ -481,7 +481,9 @@ fn anthropic_reports_recipient_pricing_and_preparation() {
     assert!((cost - 2.0).abs() < 1e-9);
     let img =
         image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(10, 8, image::Rgb([1, 2, 3])));
-    let prepared = p.prepare_image("candidate", &img).unwrap();
+    let prepared = p
+        .prepare_image("candidate", &img, ImagePlan::Standard)
+        .unwrap();
     assert_eq!(
         (
             prepared.media_type.as_str(),

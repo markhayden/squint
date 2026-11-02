@@ -9,7 +9,7 @@ pub mod provider;
 pub mod sets;
 pub mod tool;
 
-pub use provider::{FAKE_PRICES, ScriptTurn, ScriptedProvider};
+pub use provider::{FAKE_PRICES, ScriptTurn, ScriptedPricing, ScriptedProvider};
 pub use sets::synthetic_set;
 pub use tool::ScriptedTool;
 

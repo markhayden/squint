@@ -1288,6 +1288,13 @@
           },
           "type": "array"
         },
+        "prep_version": {
+          "description": "The preparation the images went through (the `prepared` event): the provider's\n`prep_version`, `+many<edge>` when resolve prepared them at the many-image size. `None`\nwhen the run ended before its images were prepared.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "repairs": {
           "description": "Repairs taken, in order (at most `budget.repairs`).",
           "items": {

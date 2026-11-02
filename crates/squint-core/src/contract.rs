@@ -458,8 +458,9 @@ fn word<T: serde::Serialize>(value: &T) -> String {
 }
 
 /// What this decision ran on: the images' digests, the job, the resolved rules, the redacted
-/// config, the provider, the tools and the prompt and harness versions. How an image arrived (a
-/// path or inline bytes) is left out: its digest already says what it was.
+/// config, the provider and how it prepared the images (`prep_version`), the tools and the prompt
+/// and harness versions. How an image arrived (a path or inline bytes) is left out: its digest
+/// already says what it was.
 fn input_identity(report: &Report, images: &[CanonicalImage]) -> String {
     let mut job = serde_json::to_value(&report.job).unwrap_or_default();
     if let Some(list) = job["images"].as_array_mut() {
@@ -475,6 +476,7 @@ fn input_identity(report: &Report, images: &[CanonicalImage]) -> String {
         "rules": report.rules,
         "config": report.config,
         "provider": report.provider,
+        "prep_version": report.runs.iter().find_map(|r| r.prep_version.as_deref()),
         "tools": report.tools,
         "prompt_version": report.prompt_version,
         "harness_version": report.harness_version,
@@ -1103,7 +1105,7 @@ pub fn estimate(
     let cap = crate::config::call_cap(configured_cap, max_spend_usd)?;
     let (images, setup) = match ctx.config {
         Some(config) => {
-            let setup = crate::run::setup(config, job, job_base, ctx.tools)?;
+            let setup = crate::run::setup(config, job, job_base, ctx.tools, ctx.pricing)?;
             (setup.images.clone(), Some(setup))
         }
         None => {

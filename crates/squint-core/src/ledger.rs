@@ -35,6 +35,11 @@ pub trait Pricing: Send + Sync {
     fn bound(&self, shape: &RequestShape) -> Result<f64>;
     /// The cost in USD of reported usage.
     fn cost(&self, usage: &Usage) -> f64;
+    /// The model's per-request image limits, which resolve plans the conversation's images
+    /// against before any request (SPEC "Image preparation"); `None` when it states none.
+    fn image_limits(&self) -> Option<crate::image::RequestImageLimits> {
+        None
+    }
 }
 
 /// A linear price list: the stub catalog entry.
@@ -84,6 +89,13 @@ pub struct PlanInput {
     pub tool_images: u64,
 }
 
+/// The most images one request of the run can carry: the job's images plus every tool result the
+/// call budget allows at the largest tool's `returns.max_images`. The plan bounds the later
+/// requests with it, and resolve prepares the images against it.
+pub fn worst_case_images(config: &Config, input: &PlanInput) -> u64 {
+    input.job_images + u64::from(config.budget.tool_calls) * input.tool_images
+}
+
 /// One planned request of the envelope.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -129,7 +141,7 @@ pub fn plan(config: &Config, input: &PlanInput, pricing: &dyn Pricing) -> Result
     // The whole call budget may be spent at any point, so every request after the first carries
     // every tool result the run can produce.
     let tool_tokens = planned_tokens(u64::from(b.tool_calls) * input.tool_envelope_bytes);
-    let tool_images = u64::from(b.tool_calls) * input.tool_images;
+    let tool_images = worst_case_images(config, input) - input.job_images;
     let max_output = u64::from(config.provider.max_output_tokens);
 
     let mut requests = Vec::new();

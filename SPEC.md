@@ -681,7 +681,9 @@ if it is replayable under the adapter's rules; a non-replayable turn is journale
    canonical images, build frames, build the checklist, connect tool packs and freeze their
    manifests, render the system prompt. Any failure is `error: resolve` with a journal, except an
    image that is not the one the job names (a `sha256` pin or an `expect` that does not match),
-   which is `error: input`.
+   which is `error: input`. Then plan the images against the model's per-request limits (see
+   "Image preparation"): a run whose worst case cannot fit `max_per_request` ends here with
+   `error: image_limit`, before any reservation or request.
 2. **Prepare.** Produce prepared images for the model (see "Image preparation") and preflight the
    first request against the catalog's limits. Compute the cache key (see "Cache key"). If
    caching is on, this is not an evaluation, and this is the decision boundary, return the cached
@@ -802,7 +804,7 @@ pub trait Provider: Send + Sync {
     fn send<'a>(&'a self, req: TurnRequest<'a>) -> SendFuture<'a>;     // one round trip, no retries
     fn pricing(&self) -> Option<&dyn Pricing>;                         // the catalog entry
     fn prep_version(&self) -> &str;                                    // part of the cache key
-    fn prepare_image(&self, id: &str, pixels: &DynamicImage) -> Result<Prepared>;
+    fn prepare_image(&self, id: &str, pixels: &DynamicImage, plan: ImagePlan) -> Result<Prepared>;
     fn recipient(&self) -> Option<Recipient>;                          // profile, host, upstream, model
 }
 ```
@@ -892,9 +894,23 @@ estimate; provider-specific detail controls. Preparation is deterministic and ve
 config's lower `images.max_long_edge`) with Lanczos3, never upscaling; encode JPEG at quality 90,
 or PNG when the image carries an alpha channel; write no metadata; record the source and prepared
 dimensions and the prepared SHA-256. Each provider reports its `prep_version` (the scripted
-provider sends canonical pixels and reports `canonical`), and the cache key carries it. Preflight runs against the whole outgoing provider history on every turn,
+provider sends canonical pixels and reports `canonical`), and the cache key and the input identity
+carry it. Preflight runs against the whole outgoing provider history on every turn,
 counting historical and tool-result images; a request that would exceed any limit is
-`error: image_limit`, never a silent downscale. Tool images are prepared the same way before they
+`error: image_limit`, never a silent downscale.
+
+The history only grows, so resolve plans the images once, before the first request, from the
+worst case: the job's images plus `budget.tool_calls` times the largest enabled tool's
+`returns.max_images` (the count the envelope bounds the later requests with). When the worst case
+exceeds the model's `max_per_request`, the run is refused with `error: image_limit` before any
+reservation or request, and its estimate is that refusal. When it can pass
+`many_image_threshold`, every image, job and tool alike, is prepared from the start with its long
+edge fitted to at most `many_image_max_dimension_px` (and never above the usual target), recorded
+as `prep_version` `<version>+many<edge>` (`1+many2000`; the scripted provider's
+`canonical+many<edge>`), so the cache key and the input identity tell it apart. Otherwise the
+images are prepared exactly as above. Either way no request meets the threshold mid-run after
+money is spent. The ledger keeps bounding every image at the model's maximum token cost, which the
+many-image size does not lower for any shipped model. Tool images are prepared the same way before they
 reach the model; tool manifests bound their count and size so the bound is computable.
 Provider-side processing the documentation does not describe is recorded as unverified in
 `docs/provider-data.md`.
@@ -1553,7 +1569,8 @@ with them.
 - **`run.json`**: written last and atomically (a temporary name, then a rename) into every
   decision directory by `check` on every surface, cache hits and cancelled decisions included: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
-  timestamps and duration, input identity, spend (with `unresolved_usd`: a provider call that
+  timestamps and duration, input identity (a digest of the resolved inputs, the images'
+  `prep_version` included), spend (with `unresolved_usd`: a provider call that
   never left costs nothing, an authentication rejection costs nothing, and one that failed with no
   usage reported, or was cancelled in flight, counts at its bound, unresolved; a successful answer
   that reports no usage counts its bound too, settled, and makes the basis `estimated` rather

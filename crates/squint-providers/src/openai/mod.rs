@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use squint_core::config::Config;
-use squint_core::image::{Prepared, base64_encode};
+use squint_core::image::{ImagePlan, Prepared, base64_encode};
 use squint_core::ledger::Pricing;
 use squint_core::provider::{
     ContentBlock, MessageRole, Provider, SendFuture, StopReason, ToolCall, ToolDefinition,
@@ -527,8 +527,13 @@ impl Provider for OpenAiProvider {
         })
     }
 
-    fn prepare_image(&self, id: &str, pixels: &image::DynamicImage) -> Result<Prepared> {
-        Preparer::new(&self.model.images, self.max_long_edge).prepare(id, pixels)
+    fn prepare_image(
+        &self,
+        id: &str,
+        pixels: &image::DynamicImage,
+        plan: ImagePlan,
+    ) -> Result<Prepared> {
+        Preparer::new(&self.model.images, self.max_long_edge, plan).prepare(id, pixels)
     }
 }
 

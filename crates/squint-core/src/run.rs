@@ -285,22 +285,15 @@ async fn decide(
     let tools = services.tools;
     let shared = services.shared_ledger;
     let dir = dir.to_path_buf();
-    let setup = setup(config, job, job_base, tools);
+    let setup = setup(config, job, job_base, tools, provider.pricing());
 
     // The cache, once per decision: a hit returns the whole cached decision before any request.
     let cache = Cache::from_config(&config.cache)?;
     let mut cache_status = CacheStatus::off();
-    if let (Ok(s), Some(cache)) = (&setup, &cache) {
-        let key = KeyInput::gather(
-            config,
-            job,
-            &s.images,
-            &s.prepared,
-            tools,
-            provider,
-            harness_version,
-        )
-        .key()?;
+    if let (Ok(s), Some(cache)) = (&setup, &cache)
+        && let Ok(plan) = s.image_plan()
+    {
+        let key = KeyInput::gather(config, job, s, plan, tools, provider, harness_version).key()?;
         cache_status = CacheStatus {
             status: if services.evaluation {
                 "bypass"
@@ -352,11 +345,7 @@ async fn decide(
 
     let job_ledger = CapLedger::per_call(config.budget.spend_cap_usd);
     let envelope = match (&setup, provider.pricing()) {
-        (Ok(s), Some(pricing)) => Some(ledger::plan(
-            config,
-            &plan_input(&s.prepared, job, tools),
-            pricing,
-        )),
+        (Ok(s), Some(pricing)) => Some(envelope_of(config, s, job, tools, pricing)),
         (Ok(_), None) => Some(Err(Error::Budget(
             "the provider cannot bound request costs; refusing to run".into(),
         ))),
@@ -438,10 +427,20 @@ fn outcome(dir: PathBuf, report: Report) -> Outcome {
     }
 }
 
-/// What every run of a decision shares: the resolved rules and the decoded images.
+/// What every run of a decision shares: the resolved rules, the decoded images and how they are
+/// prepared for the model, or why the model cannot take them (an `image_limit` refusal, made
+/// before any spend: [`Setup::image_plan`]).
 pub struct Setup {
     pub prepared: Prepared,
     pub images: Vec<CanonicalImage>,
+    pub planned: std::result::Result<image::ImagePlan, String>,
+}
+
+impl Setup {
+    /// The image plan, or the decision's `image_limit` refusal.
+    pub fn image_plan(&self) -> Result<image::ImagePlan> {
+        self.planned.clone().map_err(Error::ImageLimit)
+    }
 }
 
 /// The decision envelope a run of this job would reserve (SPEC "Cost ledger"), without running:
@@ -455,7 +454,7 @@ pub fn envelope(
 ) -> Result<ledger::Envelope> {
     envelope_of(
         config,
-        &setup(config, job, job_base, tools)?,
+        &setup(config, job, job_base, tools, Some(pricing))?,
         job,
         tools,
         pricing,
@@ -470,11 +469,20 @@ pub fn envelope_of(
     tools: &ToolRegistry,
     pricing: &dyn Pricing,
 ) -> Result<ledger::Envelope> {
+    // A decision the model's image limits refuse has no envelope: its estimate is the refusal.
+    setup.image_plan()?;
     ledger::plan(config, &plan_input(&setup.prepared, job, tools), pricing)
 }
 
-/// Resolves the rules and decodes the images once per decision.
-pub fn setup(config: &Config, job: &Job, job_base: &Path, tools: &ToolRegistry) -> Result<Setup> {
+/// Resolves the rules, decodes the images and plans their preparation once per decision, against
+/// the image limits of the model `pricing` describes (none when it is not known).
+pub fn setup(
+    config: &Config,
+    job: &Job,
+    job_base: &Path,
+    tools: &ToolRegistry,
+    pricing: Option<&dyn Pricing>,
+) -> Result<Setup> {
     let prepared = resolve_rules(config, job, job_base, tools)?;
     let bounds = config.images.decode_bounds();
     let images = job
@@ -482,7 +490,49 @@ pub fn setup(config: &Config, job: &Job, job_base: &Path, tools: &ToolRegistry) 
         .iter()
         .map(|spec| image::load(spec, job_base, &bounds))
         .collect::<Result<Vec<_>>>()?;
-    Ok(Setup { prepared, images })
+    // Kept apart from the resolve errors above: a refusal is the model's limit, not a bad job.
+    let planned = image_plan(
+        config,
+        &plan_input(&prepared, job, tools),
+        pricing.and_then(|p| p.image_limits()),
+    )
+    .map_err(|e| match e {
+        Error::ImageLimit(m) => m,
+        other => other.to_string(),
+    });
+    Ok(Setup {
+        prepared,
+        images,
+        planned,
+    })
+}
+
+/// How the decision's images are prepared (SPEC "Image preparation"), decided before the first
+/// request from the most images one request can carry ([`ledger::worst_case_images`]): when that
+/// can pass the model's many-image threshold, every image is prepared at the many-image size
+/// from the start; when it exceeds the per-request count, the decision is refused with
+/// `image_limit` before any spend. Either way no request fails preflight mid-run.
+pub fn image_plan(
+    config: &Config,
+    input: &ledger::PlanInput,
+    limits: Option<image::RequestImageLimits>,
+) -> Result<image::ImagePlan> {
+    let Some(limits) = limits else {
+        return Ok(image::ImagePlan::Standard);
+    };
+    let worst = ledger::worst_case_images(config, input);
+    if worst > u64::from(limits.max_per_request) {
+        return Err(Error::ImageLimit(format!(
+            "a request of this run can carry {worst} images ({} from the job and up to {} from each of {} tool calls), over the model's limit of {} per request; refused before any request",
+            input.job_images, input.tool_images, config.budget.tool_calls, limits.max_per_request
+        )));
+    }
+    Ok(match limits.many {
+        Some(many) if worst > u64::from(many.threshold) => image::ImagePlan::Many {
+            long_edge: many.max_long_edge,
+        },
+        _ => image::ImagePlan::Standard,
+    })
 }
 
 /// One run of the state machine, recorded in its journal. Never fails for run-level reasons:
@@ -623,6 +673,8 @@ struct RunState {
     images: Vec<CanonicalImage>,
     /// The bytes the provider sends per content-block id (job image ids and frame ids).
     prepared_images: BTreeMap<String, image::Prepared>,
+    /// How every image is prepared, decided at resolve.
+    image_plan: image::ImagePlan,
     instances: Vec<Instance>,
     checklist: Checklist,
     registry: Registry,
@@ -644,6 +696,7 @@ impl RunState {
             images_sent: BTreeMap::new(),
             images: Vec::new(),
             prepared_images: BTreeMap::new(),
+            image_plan: image::ImagePlan::Standard,
             instances: Vec::new(),
             checklist: Checklist::default(),
             registry: Registry::new(),
@@ -664,7 +717,7 @@ impl RunState {
         frame_id: &str,
         pixels: &::image::DynamicImage,
     ) -> Result<ArtifactRef> {
-        let prepared = provider.prepare_image(block_id, pixels)?;
+        let prepared = provider.prepare_image(block_id, pixels, self.image_plan)?;
         let r = self.artifacts.put(&prepared.bytes)?;
         self.images_sent.insert(frame_id.to_string(), r.clone());
         self.prepared_images.insert(block_id.to_string(), prepared);
@@ -747,8 +800,11 @@ async fn drive(
     let provider = services.provider;
     let tools = services.tools;
     let prepared = &setup.prepared;
-    // Resolve: the shared images and rules become this run's state.
+    // Refused before anything else when the model's image limits cannot take this run.
+    let image_plan = setup.image_plan()?;
+    // Resolve: the shared images, rules and image plan become this run's state.
     state.images = setup.images.clone();
+    state.image_plan = image_plan;
     state.instances = prepared.resolved.instances.clone();
     state.checklist = prepared.checklist.clone();
     for img in &state.images {
@@ -777,7 +833,7 @@ async fn drive(
         tools: tools.manifests().map(|m| m.name.clone()).collect(),
     }))?;
     journal.append(&Event::Prepared(events::Prepared {
-        prep_version: provider.prep_version().to_string(),
+        prep_version: image_plan.prep_version(provider.prep_version()),
         images: state.images.len(),
     }))?;
 
