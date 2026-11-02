@@ -1,0 +1,8 @@
+# nextest configuration. Local runs use the default profile, which stops at the first failure.
+
+# CI selects this profile with NEXTEST_PROFILE=ci: every test runs even after a failure, and
+# every failure's output is printed again at the end of the run, so one failing test on Linux
+# never hides the next.
+[profile.ci]
+fail-fast = false
+failure-output = "immediate-final"

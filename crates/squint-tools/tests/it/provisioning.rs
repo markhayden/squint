@@ -39,8 +39,9 @@ fn clean_install_serves_echo_region_offline_with_versions_matching_the_lock() {
     let bundle = Bundle::load(&bundle_dir()).unwrap();
     bundle.verify().unwrap();
     let data_home = tempdir("install");
-    // No fetch here: the artifact is 1.2 GB and lives behind the network; the pack's tools that
-    // need it report it missing, which is their own test's business.
+    // No fetch here: the artifact is 1.2 GB and lives behind the network. The pack is launched
+    // serving `echo_region` alone, which needs no artifact; a pack serving the tools that need
+    // it refuses to start without it (`python_pack.rs`).
     let installed = bundle.install(&data_home, &Fetch::Skip).unwrap();
     assert!(installed.executable.is_file());
     assert_eq!(installed.header.version, "0.0.1");
@@ -74,15 +75,12 @@ fn clean_install_serves_echo_region_offline_with_versions_matching_the_lock() {
         call: Duration::from_secs(30),
         shutdown_grace: Duration::from_secs(2),
     };
-    let pack = Pack::connect(
-        "python",
-        installed.spawn(vec![]),
-        timeouts,
-        std::env::vars(),
-    )
-    .unwrap();
+    let mut spawn = installed.spawn(vec![]);
+    assert_eq!(spawn.args, ["serve"]);
+    spawn.args.push("echo_region".into());
+    let pack = Pack::connect("python", spawn, timeouts, std::env::vars()).unwrap();
     let names: Vec<&str> = pack.manifests().iter().map(|m| m.name.as_str()).collect();
-    assert_eq!(names, ["echo_region", "regions", "classes"]);
+    assert_eq!(names, ["echo_region"]);
     let candidate = data_home.join("raw_candidate.png");
     image::RgbImage::from_pixel(8, 6, image::Rgb([90, 90, 90]))
         .save(&candidate)

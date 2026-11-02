@@ -18,10 +18,10 @@ additionalProperties = false
 required = ["frame", "against"]
 [tool.model_schema.properties.frame]
 type = "string"
-description = "One frame, for example raw:source."
+description = "One frame, usually the source: a frame id (raw:source), or an image id (source) for its raw frame."
 [tool.model_schema.properties.against]
 type = "string"
-description = "The frame to compare it with, for example aligned:candidate:t1."
+description = "The frame to compare it with, usually the aligned candidate (aligned:candidate:t1): a frame id, or an image id (candidate) for its raw frame (raw:candidate)."
 
 [tool.input_schema]
 type = "object"

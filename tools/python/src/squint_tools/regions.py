@@ -56,11 +56,13 @@ MODEL_SCHEMA = {
         "frame": {
             "type": "string",
             "description": "The frame to find changes in, usually the aligned candidate "
-            "(aligned:candidate:t1); regions are reported on it.",
+            "(aligned:candidate:t1): a frame id, or an image id (candidate) for its raw frame "
+            "(raw:candidate); regions are reported on it.",
         },
         "against": {
             "type": "string",
-            "description": "The frame it is compared with, in the same grid: usually raw:source.",
+            "description": "The frame it is compared with, in the same grid, usually the source: "
+            "a frame id (raw:source), or an image id (source) for its raw frame.",
         },
     },
 }

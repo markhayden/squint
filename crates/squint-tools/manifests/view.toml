@@ -17,10 +17,10 @@ additionalProperties = false
 required = ["frame"]
 [tool.model_schema.properties.frame]
 type = "string"
-description = "The frame to look into, for example raw:candidate or a crop a tool returned."
+description = "The frame to look into: a frame id (raw:candidate, or a crop a tool returned), or an image id (candidate) for its raw frame."
 [tool.model_schema.properties.also]
 type = "string"
-description = "A second frame of the same projection to show the same region in, for comparison."
+description = "A second frame of the same projection to show the same region in, for comparison: a frame id (raw:source), or an image id (source) for its raw frame."
 [tool.model_schema.properties.bbox]
 type = "array"
 items = { type = "number", minimum = 0, maximum = 1 }
