@@ -25,12 +25,21 @@ async function getText(path) {
 const $app = document.getElementById('app');
 const $status = document.getElementById('status');
 
+/// Styles go through CSSOM, never a `style` attribute: the server's CSP (`default-src 'self'`,
+/// no `'unsafe-inline'`) blocks inline style attributes but not CSSOM. `style` takes an object of
+/// CSS properties; fixed looks belong in viewer.css as classes.
+function applyStyle(node, style) {
+  if (typeof style !== 'object') throw new TypeError('style takes an object of CSS properties, not a string');
+  for (const [prop, value] of Object.entries(style)) node.style.setProperty(prop, value);
+}
+
 function el(tag, attrs, ...children) {
   const node = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs || {})) {
     if (v === null || v === undefined) continue;
     if (k === 'class') node.className = v;
     else if (k === 'text') node.textContent = v;
+    else if (k === 'style') applyStyle(node, v);
     else node.setAttribute(k, v);
   }
   for (const c of children) {
@@ -42,7 +51,10 @@ function el(tag, attrs, ...children) {
 
 function svgEl(tag, attrs) {
   const node = document.createElementNS('http://www.w3.org/2000/svg', tag);
-  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, v);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (k === 'style') applyStyle(node, v);
+    else node.setAttribute(k, v);
+  }
   return node;
 }
 
@@ -252,10 +264,10 @@ function imagesSection(run, locs) {
   const frames = run.frames || {};
   const sec = el('section', null, el('h2', { text: `Run ${run.run}: images the model saw` }));
   sec.append(el('p', { class: 'legend' },
-    el('span', null, el('i', { style: 'background: var(--finding)' }), 'violation'),
-    el('span', null, el('i', { style: 'background: var(--item)' }), 'other answer (held, hidden, can\'t tell)'),
-    el('span', null, el('i', { style: 'background: var(--observed)' }), 'observed / allowed'),
-    el('span', null, el('i', { style: 'background: var(--region)' }), 'tool region (segmenter)'),
+    el('span', null, el('i', { class: 'finding' }), 'violation'),
+    el('span', null, el('i', { class: 'item' }), 'other answer (held, hidden, can\'t tell)'),
+    el('span', null, el('i', { class: 'observed' }), 'observed / allowed'),
+    el('span', null, el('i', { class: 'region' }), 'tool region (segmenter)'),
     el('span', { text: 'dashed: absent; dotted: clipped at the parent' })));
   const grid = el('div', { class: 'frames' });
   const frameIds = Object.keys(run.images_sent || {}).sort((a, b) => (a.startsWith('raw:') ? 0 : 1) - (b.startsWith('raw:') ? 0 : 1) || a.localeCompare(b));
@@ -379,7 +391,7 @@ async function timelineSection(run) {
   t.append(el('thead', null, el('tr', null, ...['step', 'status', 'start', 'duration', 'cost', '', 'detail'].map(c => el('th', { text: c })))));
   const body = el('tbody');
   for (const r of rows) {
-    const bar = el('div', { class: `bar ${r.status}`, style: `left:${(100 * r.start_ms / total).toFixed(3)}%;width:${Math.max(0.3, 100 * r.duration_ms / total).toFixed(3)}%`, title: `${r.duration_ms} ms` });
+    const bar = el('div', { class: `bar ${r.status}`, style: { left: `${(100 * r.start_ms / total).toFixed(3)}%`, width: `${Math.max(0.3, 100 * r.duration_ms / total).toFixed(3)}%` }, title: `${r.duration_ms} ms` });
     body.append(el('tr', null,
       el('td', { text: r.label }),
       el('td', { class: `status ${r.status}`, text: r.status }),
