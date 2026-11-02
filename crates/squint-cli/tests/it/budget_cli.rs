@@ -168,7 +168,7 @@ fn a_cap_refusal_names_the_long_prompt_tier_and_why() {
     assert_eq!(o.status.code(), Some(3), "{err}");
     assert!(
         err.contains("bounded at claude-haiku-5-5's long-prompt tier ($0.5/M input, $2.5/M output tokens, against $0.1/M and $0.5/M below it)")
-            && err.contains("pass its 100000-token threshold"),
+            && err.contains("passes its 100000-token threshold"),
         "{err}"
     );
 }

@@ -169,9 +169,9 @@ fn tier_line(config: &Config, envelope: &Envelope) -> Option<String> {
             let lp = tiers.iter().find(|t| t.long_prompt).unwrap_or(first);
             format!(
                 "prices: {long} of {} requests {} bounded at {model_id}'s long-prompt tier \
-                 (${}/M input, ${}/M output tokens, against ${}/M and ${}/M below it): their \
-                 planned prompts, with images at their maximum token cost, pass its {threshold}-token \
-                 threshold",
+                 (${}/M input, ${}/M output tokens, against ${}/M and ${}/M below it): the planned \
+                 prompt of each, with images at their maximum token cost, passes its \
+                 {threshold}-token threshold",
                 tiers.len(),
                 if long == 1 { "is" } else { "are" },
                 lp.input_per_million,

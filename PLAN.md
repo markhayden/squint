@@ -2761,9 +2761,17 @@ overwrite, `--provider openai`, refusals), `catalog.rs` `the_bound_tier_is_the_o
 unit tests in `init.rs` and `cost.rs`.
 
 ### Checkpoint M11
-- [ ] The owner's dog check repeated with `--replay` or a scripted script: the reason, the intent
-      flags and the cap explanation read as the owner asked.
-- [ ] Review; merge; tag `m11` (owner).
+- [x] The owner's dog check repeated with `--replay` or a scripted script: the reason, the intent
+      flags and the cap explanation read as the owner asked (2026-11-02). Scripted: a
+      reference-consistency check with `--must-hold "The dog is the same individual as in the
+      reference."` and `--must-not "A white patch is added to the dog."`, the provider holding
+      RC1, RC2 and RQ1 tentatively and marking RQ2 a confident violation with a box, printed
+      `fail`, a line per item with its reason, `why: fail: RQ2@candidate violated (confident)`
+      and `spent: $0.0014 of the $2.00 cap`; without the violation the same items read
+      `unsure: RC1@candidate, RC2@candidate, RQ1@candidate held only tentatively`. Replay: the
+      owner's `--max-spend-usd 0.50` on `examples/reference-consistency.toml` reproduces the
+      $0.6285 envelope and explains it (11.4 "As built"). No paid call; spend $0.
+- [ ] Review; merge; tag `m11` (coordinator and owner; not done on the branch).
 
 ## Risks and mitigations
 

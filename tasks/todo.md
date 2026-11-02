@@ -242,4 +242,5 @@ paid provider calls (estimate and spend $0).
 - [x] 11.2 Intent flags: `--must-hold`, `--must-not`, `--allow` as `RQ1…` on `check` and `estimate`; refused beside a job file with its own requirements
 - [x] 11.3 `rules list [<use-case>]`, `rules init <use-case> [--out <dir>]`, `docs/rules.md` examples complete and tested, README
 - [x] 11.4 The cap refusal explained (breakdown, tier, worst case, knobs, real recent spend only); `squint init [--provider] [--model]`
-- [ ] Checkpoint M11 → tag `m11`
+- [x] Checkpoint M11 demo: the owner's dog check repeated on the scripted provider and a refused replay (PLAN "Checkpoint M11")
+- [ ] Review, merge and tag `m11` (coordinator, owner)
