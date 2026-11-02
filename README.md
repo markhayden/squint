@@ -91,6 +91,12 @@ squint check --use-case reference-consistency --candidate scene.png --ref dog=do
 Each becomes a job requirement (`RQ1`, `RQ2`, …) checked beside the use case's built-in rules; a
 confident violation of any of them fails the check.
 
+`squint rules list` names the built-in rule sets and `squint rules list reference-consistency`
+prints one set's rules. To change them for good, `squint rules init reference-consistency` writes
+a starter `squint.toml` and a `rules.toml` with every built-in rule commented out: uncomment one
+to replace it (same id), add `disabled = true` to remove it, or add your own. Writing rules:
+[`docs/rules.md`](docs/rules.md).
+
 ## How it is built
 
 The method is the brief's: measure first, then earn each tool.

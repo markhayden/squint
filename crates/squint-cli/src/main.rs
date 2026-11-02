@@ -5,8 +5,10 @@ mod call;
 mod catalog;
 mod describe;
 mod eval;
+mod init;
 mod playground;
 mod report;
+mod rules;
 mod serve;
 mod sets;
 mod summary;
@@ -39,7 +41,7 @@ struct Cli {
 enum Command {
     /// Judge one image job and print the verdict.
     Check(CheckArgs),
-    /// Inspect rules.
+    /// The rules: list the shipped sets, start your own, show what a config merges to.
     Rules(RulesArgs),
     /// Inspect tools.
     Tools(ToolsArgs),
@@ -118,6 +120,10 @@ struct RulesArgs {
 enum RulesCommand {
     /// Print the merged obligations for a config (and optionally a job) with provenance.
     Show(RulesShowArgs),
+    /// List the shipped rule sets, or print one use case's rules and how to change them.
+    List(rules::RulesListArgs),
+    /// Write a starter squint.toml and a rules.toml (every base rule commented out) to edit.
+    Init(rules::RulesInitArgs),
 }
 
 #[derive(clap::Args)]
@@ -240,6 +246,12 @@ fn main() {
         Some(Command::Rules(RulesArgs {
             command: RulesCommand::Show(args),
         })) => rules_show(&args),
+        Some(Command::Rules(RulesArgs {
+            command: RulesCommand::List(args),
+        })) => rules::list(&args),
+        Some(Command::Rules(RulesArgs {
+            command: RulesCommand::Init(args),
+        })) => rules::init(&args),
         Some(Command::Tools(ToolsArgs {
             command: ToolsCommand::List(args),
         })) => tools_list(&args),
@@ -1017,7 +1029,7 @@ fn rules_show(args: &RulesShowArgs) -> i32 {
                     println!(
                         "{:<5} {:<10} matters={:<5} hidden_ok={:<5} [{}] {}",
                         ob.id,
-                        format!("{:?}", ob.kind).to_lowercase(),
+                        rules::kind_word(ob.kind),
                         ob.matters(),
                         ob.hidden_ok,
                         o.provenance,

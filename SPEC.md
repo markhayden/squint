@@ -1774,6 +1774,9 @@ squint report export ./squint-out/<run-id>  # one self-contained page in ~/.cach
 squint report rebuild ./squint-out/<run-id>
 squint report prune --older-than 30d
 squint tools list --config squint.toml      # manifests as the model will see them
+squint rules list [<use-case>] [--profile architecture]   # the shipped sets; or one set's rules (id, kind, scope, evidence, text) and how to change them
+squint rules init <use-case> [--out <dir>]  # writes squint.toml and rules.toml (header, every base rule commented out); never overwrites
+squint rules show --config squint.toml [--job job.toml] [--json]   # the merged rules with provenance
 squint describe --json [--config squint.toml] # the contract's description document (ADR 0018); works with no config
 squint estimate --json --config squint.toml --job job.toml [--max-spend-usd 0.10]   # the estimate of one check; nothing sent
 squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check; above it, exit 64

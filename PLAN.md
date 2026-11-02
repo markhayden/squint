@@ -2677,6 +2677,28 @@ the docs test fails on the old example (no header) and passes on the new one.
 `crates/squint-core/src/obligations.rs` (profile listing), `docs/rules.md`, `README.md`,
 `SPEC.md` ("Commands"). **Size.** M.
 
+**As built** (2026-11-02): `crates/squint-cli/src/rules.rs` holds `list` and `init`;
+`squint_core::obligations::SHIPPED_PROFILES` lists the profiles beside `SHIPPED_BASES` (the
+`shipped_sets_parse` test now covers every base and profile). `rules list <use-case>` takes
+`--profile` and then prints each rule's provenance; scope and evidence left to the defaults read
+`candidate (default)` and `every source and reference (default)`, evidence only on mandatory kinds,
+`waives nothing` or `waives …` on exemptions. `rules init` writes `squint.toml` and `rules.toml`
+into `--out` (default `.`, so the result is also the lookup's `./squint.toml`): the config is
+`init::config_text` (shared with `squint init`, 11.4) with `[rules] base` and an **absolute**
+`extra` path, since a relative one resolves against the directory squint runs from; the rules
+file is the header (`use_case`, `version = 1`) and the base file's text from its first
+`[[rule]]` with every non-blank line behind `# ` (a unit test uncomments it and gets the base's
+obligations back exactly, for all five bases). Removing a rule keeps `id` and `kind`, since `kind`
+is a required field; the notes say so. Both files are checked before either is written and
+each is created with `create_new`, so neither is ever overwritten. `rules show` now prints kinds
+as written (`must_hold`, not `musthold`). The docs test (`docs_rules.rs`) reads every ```toml
+block of `docs/rules.md`: a `[rules]` naming `use_case` must parse and merge over its base, one
+naming `base` must parse as a config's section with a shipped base and profile, and anything
+else fails; the obligation example became a complete file and the layering section gained the
+`rules/mine.toml` it names (replace, disable, add). Tests: `rules_cli.rs` (list, a use case's
+rules, unknown use case, init then show then edit then refuse, either file existing), unit tests
+in `rules.rs` and `init.rs`.
+
 ### Task 11.4: Cost and setup
 
 **Description.** (i) When the per-call cap refuses a check, the refusal explains itself on

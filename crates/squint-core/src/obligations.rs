@@ -124,6 +124,9 @@ pub const SHIPPED_BASES: &[&str] = &[
     "product-fidelity",
 ];
 
+/// Every shipped profile as `(base, profile)`; [`shipped`] finds each as `<base>/<profile>`.
+pub const SHIPPED_PROFILES: &[(&str, &str)] = &[("source-fidelity", "architecture")];
+
 /// The shipped rule sets, embedded at build time. Keys are base names and `<base>/<profile>`.
 pub fn shipped(name: &str) -> Option<&'static str> {
     match name {
@@ -630,8 +633,11 @@ mod tests {
 
     #[test]
     fn shipped_sets_parse() {
-        for name in ["source-fidelity", "source-fidelity/architecture"] {
-            RulesFile::parse(shipped(name).expect("shipped"), name).expect("parses");
+        let profiles = SHIPPED_PROFILES.iter().map(|(b, p)| format!("{b}/{p}"));
+        for name in SHIPPED_BASES.iter().map(|b| b.to_string()).chain(profiles) {
+            let file = RulesFile::parse(shipped(&name).expect("shipped"), &name).expect("parses");
+            let base = name.split('/').next().unwrap_or_default();
+            assert_eq!(file.rules.use_case, base, "{name}");
         }
         assert!(shipped("nope").is_none());
     }
