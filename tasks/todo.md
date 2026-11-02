@@ -210,3 +210,24 @@ PLAN.md "Follow-ups (before or beside M9)". Each on its own `fu/<name>` branch.
 - [x] F4 The segmenter pack fails at `initialize` when its model file is missing, so the run ends at resolve (M5 review) — parallel with M9 (2026-11-01: a server serving `regions` or `classes` checks the artifact (present, at the recorded size) and loads it at `initialize`, else answers a JSON-RPC error naming the file and `squint-tools fetch`; `squint-tools serve <tool> ...` narrows what it serves, and `serve echo_region` starts without the artifact; tests in `test_server.py`, `python_pack.rs` and `python_pack_manifests.rs` (a `check` enabling `regions` exits 64 at resolve naming the file, writing nothing); the provisioning test serves `echo_region` alone, and the manifests test now needs the fetched segmenter)
 - [x] F5 Provider error excerpts redacted before the journal, `run.json` and stderr (M2 review) — before M9, or after 9.6
 - [x] F6 CI runs nextest without fail-fast (profile `ci`), both test passes as separate steps — parallel with M9, first (2026-11-01: `.config/nextest.toml` profile `ci`, `NEXTEST_PROFILE=ci` in CI; `just check` is `lint`, `test` (`test-testkit`, `test-release`) and `repo-checks`, each its own CI step that runs after an earlier failure; proved with two planted failures: the default profile stops at the first, `ci` runs all six tests and repeats both failures at the end)
+
+## M10: table-manners v0.4 (branch `m10-v0.4`)
+
+PLAN.md "Milestone M10" (2026-11-01), against the contract's v0.4 branch by path until v0.4.0 is
+published; the work list is the coordinator's `docs/v04-design.md` 7 "squint M10". No operations
+profile, no `export`/`import` (squint has no native artifacts), `kind: task` on every action and no
+`group`. Ten questions for the coordinator are listed at the end of the PLAN section; the tasks
+follow the assumed answers until told otherwise. No paid provider calls (estimate and spend $0).
+
+- [ ] Owner: M10 approved
+- [ ] Coordinator: questions 1–10 of PLAN.md "Questions for the coordinator (M10 planning)" answered
+- [ ] Owner: table-manners v0.4.0 published to crates.io
+- [ ] 10.1 The contract at v0.4: `=0.4.0` by path to the v0.4 checkout, schemas by `UPDATE_CONTRACT=1`, `kind: task` on all five checks, no `group`, core `vocabulary`, `contract: "0.4.0"`; interim `invocation` null and `allowed_dirs` from the config; no reserved action name, no `artifact_types`/`ports`, no `export`/`import` tool → tag `m10.1` — after the v0.4 schemas land
+- [ ] 10.2 The path rule: `list_roots` and every roots branch removed (no fallback), `serve --allow-dir` (repeatable, canonicalised at start, a bad one exits 64), `[serve] roots` renamed `[serve] allow_dirs` and only narrowing, component-wise canonical checks on `check` and `estimate`, the same refusal whether the file exists or not, `allowed_dirs` in `squint://session`, the test client never answers `roots/list` → tag `m10.2` — after 10.1
+- [ ] 10.3 `invocation` on every `run.json` on every surface: images as `{expect}`, delivery arguments dropped, `effective` shared with the estimate (with `x-squint` rule-set and catalog versions, decision runs), requirement names; null only when the arguments did not resolve; job-file labels left out with a note — after 10.1
+- [ ] 10.4 `squint call <action> --arguments <file>` through `job_from_call`, the path rule by `--allow-dir`, result on stdout, exits as `check`; a call of a run's invocation reproduces it — after 10.2, 10.3
+- [ ] 10.5a Reading an invocation bundle: in-house ustar reader (archive or directory), manifest validated against `invocation-bundle.json`, member names and digests checked, squint-only steps, no artifacts or `reference_only`; testkit writer with fixed headers — after 10.1
+- [ ] 10.5b `squint call --bundle <path>`: inputs copied into squint's own cache, each step run through 10.4, offline replay on the scripted provider from another directory with the original gone → tag `m10.3` — after 10.4, 10.5a
+- [ ] 10.6 v0.4 fixtures for table-manners `fixtures/squint/` (every result with `invocation`, `run-call.json`, `bundle-check/` and `run-bundle-replay.json`, `session.json` and `session-no-allow-dir.json`, `run-path-*.json`; no operations files), validated as table-manners validates them; SPEC, agents.md, architecture, README, fixtures README, ADR 0018 amendment — after 10.2–10.5b
+- [ ] 10.7 `table-manners = "=0.4.0"` from crates.io instead of the path — after 10.6 and the owner's publication
+- [ ] Checkpoint M10 → tag `m10`
