@@ -1454,9 +1454,7 @@ Schemas (the source of truth), test vectors, a fixture per tool and a Rust crate
 The contract has a core every tool follows and profiles a kind of tool adds; squint implements the
 core and the images profile, and lists `images` in its description's `profiles`. squint pins a
 tagged release, keeps a hash-checked copy of its schemas under `schemas/contract/`, and warns in CI
-when a newer tag exists. squint conforms to v0.3.0, built against the contract's unpublished
-`v0.3` branch by path until the release is published (M9; `SOURCES.toml` names the branch and
-commit copied). Field names and schemas are the contract's; this section says what squint does
+when a newer tag exists. squint conforms to v0.3.0, pinned `=0.3.0` from crates.io (M9). Field names and schemas are the contract's; this section says what squint does
 with them.
 
 - **Image reference**: `file_sha256`, width and height of the caller's file (enforced), projection
