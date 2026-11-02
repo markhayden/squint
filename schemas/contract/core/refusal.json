@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:table-manners:core:refusal",
-  "title": "Refusal data (CONTRACT.md 3.1, 4.4, 4.5)",
+  "title": "Refusal data (CONTRACT.md 3.1, 4.4, 4.5, 4.7, 5.1)",
   "description": "The `data` of a JSON-RPC -32602 error the contract names, so a host can tell it from other invalid params.",
   "type": "object",
   "additionalProperties": false,
@@ -14,7 +14,8 @@
       "enum": [
         "client_run_id_reused",
         "not_ready",
-        "invalid_arguments"
+        "invalid_arguments",
+        "binding"
       ]
     },
     "run": {
@@ -26,7 +27,7 @@
           "$ref": "urn:table-manners:core:run-ref"
         }
       ],
-      "description": "client_run_id_reused: the earlier request's run, null while it has none (queued, or cancelled before allocation). not_ready: always null."
+      "description": "client_run_id_reused: the earlier request's run, null while it has none (queued, or cancelled before allocation). not_ready, invalid_arguments and binding: always null."
     },
     "requirements": {
       "type": "array",
@@ -39,6 +40,14 @@
     "error": {
       "$ref": "urn:table-manners:core:result#/$defs/error_object",
       "description": "invalid_arguments: what was wrong, as in a result (code usage or input, not retryable)."
+    },
+    "bindings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "urn:table-manners:operations:binding"
+      },
+      "description": "binding: one entry per reference that failed, in port order and, within a many port, in the order given (4.7)."
     }
   },
   "allOf": [
@@ -100,6 +109,30 @@
       "else": {
         "properties": {
           "error": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "reason": {
+            "const": "binding"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "bindings"
+        ],
+        "properties": {
+          "run": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "bindings": false
         }
       }
     }

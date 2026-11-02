@@ -1,0 +1,202 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:core:invocation-bundle",
+  "title": "Invocation bundle manifest (CONTRACT.md 4.9)",
+  "description": "`invocation.json`, the first member of a portable bundle a host builds from contract pieces: a call, or a chain of calls, with every caller image under `inputs/` and every tool export under `artifacts/`, so it runs again with the original workspace gone. No tool builds one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "bundle_version",
+    "steps"
+  ],
+  "properties": {
+    "bundle_version": {
+      "const": 1
+    },
+    "steps": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/step"
+      },
+      "description": "The calls in order; a single call is one step. A later step names an earlier step's output by its reference, never by a path."
+    }
+  },
+  "$defs": {
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contract",
+        "tool",
+        "invocation",
+        "result",
+        "inputs",
+        "artifacts",
+        "reference_only",
+        "unportable"
+      ],
+      "properties": {
+        "contract": {
+          "$ref": "urn:table-manners:core:result#/$defs/version"
+        },
+        "tool": {
+          "$ref": "urn:table-manners:core:result#/$defs/tool"
+        },
+        "invocation": {
+          "$ref": "urn:table-manners:core:result#/$defs/invocation"
+        },
+        "result": {
+          "$ref": "urn:table-manners:core:result",
+          "description": "The original run.json."
+        },
+        "inputs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/input"
+          },
+          "description": "Each image the step took, with its member: the caller's file byte for byte, so its file_sha256 still holds."
+        },
+        "artifacts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/artifact"
+          },
+          "description": "Each native input with its export file (5.1), stored byte for byte; a replay imports it."
+        },
+        "reference_only": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/reference_only"
+          },
+          "description": "Each input left out on purpose; a replay needs it supplied."
+        },
+        "unportable": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/unportable"
+          },
+          "description": "Each native input whose type is portable: none or whose export failed; the bundle is then workspace-dependent. Never replaced by a rendering."
+        }
+      }
+    },
+    "slot_or_port": {
+      "oneOf": [
+        {
+          "required": [
+            "slot"
+          ],
+          "properties": {
+            "port": false
+          }
+        },
+        {
+          "required": [
+            "port"
+          ],
+          "properties": {
+            "slot": false
+          }
+        }
+      ],
+      "description": "Exactly one of slot (images profile) and port (operations)."
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "input": {
+      "type": "object",
+      "additionalProperties": false,
+      "$ref": "#/$defs/slot_or_port",
+      "required": [
+        "image",
+        "member"
+      ],
+      "properties": {
+        "slot": {
+          "$ref": "#/$defs/name"
+        },
+        "port": {
+          "$ref": "#/$defs/name"
+        },
+        "image": {
+          "$ref": "urn:table-manners:images:image-reference"
+        },
+        "member": {
+          "type": "string",
+          "pattern": "^inputs/[0-9a-f]{64}\\.[a-z0-9]+$",
+          "description": "inputs/<file_sha256>.<ext>"
+        }
+      }
+    },
+    "artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "port",
+        "artifact",
+        "member",
+        "sha256"
+      ],
+      "properties": {
+        "port": {
+          "$ref": "#/$defs/name"
+        },
+        "artifact": {
+          "$ref": "urn:table-manners:operations:artifact-ref"
+        },
+        "member": {
+          "type": "string",
+          "pattern": "^artifacts/sha256-[0-9a-f]{64}(\\.[a-z0-9]+)+$",
+          "description": "artifacts/<identity>.<ext>, the identity's `:` written `-`."
+        },
+        "sha256": {
+          "$ref": "urn:table-manners:images:image-reference#/$defs/sha256",
+          "description": "SHA-256 of the export file's bytes."
+        }
+      }
+    },
+    "reference_only": {
+      "type": "object",
+      "additionalProperties": false,
+      "$ref": "#/$defs/slot_or_port",
+      "required": [
+        "why"
+      ],
+      "properties": {
+        "slot": {
+          "$ref": "#/$defs/name"
+        },
+        "port": {
+          "$ref": "#/$defs/name"
+        },
+        "why": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "unportable": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "port",
+        "artifact",
+        "reason"
+      ],
+      "properties": {
+        "port": {
+          "$ref": "#/$defs/name"
+        },
+        "artifact": {
+          "$ref": "urn:table-manners:operations:artifact-ref"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

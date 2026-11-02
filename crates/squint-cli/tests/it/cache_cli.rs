@@ -1,4 +1,5 @@
-//! Task 1.11 CLI scenario: the same `check` twice shows `cache = "hit"` the second time.
+//! Task 1.11 CLI scenario: the same `check` twice shows `cache = "hit"` the second time, with the
+//! same invocation (task 10.1).
 #![cfg(feature = "testkit")]
 #![allow(clippy::unwrap_used)]
 
@@ -12,7 +13,11 @@ fn repo_root() -> PathBuf {
         .unwrap()
 }
 
-fn run(out: &Path, cache_dir: &Path) -> (Option<i32>, String, serde_json::Value) {
+/// The exit code, stderr, `report.json` and `run.json` of one check.
+fn run(
+    out: &Path,
+    cache_dir: &Path,
+) -> (Option<i32>, String, serde_json::Value, serde_json::Value) {
     let o = Command::new(env!("CARGO_BIN_EXE_squint"))
         .current_dir(repo_root())
         .args([
@@ -37,10 +42,13 @@ fn run(out: &Path, cache_dir: &Path) -> (Option<i32>, String, serde_json::Value)
         .unwrap();
     let r =
         serde_json::from_str(&std::fs::read_to_string(dir.join("report.json")).unwrap()).unwrap();
+    let result: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("run.json")).unwrap()).unwrap();
     (
         o.status.code(),
         String::from_utf8_lossy(&o.stderr).to_string(),
         r,
+        result,
     )
 }
 
@@ -49,13 +57,20 @@ fn the_second_identical_check_is_a_cache_hit() {
     let base = std::env::temp_dir().join(format!("squint-cache-cli-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&base);
     let cache_dir = base.join("cache");
-    let (code, stderr, r) = run(&base.join("out-1"), &cache_dir);
+    let (code, stderr, r, first) = run(&base.join("out-1"), &cache_dir);
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(r["cache"]["status"], "miss");
     assert!(!stderr.contains("cache: hit"));
-    let (code, stderr, r) = run(&base.join("out-2"), &cache_dir);
+    let (code, stderr, r, again) = run(&base.join("out-2"), &cache_dir);
     assert_eq!(code, Some(0), "{stderr}");
     assert_eq!(r["cache"]["status"], "hit");
     assert!(stderr.contains("cache: hit (source: "), "{stderr}");
     assert_eq!(r["verdict"], "pass");
+    // A cache hit is the same call, so the same invocation (table-manners 4.8, task 10.1).
+    assert!(first["invocation"].is_object(), "{first}");
+    assert_eq!(again["invocation"], first["invocation"]);
+    assert_eq!(
+        again["invocation"]["requirements"],
+        serde_json::json!(["minimal.toml"])
+    );
 }

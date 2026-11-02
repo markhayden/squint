@@ -2,7 +2,7 @@
 //! `squint://session` resource read without waiting on a running check, its reservation moving
 //! with the check, and every run the server makes carrying the session's id. Task 9.3: readiness
 //! from the session's provider answers, and the proof that describing and estimating call no
-//! provider.
+//! provider. Task 10.2: `allowed_dirs`, canonical, `[]` with no `--allow-dir`.
 #![cfg(feature = "testkit")]
 #![allow(clippy::unwrap_used)]
 
@@ -39,12 +39,9 @@ fn client(out: &Path, script: &str) -> Client {
         .arg(repo_root().join("fixtures/scripts").join(script))
         .arg("--out")
         .arg(out);
-    let mut client = Client::start(&mut c).unwrap();
-    client.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
-    client
+    c.arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"));
+    Client::start(&mut c).unwrap()
 }
 
 fn pair() -> serde_json::Value {
@@ -228,11 +225,10 @@ fn readiness_follows_the_sessions_provider_answers() {
         .arg("--out")
         .arg(dir.join("runs"))
         .env("ANTHROPIC_API_KEY", "sk-session-answers-not-a-key");
+    command
+        .arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"));
     let mut c = Client::start(&mut command).unwrap();
-    c.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
     assert_eq!(
         credential_and_model(&mut c),
         (json!("present"), json!("present"))
@@ -383,11 +379,10 @@ fn describing_and_estimating_call_no_provider() {
         // The server: describe, then estimate.
         let mut server = squint(&["serve"]);
         server.args(config).arg("--out").arg(&runs);
+        server
+            .arg("--allow-dir")
+            .arg(repo_root().join("fixtures/images"));
         let mut c = Client::start(&mut server).unwrap();
-        c.roots = vec![format!(
-            "file://{}",
-            repo_root().join("fixtures/images").display()
-        )];
         let before = tree(&runs);
         let d = c.call("describe", json!({})).unwrap();
         assert!(!d.is_error);
@@ -411,8 +406,8 @@ fn describing_and_estimating_call_no_provider() {
             assert!(std::fs::read_to_string(&calls).unwrap().lines().count() >= 1);
             std::fs::remove_file(&calls).unwrap();
         } else {
-            // Accepted on a thread, so the client keeps answering the server (`roots/list`)
-            // while the check connects; the dropped stream ends its request at once.
+            // Accepted on a thread, so the check's connection is taken while the client waits for
+            // its result; the dropped stream ends its request at once.
             let control = listener.try_clone().unwrap();
             control.set_nonblocking(false).unwrap();
             let acceptor = std::thread::spawn(move || drop(control.accept().unwrap()));
@@ -524,12 +519,37 @@ fn an_expired_estimate_is_stale() {
         ])
         .arg(out("expired"))
         .env("SQUINT_TESTKIT_ESTIMATE_TTL_S", "0");
+    command
+        .arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"));
     let mut c = Client::start(&mut command).unwrap();
-    c.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
     let bound = binding(&mut c, pair());
     let reason = stale(&mut c, pair(), &bound);
     assert!(reason.contains("expired"), "{reason}");
+}
+
+/// The session lists the directories it reads caller paths from (table-manners 4.6, 5.2), as
+/// they resolved at start: a flag given through a symlink and with `..` is listed by its
+/// canonical path, and a server started with no `--allow-dir` lists none.
+#[test]
+fn the_session_lists_its_allowed_directories_canonically() {
+    let dir = out("allowed-dirs");
+    let real = dir.join("real");
+    std::fs::create_dir_all(real.join("inner")).unwrap();
+    std::os::unix::fs::symlink(&real, dir.join("link")).unwrap();
+    let start = |flags: &[PathBuf]| {
+        let mut c = Command::new(env!("CARGO_BIN_EXE_squint"));
+        c.current_dir(repo_root())
+            .args(["serve", "--config", "fixtures/config/minimal.toml", "--out"])
+            .arg(dir.join("runs"));
+        for flag in flags {
+            c.arg("--allow-dir").arg(flag);
+        }
+        Client::start(&mut c).unwrap()
+    };
+    let mut c = start(&[dir.join("link/inner/.."), real.clone()]);
+    let canonical = real.canonicalize().unwrap();
+    assert_eq!(session(&mut c)["allowed_dirs"], json!([canonical]));
+    let mut c = start(&[]);
+    assert_eq!(session(&mut c)["allowed_dirs"], json!([]));
 }

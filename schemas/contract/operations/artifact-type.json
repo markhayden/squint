@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:operations:artifact-type",
+  "title": "Artifact type (CONTRACT.md 3.3, operations profile)",
+  "description": "One entry of the description's top-level artifact_types: a type the tool's ports name, the versions of its record the tool reads, how it leaves the workspace and whether the tool previews it. `image` is the contract's and is never listed.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "schema_versions",
+    "purpose",
+    "portable",
+    "preview"
+  ],
+  "properties": {
+    "type": {
+      "allOf": [
+        {
+          "$ref": "#/$defs/type"
+        },
+        {
+          "not": {
+            "const": "image"
+          }
+        }
+      ],
+      "description": "`location` or the tool's own `<tool.name>:<Name>`; never `image`, which the contract defines whole."
+    },
+    "schema_versions": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/schema_version"
+      },
+      "description": "The versions of the type's record the tool reads; it writes the newest."
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1
+    },
+    "portable": {
+      "enum": [
+        "bundle",
+        "json",
+        "none"
+      ],
+      "description": "bundle: a file the tool writes and reads whole; json: a JSON document; none: it cannot leave its workspace yet (5.1)."
+    },
+    "preview": {
+      "type": "boolean",
+      "description": "Whether the tool draws an artifact of the type as an image for people (4.7)."
+    }
+  },
+  "if": {
+    "properties": {
+      "type": {
+        "const": "location"
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "schema_versions": {
+        "const": [
+          1
+        ]
+      }
+    }
+  },
+  "$defs": {
+    "type": {
+      "type": "string",
+      "pattern": "^(image|location|[a-z][a-z0-9-]*:[A-Z][A-Za-z0-9]*)$",
+      "description": "A shared type (`image`, `location`) or a tool's own, `<tool.name>:<Name>`."
+    },
+    "schema_version": {
+      "type": "integer",
+      "minimum": 1
+    }
+  }
+}

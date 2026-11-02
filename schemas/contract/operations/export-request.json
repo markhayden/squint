@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:operations:export-request",
+  "title": "Export request (CONTRACT.md 5.1, operations profile)",
+  "description": "The input of the reserved export tool, and the file `<tool> export --json <file>` reads: the artifact to write in its portable form.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "artifact"
+  ],
+  "properties": {
+    "artifact": {
+      "$ref": "urn:table-manners:operations:artifact-ref"
+    }
+  }
+}

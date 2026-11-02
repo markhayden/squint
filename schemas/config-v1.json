@@ -283,20 +283,20 @@
       "additionalProperties": false,
       "description": "`[serve]`: the MCP server's own limits (table-manners 4.5, 10.1).",
       "properties": {
+        "allow_dirs": {
+          "default": [],
+          "description": "Narrows the directories `squint serve --allow-dir` gives (table-manners 5.2): when it names\nany, only a flag inside one of them, or one of them inside a flag, is allowed; empty means\nthe flags stand. It never grants a directory alone.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "concurrency": {
           "default": 1,
           "description": "Calls served at once; serial by default.",
           "format": "uint32",
           "minimum": 0,
           "type": "integer"
-        },
-        "roots": {
-          "default": [],
-          "description": "Directories an image path must sit inside, narrowing the client's MCP roots; empty means\nthe client's roots alone.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
         },
         "session_budget_usd": {
           "default": 20.0,

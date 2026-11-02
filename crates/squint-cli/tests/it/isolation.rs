@@ -337,6 +337,10 @@ fn a_provider_error_excerpt_never_carries_the_secret_to_stderr_or_the_decision()
         .find(|p| p.is_dir())
         .unwrap();
     assert!(events(&dir).iter().any(|e| e == "retry"));
+    // The scan below covers `run.json` and the invocation in it (table-manners 4.8).
+    let result: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(dir.join("run.json")).unwrap()).unwrap();
+    assert!(result["invocation"].is_object(), "{result}");
     for needle in [secret, escaped.as_str()] {
         assert!(!stderr.contains(needle), "stderr: {stderr}");
         assert!(!String::from_utf8_lossy(&o.stdout).contains(needle));

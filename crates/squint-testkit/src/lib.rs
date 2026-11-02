@@ -1,7 +1,8 @@
 //! Test support shared by every crate: the scripted fake provider, the fake tool, synthetic
-//! evaluation sets, and the fake MCP server (the `squint-testkit-mcp` binary, located by `mcp_server::path`). A normal dependency
+//! evaluation sets, the invocation-bundle writer, and the fake MCP server (the `squint-testkit-mcp` binary, located by `mcp_server::path`). A normal dependency
 //! of the `squint` binary only behind its `testkit` feature.
 
+pub mod bundle;
 pub mod images;
 pub mod mcp_client;
 pub mod mcp_server;

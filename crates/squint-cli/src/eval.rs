@@ -382,6 +382,7 @@ fn eval_estimate(args: &EstimateArgs) -> i32 {
         tool_script: args.tool_script.clone(),
         lock_digests: Default::default(),
         shared_packs: Default::default(),
+        config_path: plan.matrix.matrix.config.clone(),
     };
     let e = match squint_eval::estimate::estimate(&plan, &factories) {
         Ok(e) => e,
@@ -433,6 +434,8 @@ struct CliFactories {
     lock_digests: std::sync::Mutex<std::collections::BTreeMap<String, String>>,
     /// Packs configured `shared = true`, one process for the whole evaluation.
     shared_packs: crate::SharedPacks,
+    /// The matrix's configuration file, named (by its file name) in each invocation.
+    config_path: PathBuf,
 }
 
 impl Factories for CliFactories {
@@ -467,6 +470,21 @@ impl Factories for CliFactories {
             .map_err(|e| squint_eval::Error::Runner(e.to_string()))
     }
 
+    /// By the local inspection `describe` makes (table-manners 3.1, 4.8): the configuration,
+    /// the profile's credential, the model and the segmenter file when a tool runs it.
+    fn requirements(&self, config: &Config, tools: &ToolRegistry) -> Vec<String> {
+        use squint_core::config::{ConfigFile, ConfigState};
+        use squint_core::readiness::{Needs, config_requirement};
+        let file = ConfigFile {
+            path: self.config_path.clone(),
+            state: ConfigState::Loaded(Box::new(config.clone())),
+        };
+        crate::inspect(config, config_requirement(&file)).used(&Needs {
+            provider: true,
+            tools: tools.manifests().map(|m| m.name.clone()).collect(),
+        })
+    }
+
     fn lock_digests(&self, _config: &Config) -> std::collections::BTreeMap<String, String> {
         self.lock_digests
             .lock()
@@ -495,6 +513,7 @@ fn eval_run(args: &RunArgs) -> i32 {
         tool_script: args.tool_script.clone(),
         lock_digests: Default::default(),
         shared_packs: Default::default(),
+        config_path: plan.matrix.matrix.config.clone(),
     };
     // Signals cancel between decisions and inside one; the runtime that listens stays alive for
     // the whole run while every decision runs on its own.

@@ -160,12 +160,7 @@ fn default_export_path(dir: &Path) -> Result<PathBuf, String> {
     let id = dir
         .file_name()
         .ok_or_else(|| format!("{} names no run", dir.display()))?;
-    let cache = match std::env::var_os("XDG_CACHE_HOME").map(PathBuf::from) {
-        Some(x) if x.is_absolute() => x,
-        _ => std::env::var_os("HOME")
-            .map(|h| PathBuf::from(h).join(".cache"))
-            .ok_or("neither XDG_CACHE_HOME nor HOME is set")?,
-    };
+    let cache = crate::cache_home()?;
     let mut name = id.to_os_string();
     name.push(".html");
     Ok(cache.join("squint").join("reports").join(name))

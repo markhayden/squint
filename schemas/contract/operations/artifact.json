@@ -1,0 +1,51 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:operations:artifact",
+  "title": "Artifact resource (CONTRACT.md 4.7, operations profile)",
+  "description": "What `<tool>://artifact/{identity}` returns: the artifact's reference, its preview (null when its type has none) and the tool's own record, which a host never reads.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "tool",
+    "artifact",
+    "preview",
+    "record"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "urn:table-manners:core:result#/$defs/version"
+    },
+    "tool": {
+      "$ref": "urn:table-manners:core:result#/$defs/tool"
+    },
+    "artifact": {
+      "$ref": "urn:table-manners:operations:artifact-ref"
+    },
+    "preview": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "#/$defs/preview"
+        }
+      ]
+    },
+    "record": {
+      "type": "object",
+      "description": "The tool's own."
+    }
+  },
+  "$defs": {
+    "preview": {
+      "$ref": "urn:table-manners:images:image-out",
+      "properties": {
+        "role": {
+          "const": "preview"
+        }
+      },
+      "description": "An image out with role `preview`, drawing an artifact for people. It never stands for the artifact."
+    }
+  }
+}

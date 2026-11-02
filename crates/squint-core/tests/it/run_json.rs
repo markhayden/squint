@@ -174,6 +174,8 @@ fn an_exhausted_provider_is_a_retryable_provider_error() {
     );
     assert_eq!(o.exit_code, 3);
     assert_eq!(r.status, Status::Error);
+    // An error run resolved its arguments, so it carries its invocation (table-manners 4.8).
+    assert_eq!(r.invocation.as_ref().unwrap().action, "source_fidelity");
     let e = r.error.unwrap();
     assert_eq!((e.code, e.retryable), (ErrorCode::Provider, true));
     assert!(!e.reason.is_empty());
@@ -275,6 +277,10 @@ fn a_cancelled_decision_is_cancelled_with_its_spend_to_date() {
     assert_eq!(r.status, Status::Cancelled);
     assert!(r.error.is_none());
     assert_eq!(r.spend.usd, 0.0, "cancelled before the first request");
+    assert!(
+        r.invocation.is_some(),
+        "a cancelled run carries its invocation"
+    );
 }
 
 /// A decision cancelled after it has spent keeps that spend in its `run.json` (table-manners
@@ -375,6 +381,38 @@ fn a_reference_is_taken_in_through_the_references_slot() {
     assert_eq!(reference.slot, "references");
     let candidate = taken.iter().find(|i| i.role == "candidate").unwrap();
     assert_eq!(candidate.slot, "candidate");
+    // A job file's references with their own ids and labels (`ref:pip`, "Pip, the dog") have no
+    // call argument: the invocation records them in order as `references`, and a note says the
+    // ids and labels are left out (table-manners 4.8, task 10.1).
+    let invocation = r.invocation.as_ref().unwrap();
+    assert_eq!(invocation.action, "reference_consistency");
+    let references: Vec<serde_json::Value> = taken
+        .iter()
+        .filter(|i| i.role == "reference")
+        .map(|i| serde_json::json!({ "expect": i.image }))
+        .collect();
+    assert_eq!(references.len(), 2);
+    assert_eq!(
+        invocation.arguments["references"],
+        serde_json::Value::from(references)
+    );
+    assert_eq!(
+        invocation.arguments["requirements"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(
+        r.notes
+            .iter()
+            .any(|n| n.contains("image ids and reference labels")),
+        "{:?}",
+        r.notes
+    );
+    // A job whose ids are a call's (`candidate`, `source`) needs no note.
+    let (_, pair) = run("references-pair", "held.json", "pair.toml", &[], None);
+    assert!(pair.notes.iter().all(|n| !n.contains("reference labels")));
 }
 
 /// `run.json` is written to a temporary name and renamed, so a reader never sees half of one and

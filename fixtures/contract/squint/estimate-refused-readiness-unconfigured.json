@@ -3,7 +3,7 @@
   "allowed": false,
   "binding": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "cap_usd": 2.0,
-  "contract": "0.3.0",
+  "contract": "0.4.0",
   "effective": {
     "config_identity": null,
     "model": null
@@ -22,8 +22,11 @@
   },
   "refused": "readiness",
   "session": {
+    "allowed_dirs": [
+      "/allowed"
+    ],
     "budget_usd": 20.0,
-    "contract": "0.3.0",
+    "contract": "0.4.0",
     "id": "00000000-0000-4000-8000-000000000001",
     "remaining_usd": 20.0,
     "reserved_usd": 0.0,

@@ -36,7 +36,9 @@
           "not": {
             "enum": [
               "describe",
-              "estimate"
+              "estimate",
+              "export",
+              "import"
             ]
           }
         }
@@ -60,36 +62,7 @@
       "description": "Null for an estimate from the command line, which no server accepts."
     },
     "effective": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": [
-        "model",
-        "config_identity"
-      ],
-      "properties": {
-        "model": {
-          "type": [
-            "string",
-            "null"
-          ],
-          "minLength": 1
-        },
-        "config_identity": {
-          "oneOf": [
-            {
-              "type": "null"
-            },
-            {
-              "type": "string",
-              "pattern": "^sha256:[0-9a-f]{64}$"
-            }
-          ],
-          "description": "Null only when there is no configuration."
-        }
-      },
-      "patternProperties": {
-        "^x-[a-z][a-z0-9-]*$": {}
-      }
+      "$ref": "#/$defs/effective"
     },
     "worst_case_usd": {
       "oneOf": [
@@ -172,6 +145,39 @@
     "usd": {
       "type": "number",
       "minimum": 0
+    },
+    "effective": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "model",
+        "config_identity"
+      ],
+      "properties": {
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "config_identity": {
+          "oneOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "string",
+              "pattern": "^sha256:[0-9a-f]{64}$"
+            }
+          ],
+          "description": "Null only when there is no configuration."
+        }
+      },
+      "patternProperties": {
+        "^x-[a-z][a-z0-9-]*$": {}
+      },
+      "description": "What a call uses where its arguments leave the choice to the tool (4.5); the invocation's effective is the same object (4.8)."
     }
   },
   "allOf": [

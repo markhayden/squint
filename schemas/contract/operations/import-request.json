@@ -1,0 +1,68 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:operations:import-request",
+  "title": "Import request (CONTRACT.md 5.1, operations profile)",
+  "description": "The input of the reserved import tool, and the file `<tool> import --json <file>` reads: an exported file by path (under the path rule, 5.2) or its bytes inline (up to limits.inline_bytes), with an optional SHA-256 the tool checks against the bytes.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "file"
+      ],
+      "properties": {
+        "file": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "path"
+          ],
+          "properties": {
+            "path": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "inline"
+      ],
+      "properties": {
+        "inline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "media_type",
+            "data"
+          ],
+          "properties": {
+            "media_type": {
+              "$ref": "urn:table-manners:operations:export-response#/$defs/media_type"
+            },
+            "data": {
+              "type": "string",
+              "contentEncoding": "base64"
+            }
+          }
+        },
+        "sha256": {
+          "$ref": "#/$defs/sha256"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "sha256": {
+      "$ref": "urn:table-manners:images:image-reference#/$defs/sha256",
+      "description": "When given, checked against the bytes before anything is recorded."
+    }
+  }
+}

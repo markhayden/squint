@@ -1,6 +1,7 @@
 //! Task 7.5: squint's description document (table-manners 3 and 11.2), valid against the
 //! contract's schema, with one action per shipped use case and every word squint can emit; since
-//! task 9.1 (v0.3), each action's readiness and render kinds, and no `estimate` action.
+//! task 9.1 (v0.3), each action's readiness and render kinds, and no `estimate` action; since task
+//! 10.1 (v0.4), every action a task with no group, and no operations-profile field.
 #![allow(clippy::unwrap_used)]
 
 use std::path::PathBuf;
@@ -11,7 +12,7 @@ use squint_core::contract;
 use squint_core::readiness::{self, Answers, Credential, Inspection};
 use squint_core::submission::FindingDisposition;
 use table_manners::{
-    Description, Profile, ReadinessState, RenderKind, Requirement, RequirementKind,
+    ActionKind, Description, Profile, ReadinessState, RenderKind, Requirement, RequirementKind,
     RequirementState,
 };
 
@@ -312,13 +313,54 @@ fn the_renders_are_a_server_and_a_document() {
 fn the_vocabulary_lists_every_word_squint_emits() {
     let (d, _) = described();
     let v = d.vocabulary.unwrap();
-    let mut disposition = v.disposition.clone();
+    let mut disposition = v.disposition.clone().unwrap();
     disposition.sort();
     assert_eq!(disposition, words::<FindingDisposition>());
-    let mut confidence = v.confidence.clone();
+    let mut confidence = v.confidence.clone().unwrap();
     confidence.sort();
     assert_eq!(confidence, words::<Confidence>());
-    assert!(v.evidence.is_empty() && v.score_kind.is_empty());
+    // The images profile's four lists are all present in the core object (table-manners 11.2),
+    // two of them empty; no action names a group, so the core's `group` list is absent (3).
+    assert_eq!(v.evidence, Some(Vec::new()));
+    assert_eq!(v.score_kind, Some(Vec::new()));
+    assert_eq!(v.group, None);
+}
+
+/// v0.4 (table-manners 3): each of the five checks is a whole job, `kind: "task"`, with no
+/// `group`, in the description an unconfigured `describe` also gives.
+#[test]
+fn every_action_is_a_task_with_no_group() {
+    let (d, doc) = described();
+    assert_eq!(d.actions.len(), 5);
+    for (action, json) in d.actions.iter().zip(doc["actions"].as_array().unwrap()) {
+        assert_eq!(action.kind, ActionKind::Task, "{}", action.name);
+        assert_eq!(json["kind"], "task", "{}", action.name);
+        assert!(json.get("group").is_none(), "{}: {json}", action.name);
+    }
+    assert!(doc["vocabulary"].get("group").is_none());
+}
+
+/// squint lists only the images profile, so it emits none of the operations profile's fields
+/// (table-manners 1): no `artifact_types`, no `ports`, no action of kind `operation`; and no action
+/// takes a reserved name (3, 5), so `export` and `import` stay unserved.
+#[test]
+fn no_action_is_reserved_and_no_operations_field_is_emitted() {
+    let (d, doc) = described();
+    for action in &d.actions {
+        assert!(
+            !["describe", "estimate", "export", "import"].contains(&action.name.as_str()),
+            "{} is a reserved name",
+            action.name
+        );
+        assert!(action.ports.is_none(), "{}", action.name);
+        assert_ne!(action.kind, ActionKind::Operation, "{}", action.name);
+    }
+    assert!(d.artifact_types.is_none());
+    assert!(doc.get("artifact_types").is_none());
+    for json in doc["actions"].as_array().unwrap() {
+        assert!(json.get("ports").is_none(), "{json}");
+    }
+    assert_eq!(d.profiles, [Profile::Images]);
 }
 
 #[test]
@@ -453,4 +495,39 @@ fn an_invalid_configuration_says_what_to_fix() {
     let loaded = Config::open_with(Some(&path), &[], &|_| Some("org-x".into()));
     let r = readiness::config_requirement(&loaded);
     assert_eq!((r.state, r.setup), (RequirementState::Present, None));
+}
+
+/// An invocation names the requirements a call needed (table-manners 4.8): the configuration and
+/// a file by their file names only, never the path they were found at; the credential by its
+/// variable's name, never a value; the model by name. A call that sends nothing to the provider
+/// and runs no segmenter tool names the configuration alone.
+#[test]
+fn an_invocation_names_requirements_by_file_name_never_a_path() {
+    use squint_core::readiness::{LocalFile, Needs};
+    let inspection = Inspection {
+        config: Requirement {
+            name: "/home/someone/projects/squint.toml".into(),
+            ..present_config()
+        },
+        files: vec![LocalFile {
+            path: "/data/squint/models/segmenter-v1.onnx".into(),
+            present: true,
+            setup: "squint tools setup".into(),
+        }],
+        ..inspection(true)
+    };
+    let all = Needs {
+        provider: true,
+        tools: vec!["regions".into()],
+    };
+    assert_eq!(
+        inspection.used(&all),
+        [
+            "squint.toml",
+            "GEMINI_API_KEY",
+            "gemini-3.8-flash",
+            "segmenter-v1.onnx"
+        ]
+    );
+    assert_eq!(inspection.used(&Needs::default()), ["squint.toml"]);
 }

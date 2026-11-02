@@ -1,8 +1,8 @@
 # squint for agents and pipelines
 
 squint speaks the waffle tools' shared contract, [table-manners](https://github.com/markhayden/table-manners)
-v0.3.0, core and images profile (ADR 0018); until v0.3.0 is published squint builds against the
-contract's `v0.3` branch. An agent or a script that knows the contract can
+v0.4.0, core and images profile (ADR 0018), pinned `=0.4.0` from crates.io. squint lists no operations profile: it has no artifact types, ports or
+artifacts, and the reserved `export` and `import` are unknown tools. An agent or a script that knows the contract can
 describe squint, estimate a check, run one, follow it, stop it and read it back, the same way it
 does rascal. This page is squint's side; the contract's `CONTRACT.md` is the reference.
 
@@ -19,7 +19,8 @@ the path to create or `invalid` with what to fix (an unset `${VAR}` by name).
 
 The description document: one action per shipped use case (`source_fidelity`,
 `reference_consistency`, `reality_checks`, `brief_compliance`, `product_fidelity`); `estimate` is
-a reserved tool, not an action. Each use case takes `candidate`, a `source` where its rule set
+a reserved tool, not an action. Each action is of kind `task` (a whole check) with no `group`, and
+`vocabulary` lists the disposition and confidence words a finding can carry. Each use case takes `candidate`, a `source` where its rule set
 requires one, and `references` (a `many` slot: a non-empty list, each taken in once, in order), with `brief`, `requirements` (typed by squint's
 obligation schema) and `max_spend_usd`. Each action's `readiness` comes from a local look,
 never a network call: the configuration (`present`, `missing` or `invalid`), then the credential
@@ -56,15 +57,17 @@ and returns the contract's estimate (table-manners 4.5) as `structuredContent`:
 within it), `cap_usd` (the configured per-call cap, lowered by `max_spend_usd`), `allowed`, and
 when not, `refused`: `readiness` (the action is not ready: see its `readiness`), `cap` or
 `budget` (the session cannot hold it; `session` is the same observation as `squint://session`);
-`effective.model` and `effective.config_identity`, with the decision runs, requests and attempts
-under `x-squint`; `expires`, an hour on; and `binding`. The binding covers the action, the
+`effective.model` and `effective.config_identity`, with the rule sets' versions, the catalog
+version and the decision runs, requests and attempts under `x-squint` (the same `effective` the
+run of that call records in its invocation); `expires`, an hour on; and `binding`. The binding covers the action, the
 arguments with each image as its file digest (a path and inline bytes of one file bind equal)
 and its `expect`, squint's version, the configuration and the session; `return_images` and
 `image_blocks` do not change it. A call that cannot be priced (no configuration, or a model the
 catalog lacks) is refused for readiness with `worst_case_usd` and `effective.model` null (and
 `effective.config_identity` null with no configuration), never zero. A wrong request is a
 JSON-RPC error: arguments the input schema rejects are plain `-32602`; `max_spend_usd` above the
-configured cap, an `expect` that does not match, an unknown action or a path outside the roots is
+configured cap, an `expect` that does not match, an unknown action or a path outside the allowed
+directories is
 `-32602` with `{"reason": "invalid_arguments", "run": null, "error": {"code": "usage" | "input",
 …}}`. An estimate takes no permit and claims no `client_run_id`. On the command line the same
 document has `session_id` and `session` null, so no server accepts its binding; with no
@@ -73,7 +76,7 @@ configuration it answers like `describe`, refused for readiness; a wrong request
 ## Serve
 
 ```
-squint serve [--config squint.toml] [--out runs/] [--set serve.session_budget_usd=5]
+squint serve [--config squint.toml] [--out runs/] [--allow-dir /abs/images]… [--set serve.session_budget_usd=5]
 ```
 
 MCP over stdio at protocol revision `2025-11-25` only, on `rmcp` `=3.8.0`; nothing but the
@@ -93,9 +96,14 @@ this way: it answers, its estimate `refused: "readiness"` when the action is not
 ordinary decision (its directory, journal, report and `run.json`).
 
 - **Images** by absolute `path` or `inline` bytes, each with an optional `expect` reference whose
-  digest and dimensions are verified before anything runs. When the client offers MCP roots, a
-  path must sit inside them, and inside `[serve] roots` when the config names any; with no roots
-  from either, images go inline (a path is refused).
+  digest and dimensions are verified before anything runs. A path must lie inside a directory
+  the server was started with by `--allow-dir` (absolute and existing, resolved at start; a bad
+  one makes `serve` exit 64 before `initialize`); `[serve] allow_dirs` in the configuration can
+  only narrow those, never add one. Paths are compared after resolving `..` and symlinks, so
+  neither leads out. With no `--allow-dir` every path is refused and images go inline. A refused
+  path is `invalid`, `input` (on `estimate`, the `invalid_arguments` refusal) with the same
+  words whether or not the file exists. squint never asks the client for MCP roots;
+  `squint://session` lists the allowed directories as `allowed_dirs`.
 - **Spend**: the per-call cap from config, lowered by `max_spend_usd` (a value above the
   configured cap is `invalid`, `usage`, spending nothing; never silently lowered); a session
   budget (`[serve] session_budget_usd`, default $20) every decision reserves against before its
@@ -111,7 +119,7 @@ ordinary decision (its directory, journal, report and `run.json`).
 - **Correlation**: send `_meta["table-manners/client_run_id"]` with a call to find its run after a
   lost connection; an id is good once per server session (a reuse is `-32602`, reason
   `client_run_id_reused`, naming the earlier run). A request refused with a JSON-RPC error before
-  any run (arguments the server rejects, a `not_ready` refusal, a failed `roots/list`) releases
+  any run (arguments the server rejects, a `not_ready` refusal) releases
   its id: fix the request and send it again under the same id.
 - **Cancellation**: `notifications/cancelled` stops the provider call; the run's `run.json` says
   `cancelled` with spend to date, and the request gets no response. A call cancelled before its
@@ -119,10 +127,49 @@ ordinary decision (its directory, journal, report and `run.json`).
   `client_run_id` stays claimed.
 - **Resources**: `squint://runs` (newest first, running ones included, fifty to a page; the next
   page is `squint://runs?cursor=<next_cursor>`), `squint://session` (the session id, budget,
-  spent, unresolved, reserved and remaining), and per run `squint://run/<id>/run.json`,
+  spent, unresolved, reserved and remaining, and `allowed_dirs`), and per run `squint://run/<id>/run.json`,
   `…/report.json` and `…/journal`, readable after a timeout or a dropped connection.
 - **Results**: the `run.json` below as `structuredContent`; `isError` for `invalid` and `error`.
   Arguments the input schema rejects and unknown tools are JSON-RPC errors, since no run exists.
+
+## Call
+
+```
+squint call <action> --arguments args.json [--config squint.toml] [--allow-dir /abs/images]… [--out runs/] [--set PATH=VALUE]…
+```
+
+Runs any action from exactly the arguments an MCP call to it would send (table-manners 4.8): the
+file is that JSON object, the same `candidate`, `source`, `references`, `brief`,
+`requirements`, `max_spend_usd` a `tools/call` carries. Image paths follow the same rule as
+`serve`: only inside a directory given by `--allow-dir` (narrowed by `[serve] allow_dirs`); with
+none every path is refused and images go inline. A refused path is an `invalid` run, `input`, in
+the same words `serve` uses, exit 64. The run is an ordinary command-line run (its directory and
+`run.json`, no session); the result is printed on stdout and the exit code is `check`'s. An
+unknown action, a reserved name (`describe`, `estimate`, `export`, `import`) or arguments squint
+refuses exit 64 with nothing written.
+
+To run a recorded call again, take a result's `invocation`, add a locator (`"path"` or
+`"inline"`) beside each image's `expect`, write its `arguments` to a file and pass it to `squint
+call <invocation.action>`: the new run records the same invocation and input identity, and the
+`expect` makes sure the files are the ones first used.
+
+```
+squint call --bundle /abs/bundles/check.tar --allow-dir /abs/bundles [--config squint.toml] [--out runs/]
+```
+
+Replays an invocation bundle (table-manners 4.9), the `.tar` archive or its unpacked directory,
+with the original files gone. The bundle must lie inside an `--allow-dir`. squint checks it whole
+before anything runs and refuses, exit 64 with the reason on stderr and no run: a bundle outside
+the allowed directories, a damaged or tampered member, a step another tool made (a host replays a
+mixed bundle itself), an input left out on purpose (`reference_only`: there is no way to supply
+it yet), and a step whose inputs are not the images its invocation names. It then copies the
+inputs into its own cache (`$XDG_CACHE_HOME/squint/bundles/<sha256 of invocation.json>/inputs/`)
+and runs each step as `squint call` with its invocation's arguments pointed there. One step
+prints its result and exits as a call does. Several print one result per line and stop at the
+first step that does not complete, exiting with its code; when every step completes, the exit is
+the most serious step's (error or invalid, then fail, then unsure, then pass), so an earlier `fail`
+is never hidden by a later `pass`. The call repeats exactly; a live model's verdict may not, so
+replays that must match use the scripted provider. squint has no operations, so no step takes an earlier step's output.
 
 ## run.json
 
@@ -133,6 +180,17 @@ answer settled, counted at its worst case: show it as "at most"; `basis` is `est
 answer reported no usage and counts its worst case), cache, the images taken in with their
 roles, every finding as a contract location on the file as stored) and squint's body (verdict,
 exit code, whether two runs agreed, the report's path). A `fail` verdict is `completed`.
+
+Every result carries `invocation` (table-manners 4.8): what the call resolved to, so it can be run
+again elsewhere. `arguments` hold each image as `{"expect": <image reference>}` with no path or
+inline bytes (a check by path and by inline bytes record the same invocation), with `brief`,
+`requirements` and `max_spend_usd` as given and `return_images` and `image_blocks` left out;
+`effective` is the estimate's object for the same call; `requirements` names what the call needed
+(the configuration and the segmenter file by file name, the credential variable and the model by
+name, never a value). A job file's own image ids and reference labels are not call arguments, so
+they are left out and a note says so. `invocation` is null only on an `invalid` run whose
+arguments did not resolve (an image that could not be read, does not match its `expect`, or a
+path refused).
 
 | squint error class | status | code | retryable |
 |---|---|---|---|
@@ -158,7 +216,7 @@ exit code, whether two runs agreed, the report's path). A `fail` verdict is `com
 | 2 | unsure (under the default policy) |
 | 3 | error |
 | 64 | a usage error, or an `invalid` request (a job that does not resolve, an image that is not the one named), whatever the policy |
-| 130, 143 | cancelled by SIGINT, SIGTERM (`check` and `eval run`) |
+| 130, 143 | cancelled by SIGINT, SIGTERM (`check`, `call` and `eval run`) |
 | 69, 70, 74 | `playground` only: Wafflery unavailable, its startup failed, its install failed |
 
 ## Wafflery

@@ -14,7 +14,8 @@
     "spent_usd",
     "unresolved_usd",
     "reserved_usd",
-    "remaining_usd"
+    "remaining_usd",
+    "allowed_dirs"
   ],
   "properties": {
     "contract": {
@@ -60,6 +61,15 @@
       ],
       "minimum": 0,
       "description": "max(0, budget_usd - spent_usd - reserved_usd); null exactly when budget_usd is."
+    },
+    "allowed_dirs": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "description": "The directories the session reads caller paths from (5.2): absolute, symlinks resolved, after the configuration narrowed them; [] when every path is refused. Fixed for the session."
     }
   },
   "if": {

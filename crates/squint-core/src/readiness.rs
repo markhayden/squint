@@ -259,6 +259,36 @@ impl Inspection {
     }
 }
 
+/// A requirement's name as an invocation records it (table-manners 4.8): a `config` or `file`
+/// requirement by its file name only, never the path it was found at; any other by its name.
+pub fn invocation_name(requirement: &Requirement) -> String {
+    match requirement.kind {
+        RequirementKind::Config | RequirementKind::File => std::path::Path::new(&requirement.name)
+            .file_name()
+            .map_or_else(
+                || requirement.name.clone(),
+                |n| n.to_string_lossy().into_owned(),
+            ),
+        _ => requirement.name.clone(),
+    }
+}
+
+impl Inspection {
+    /// The names of the requirements one call needs (`needs`), whatever their state, in
+    /// readiness order, as its invocation lists them (table-manners 4.8): never a value, a file
+    /// or configuration by its file name.
+    pub fn used(&self, needs: &Needs) -> Vec<String> {
+        let mut names: Vec<String> = Vec::new();
+        for requirement in self.readiness(&Answers::default()).requirements {
+            let name = invocation_name(&requirement);
+            if needs.needs(&requirement) && !names.contains(&name) {
+                names.push(name);
+            }
+        }
+        names
+    }
+}
+
 /// The sentence a `not_ready` refusal carries, on the command line and over MCP alike: each
 /// requirement by name and state, then what to do about it. Names only, never a value.
 pub fn not_ready_message(requirements: &[Requirement]) -> String {

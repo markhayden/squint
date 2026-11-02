@@ -35,12 +35,9 @@ fn client(out: &Path, script: &str) -> Client {
         .arg(repo_root().join("fixtures/scripts").join(script))
         .arg("--out")
         .arg(out);
-    let mut client = Client::start(&mut c).unwrap();
-    client.roots = vec![format!(
-        "file://{}",
-        repo_root().join("fixtures/images").display()
-    )];
-    client
+    c.arg("--allow-dir")
+        .arg(repo_root().join("fixtures/images"));
+    Client::start(&mut c).unwrap()
 }
 
 /// A document valid against one of the contract's schemas, by id.

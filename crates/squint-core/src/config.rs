@@ -300,10 +300,11 @@ pub struct ServeConfig {
     /// Spend across every call one server process serves, in USD.
     #[serde(default = "d_session_budget_usd")]
     pub session_budget_usd: f64,
-    /// Directories an image path must sit inside, narrowing the client's MCP roots; empty means
-    /// the client's roots alone.
+    /// Narrows the directories `squint serve --allow-dir` gives (table-manners 5.2): when it names
+    /// any, only a flag inside one of them, or one of them inside a flag, is allowed; empty means
+    /// the flags stand. It never grants a directory alone.
     #[serde(default)]
-    pub roots: Vec<PathBuf>,
+    pub allow_dirs: Vec<PathBuf>,
 }
 
 fn d_concurrency() -> u32 {
@@ -319,7 +320,7 @@ impl Default for ServeConfig {
         ServeConfig {
             concurrency: d_concurrency(),
             session_budget_usd: d_session_budget_usd(),
-            roots: Vec::new(),
+            allow_dirs: Vec::new(),
         }
     }
 }
@@ -674,10 +675,10 @@ impl Config {
                 "[serve] session_budget_usd must be positive".into(),
             ));
         }
-        if let Some(root) = self.serve.roots.iter().find(|r| !r.is_absolute()) {
+        if let Some(dir) = self.serve.allow_dirs.iter().find(|d| !d.is_absolute()) {
             return Err(Error::Config(format!(
-                "[serve] roots: {} is not absolute",
-                root.display()
+                "[serve] allow_dirs: {} is not absolute",
+                dir.display()
             )));
         }
         Ok(())

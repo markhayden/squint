@@ -100,7 +100,7 @@ M9  9.1 ← table-manners v0.3 branch      9.2 ← 9.1    9.3 ← 9.2    9.4 ←
     9.10 ← 9.2–9.9                       9.11 ← 9.10, then v0.3.0 published
 FU  F1 ← none (or 9.5)   F2 ← none   F3 ← none (or 9.6)   F4 ← none
     F5 ← none (or 9.6)   F6 ← none
-M10 10.1 ← table-manners v0.4 schemas    10.2 ← 10.1  10.3 ← 10.1  10.4 ← 10.2, 10.3
+M10 10.1 ← table-manners v0.4 schemas    10.2 ← 10.1  (10.3 folded into 10.1)  10.4 ← 10.1, 10.2
     10.5a ← 10.1      10.5b ← 10.4, 10.5a              10.6 ← 10.2–10.5b
     10.7 ← 10.6, then v0.4.0 published
 ```
@@ -2162,16 +2162,19 @@ Rollback checkpoints are intermediate tags on the branch:
 
 | tag | after | the branch then |
 |---|---|---|
-| `m10.1` | 10.1 | builds on the v0.4 types; `kind: task` on every action; behaviour as at `m9` apart from the shape changes v0.4 forces (`invocation` null, `allowed_dirs` from the config) |
+| `m10.1` | 10.1 (with 10.3) | builds on the v0.4 types; `kind: task` on every action; the invocation on every result; behaviour otherwise as at `m9`, `allowed_dirs` from the config |
 | `m10.2` | 10.2 | the path rule: `--allow-dir`, no MCP roots, `allowed_dirs` honest |
-| `m10.3` | 10.5b | every v0.4 behaviour on squint's side: the invocation, `squint call`, bundle replay |
+| `m10.3` | 10.5b | every v0.4 behaviour on squint's side: `squint call`, bundle replay |
 | `m10` (on `main`) | 10.7 and the checkpoint | on `=0.4.0` from crates.io |
 
-Reverting follows the general rules (Commit strategy, Rollback). 10.4, 10.5a and 10.5b revert
-together with 10.3 when 10.3 is reverted (the call's acceptance compares invocations, and replay
-calls `call`); 10.5b reverts with 10.5a; 10.2 and 10.3 are independent of each other. After any
-revert below `m10.3` the fixtures are regenerated (10.6) before the next commit, since their test
-fails on drift. Resetting to `m10.1` abandons the behaviour work and keeps the type migration.
+Reverting follows the general rules (Commit strategy, Rollback). 10.3 is folded into 10.1 (the
+coordinator, 2026-11-01: the v0.4 result schema allows `invocation` null only on an `invalid`
+run, so no interim null passes it), so reverting 10.1 reverts the invocation too, and 10.4, 10.5a
+and 10.5b with it (the call's acceptance compares invocations, and replay calls `call`); 10.5b
+reverts with 10.5a; 10.2 is independent of the invocation. After any revert below `m10.3` the
+fixtures are regenerated (10.6) before the next commit, since their test fails on drift.
+Resetting to `m10.1` abandons the path rule, `call` and replay and keeps the type migration and
+the invocation.
 External state is the contract's: a fixture directory handed over is superseded by the next one,
 never edited in place. No release, tag or push is part of a task; the owner pushes and tags.
 
@@ -2184,10 +2187,11 @@ and `SOURCES.toml` refreshed with `UPDATE_CONTRACT=1` (`description.json` with `
 operations-profile schemas copied too, since the copy test holds the whole embedded set, though
 squint emits none of them). Code moved to the v0.4 types: every action `kind: Task` and no `group`;
 `Vocabulary` built as the core object with the images profile's four lists; `contract:
-"0.4.0"` everywhere. The fields whose behaviour comes later take a stated interim value, as 9.1
-did: `invocation` null on every result until 10.3, and the session's `allowed_dirs` the
-canonicalised `[serve] roots` until 10.2 (what squint itself names; the client's roots are
-per call and not the session's). A test pins that no action is named `describe`, `estimate`,
+"0.4.0"` everywhere; and the invocation on every result, task 10.3 folded in (the v0.4 result
+schema allows `invocation` null only on an `invalid` run, so the interim null first planned here
+does not validate; the coordinator folded 10.3 into this commit, 2026-11-01). The session's
+`allowed_dirs` takes a stated interim value, as 9.1 did: the canonicalised `[serve] roots` until
+10.2 (what squint itself names; the client's roots are per call and not the session's). A test pins that no action is named `describe`, `estimate`,
 `export` or `import`, that the description has no `artifact_types` and no action has `ports`, and
 that `tools/list` has no `export` or `import`. Fixtures regenerated at 0.4.0.
 
@@ -2195,7 +2199,7 @@ that `tools/list` has no `export` or `import`. Fixtures regenerated at 0.4.0.
 copy; every existing contract test (`contract_schemas`, `description`, `run_json`,
 `contract_fixtures`, `contract_fixtures_served`) validates against the v0.4 schemas; `describe`
 validates with `kind: "task"` on all five actions and with no configuration (3.1); `profiles` is
-`["images"]`; a `tools/call` of `export` or `import` is an unknown tool.
+`["images"]`; a `tools/call` of `export` or `import` is an unknown tool; and 10.3's acceptance.
 
 **Verification.** `just check`; `cargo tree -i table-manners` shows the path source.
 
@@ -2255,6 +2259,15 @@ interface", the config reference), `docs/agents.md` ("Serve"), `docs/adr/0018-ta
 
 ### Task 10.3: The invocation on every result
 
+**Folded into 10.1** (the coordinator, 2026-11-01), which lands it in the same commit; the text
+below is what that commit does. As built, a served refusal that `action_result` writes before
+squint reads the call's images (`max_spend_usd` above the cap, a provider this build lacks) has
+its invocation null with the other unresolved cases, since its image references, computed from
+the files squint read, do not exist yet; the requirement names come from
+`readiness::Inspection::used` through `Services::with_call` (and, for an evaluation, a
+`Factories::requirements` hook), and the catalog version from the prices' `Pricing`, so the
+scripted provider's has none.
+
 **Description.** `contract::invocation` builds the `invocation` (4.8) from the job, the loaded
 images and the effective configuration, and `run_result` writes it into every `run.json` on every
 surface (command-line `check`, served checks, `eval` decisions, cache hits, `cancelled` and
@@ -2293,6 +2306,14 @@ them in order with the note.
 
 ### Task 10.4: `squint call <action> --arguments <file>`
 
+**As built** (2026-11-01): the input identity's recipe changed in one respect, so that a call of a
+run's invocation reproduces its identity as well as its invocation: an image's `expect` is left
+out of it (it only checks the bytes whose digest the identity already holds), and each image's
+projection is the one it resolved to rather than the one asked for (an `expect` names one; the
+same call without it resolves the same). 10.3's "recipe unchanged" holds otherwise. The served
+refusal of a path now reads "…; send the image inline, or give its directory with --allow-dir",
+the same words on `serve` and `call`.
+
 **Description.** A new command, `squint call <action> --arguments <file.json> [--config <path>]
 [--allow-dir <abs>]… [--out <dir>] [--set PATH=VALUE]…` (and, in testkit builds,
 `--provider-script`), that runs any action from exactly the arguments an MCP call to it would
@@ -2319,7 +2340,7 @@ refuses exit 64; SIGINT and SIGTERM cancel as `check` does (130, 143).
 **Verification.** `crates/squint-cli/tests/it/call_cli.rs` (new), `exit_codes.rs`,
 `usage_cli.rs`, `just check`.
 
-**Dependencies.** 10.2, 10.3. **Files.** `crates/squint-cli/src/{main.rs,call.rs}` (new
+**Dependencies.** 10.1 (with 10.3), 10.2. **Files.** `crates/squint-cli/src/{main.rs,call.rs}` (new
 module), `crates/squint-cli/src/serve/mod.rs` (the shared allowed-directory resolution),
 `crates/squint-cli/tests/it/call_cli.rs`, `SPEC.md` ("External interface", the command list),
 `docs/agents.md`, `README.md` (commands). **Size.** M.
@@ -2355,6 +2376,17 @@ above has a case; a member named `../x` or `/etc/x` is refused before anything i
 
 ### Task 10.5b: `squint call --bundle <path>`
 
+**As built** (2026-11-01): a bundle refused before any step (outside every `--allow-dir`, or
+refused by the reader) is refused with its reason on stderr, `invalid (input): …`, exit 64, and
+no run, since no action is known to write one under; the path refusal uses the path rule's words
+and says nothing about the file. The check of each step's `inputs` against its invocation's image
+arguments, left over from 10.5a, is in the reader (`squint_core::bundle`), which also gives each
+step's arguments with the locators (`Bundle::arguments`). When every step of several completes,
+the replay exits with the most serious step's code (a completed `fail` does not stop it, and is
+not hidden by a later `pass`): error (3) and `invalid` (64) first, then `fail` (1), `unsure` (2),
+`pass` (0) (the coordinator, 2026-11-01; the last step's code at first). squint has no
+operations, so 4.9's binding of a later step to an earlier step's output by port does not arise.
+
 **Description.** `squint call --bundle <path> [--config …] [--allow-dir …]…` replays a bundle
 (4.8, 4.9). The bundle path follows the path rule (an `--allow-dir` must hold it). The reader
 (10.5a) checks it whole; squint then copies each input member into a directory of its own
@@ -2382,6 +2414,20 @@ squint's runs root and cache.
 `crates/squint-cli/tests/it/call_cli.rs`, `SPEC.md`, `docs/agents.md`. **Size.** M.
 
 ### Task 10.6: Fixtures, docs and the hand-off
+
+**As built** (2026-11-01): beside the list below, `session-narrowed.json` (an `--allow-dir`
+narrowed by `[serve] allow_dirs` to its subdirectory, `/allowed/sub`) and
+`refusal-invalid-arguments-path-outside.json` (the path rule on `estimate`); the path refusals'
+outside directory is written `/outside`. `run-call.json` and `bundle-check/` are made from the
+committed `run-completed.json` (the fake tool's configuration, offline on the scripted provider),
+and the two runs keep the invocation as squint wrote it, equal to `run-completed.json`'s; their
+input identity is zeroed like every served fixture's, since it carries squint's version. The
+validator holds every rule of table-manners' `tests/fixtures.rs` at `v0.4` (`d9e6058`) that
+applies to a tool without operations (schema and type by name; a bundle's members and digests;
+every contract and tool name, steps included; each invocation of its result's action with no
+locator), plus squint's own: no operations field or file, `invocation` null only on `invalid`,
+requirement names never paths, nothing unlisted in a bundle directory. table-manners' own test
+passes on a copy of the directory at that commit.
 
 **Description.** `fixtures/contract/squint/` regenerated for v0.4 by `contract_fixtures.rs` and
 `contract_fixtures_served.rs` with `UPDATE_CONTRACT_FIXTURES=1`, per CONTRACT 7 item 7's v0.4
@@ -2442,6 +2488,18 @@ the fixture drift tests pass; `scripts/check-contract-tag.sh` reports no newer t
 
 **Dependencies.** 10.6; table-manners v0.4.0 published (owner). **Files.** `Cargo.toml`,
 `Cargo.lock`, `schemas/contract/SOURCES.toml`. **Size.** S.
+
+**As built** (2026-11-02): the workspace pins `table-manners = "=0.4.0"` from crates.io, and
+`squint-core` and `squint-cli` take it from the workspace; `Cargo.lock` gains only the registry
+source and checksum (the published crate's dependencies are the branch's). `UPDATE_CONTRACT=1`
+removed `SOURCES.toml`'s `branch` and `commit` lines and nothing else: every copied schema is
+byte-identical to the published crate's. `UPDATE_CONTRACT_FIXTURES=1` left every fixture
+unchanged, so the directory handed over at 10.6 stands and nothing is re-sent.
+`scripts/check-contract-tag.sh` reports v0.4.0 the newest release. CI never fetched the draft
+checkout, so no CI wiring was removed; the schema test's path-dependency branch stays, since it is
+how every milestone builds before its release. SPEC, README, `docs/agents.md`,
+`docs/architecture.md`, ADR 0018's v0.4 amendment and `fixtures/contract/README.md` no longer
+describe the draft pin. `just ci-local` remains for the checkpoint.
 
 ### Checkpoint M10
 - [ ] Every item of CONTRACT.md "Changes from v0.3" and of `docs/v04-design.md` 7 "squint M10",
@@ -2524,11 +2582,9 @@ built. In M4, 4.0 alongside 4.1; 4.4a after 4.1 alongside 4.2a. In M9, 9.7, 9.8 
 alongside the chain 9.2 to 9.5 (9.7 and 9.8 share `serve/mod.rs` with it, so they merge first,
 small); 9.6 after 9.3 and 9.7, alongside 9.4 and 9.5. The follow-ups F2, F4 and F6 run beside M9 with no
 shared files; F1 goes before M9 or after 9.5, F3 and F5 after 9.6 (table in "Follow-ups"). In
-M10, three tracks run after 10.1: the path rule (10.2: `serve/mod.rs`, `config.rs`, the test
-client and the serve tests), the invocation (10.3: `contract.rs`, `run.rs`, `report.rs`) and the
-bundle reader (10.5a: new modules only, and the testkit writer). 10.2 and 10.3 both touch
-`serve/mod.rs` (10.2 the path check and the dispatch, 10.3 the refusal results), so 10.2 merges
-first and 10.3 rebases on it. 10.4 joins the first two; 10.5b joins 10.4 and 10.5a; 10.6 and 10.7
+M10, two tracks run after 10.1 (which carries 10.3, folded in): the path rule (10.2:
+`serve/mod.rs`, `config.rs`, the test client and the serve tests) and the bundle reader (10.5a:
+new modules only, and the testkit writer). 10.4 follows 10.2; 10.5b joins 10.4 and 10.5a; 10.6 and 10.7
 are serial at the end. No code work on a later milestone begins before the earlier milestone
 merges.
 

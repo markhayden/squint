@@ -40,6 +40,11 @@ pub trait Pricing: Send + Sync {
     fn image_limits(&self) -> Option<crate::image::RequestImageLimits> {
         None
     }
+    /// The version of the model catalog these prices come from, recorded in an estimate's and a
+    /// run's `effective` (table-manners 4.5, 4.8); `None` for prices no catalog gave.
+    fn catalog_version(&self) -> Option<u32> {
+        None
+    }
 }
 
 /// A linear price list: the stub catalog entry.

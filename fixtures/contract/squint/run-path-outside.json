@@ -1,0 +1,42 @@
+{
+  "action": "source_fidelity",
+  "body": {},
+  "cache": "off",
+  "contract": "0.4.0",
+  "duration_ms": 0,
+  "error": {
+    "code": "input",
+    "reason": "input: candidate: /outside/candidate-64x48.png is a path outside the directories this session allows; send the image inline, or give its directory with --allow-dir",
+    "retryable": false
+  },
+  "finished": "2026-01-01T00:00:00.000Z",
+  "images": {
+    "in": [],
+    "out": []
+  },
+  "input_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "invocation": null,
+  "locations": {
+    "found": [],
+    "used": []
+  },
+  "notes": [],
+  "run": {
+    "client_run_id": null,
+    "dir": "/runs/path-outside",
+    "id": "path-outside",
+    "resource": "squint://run/path-outside/run.json",
+    "session_id": "00000000-0000-4000-8000-000000000001"
+  },
+  "spend": {
+    "basis": "measured",
+    "unresolved_usd": 0.0,
+    "usd": 0.0
+  },
+  "started": "2026-01-01T00:00:00.000Z",
+  "status": "invalid",
+  "tool": {
+    "name": "squint",
+    "version": "0.0.0"
+  }
+}

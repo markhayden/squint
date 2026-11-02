@@ -80,6 +80,9 @@ pub struct Services<'a> {
     /// found when the call arrived: the decision then fails `stale_estimate` at the limits check,
     /// with zero spend. None when the call named no estimate or its binding holds.
     pub stale_estimate: Option<String>,
+    /// What the decision's invocation needs from the caller (table-manners 4.8): the
+    /// configuration's identity as loaded, `max_spend_usd` and the requirements the call needed.
+    pub call: Option<crate::contract::CallFacts>,
 }
 
 /// See [`Services::allocated`].
@@ -102,7 +105,13 @@ impl<'a> Services<'a> {
             association: None,
             answered: None,
             stale_estimate: None,
+            call: None,
         }
+    }
+
+    pub fn with_call(mut self, call: crate::contract::CallFacts) -> Services<'a> {
+        self.call = Some(call);
+        self
     }
 
     pub fn with_stale_estimate(mut self, reason: Option<String>) -> Services<'a> {
@@ -195,6 +204,38 @@ pub async fn check(
     if !(1..=2).contains(&config.budget.decision_runs) {
         return Err(Error::Config("decision_runs must be 1 or 2".into()));
     }
+    // The rules, the images and the envelope, once per decision; a failure here is the runs' to
+    // record. With the images read, the call's invocation is known (table-manners 4.8), so every
+    // result this decision writes carries it.
+    let provider = services.provider;
+    let setup = setup(config, job, job_base, services.tools, provider.pricing());
+    let envelope = match (&setup, provider.pricing()) {
+        (Ok(s), Some(pricing)) => Some(envelope_of(config, s, job, services.tools, pricing)),
+        (Ok(_), None) => Some(Err(Error::Budget(
+            "the provider cannot bound request costs; refusing to run".into(),
+        ))),
+        (Err(_), _) => None,
+    };
+    let invoked = setup.as_ref().ok().map(|s| {
+        let facts = services.call.clone().unwrap_or_default();
+        let identity = facts
+            .config_identity
+            .clone()
+            .unwrap_or_else(|| crate::contract::config_identity(config));
+        crate::contract::invocation(
+            &job.use_case.replace('-', "_"),
+            job,
+            &s.images,
+            crate::contract::effective(
+                Some(config),
+                Some(&identity),
+                Some(&s.prepared.summary),
+                envelope.as_ref().and_then(|e| e.as_ref().ok()),
+                provider.pricing(),
+            ),
+            &facts,
+        )
+    });
     // Checked again just before the run is allocated: a cancellation that landed while the call
     // was being resolved makes no run (table-manners 4.2).
     if services.cancel.is_some_and(Cancel::is_cancelled) {
@@ -218,7 +259,11 @@ pub async fn check(
             decide(
                 config,
                 job,
-                job_base,
+                Before {
+                    setup,
+                    envelope,
+                    invoked: invoked.as_ref(),
+                },
                 services,
                 &dir,
                 started_ms,
@@ -236,7 +281,12 @@ pub async fn check(
             if !dir.join(crate::contract::RUN_FILE).exists() {
                 let mut result = match Report::rebuild(&dir) {
                     Ok(report) => {
-                        let mut result = crate::contract::run_result(&report, &dir, started_ms);
+                        let mut result = crate::contract::run_result(
+                            &report,
+                            &dir,
+                            started_ms,
+                            invoked.as_ref(),
+                        );
                         let (status, code) = crate::contract::status_of(e.class());
                         if let Some((code, retryable)) = code {
                             result.status = status;
@@ -256,6 +306,7 @@ pub async fn check(
                         started_ms,
                         &serde_json::to_value(job.summary()).unwrap_or_default(),
                         Some(&e),
+                        invoked.as_ref(),
                         serde_json::Map::new(),
                     ),
                 };
@@ -275,7 +326,7 @@ pub async fn check(
 async fn decide(
     config: &Config,
     job: &Job,
-    job_base: &Path,
+    before: Before<'_>,
     services: &Services<'_>,
     dir: &Path,
     started_ms: u64,
@@ -285,7 +336,11 @@ async fn decide(
     let tools = services.tools;
     let shared = services.shared_ledger;
     let dir = dir.to_path_buf();
-    let setup = setup(config, job, job_base, tools, provider.pricing());
+    let Before {
+        setup,
+        envelope,
+        invoked,
+    } = before;
 
     // The cache, once per decision: a hit returns the whole cached decision before any request.
     let cache = Cache::from_config(&config.cache)?;
@@ -338,19 +393,12 @@ async fn decide(
         report.write(&dir)?;
         crate::contract::write_run_result(
             &dir,
-            &crate::contract::run_result(&report, &dir, started_ms),
+            &crate::contract::run_result(&report, &dir, started_ms, invoked),
         )?;
         return Ok(outcome(dir, report));
     }
 
     let job_ledger = CapLedger::per_call(config.budget.spend_cap_usd);
-    let envelope = match (&setup, provider.pricing()) {
-        (Ok(s), Some(pricing)) => Some(envelope_of(config, s, job, tools, pricing)),
-        (Ok(_), None) => Some(Err(Error::Budget(
-            "the provider cannot bound request costs; refusing to run".into(),
-        ))),
-        (Err(_), _) => None,
-    };
     DecisionHeader {
         envelope: envelope.as_ref().and_then(|e| e.as_ref().ok().cloned()),
         ..header
@@ -396,7 +444,7 @@ async fn decide(
 
     let report = Report::rebuild(&dir)?;
     report.write(&dir)?;
-    let mut result = crate::contract::run_result(&report, &dir, started_ms);
+    let mut result = crate::contract::run_result(&report, &dir, started_ms, invoked);
     // Written once, after every run, only when none errored. The decision stands without it, so
     // a cache that cannot take it is a note, not an error.
     if let (Some(cache), Some(key)) = (&cache, &cache_status.key)
@@ -412,6 +460,14 @@ async fn decide(
     // Last: the contract's result, once everything else in the directory is written.
     crate::contract::write_run_result(&dir, &result)?;
     Ok(outcome(dir, report))
+}
+
+/// What [`check`] prepared before the decision directory existed: the setup, the envelope (none
+/// when the setup failed) and the invocation (none when the arguments did not resolve).
+struct Before<'a> {
+    setup: Result<Setup>,
+    envelope: Option<Result<ledger::Envelope>>,
+    invoked: Option<&'a crate::contract::Invoked>,
 }
 
 fn outcome(dir: PathBuf, report: Report) -> Outcome {

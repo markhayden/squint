@@ -1266,7 +1266,7 @@ dir = "./squint-out"
 [serve]                       # squint serve only (table-manners 4.5, 10.1)
 concurrency = 1               # checks at once; serial by default
 session_budget_usd = 20.0     # across every call one server process serves; default ten checks at the default cap
-roots = ["/srv/images"]       # image paths must sit inside these as well as the client's MCP roots; empty: the client's alone, and with neither, inline images only
+allow_dirs = ["/srv/images"]  # narrows `serve --allow-dir`, never widens: only a flag inside one of these, or one of these inside a flag; empty: the flags stand
 ```
 
 Loading: parse, validate against the config schema, resolve the profile, check the model in the
@@ -1454,8 +1454,11 @@ Schemas (the source of truth), test vectors, a fixture per tool and a Rust crate
 The contract has a core every tool follows and profiles a kind of tool adds; squint implements the
 core and the images profile, and lists `images` in its description's `profiles`. squint pins a
 tagged release, keeps a hash-checked copy of its schemas under `schemas/contract/`, and warns in CI
-when a newer tag exists. squint conforms to v0.3.0, pinned `=0.3.0` from crates.io (M9). Field names and schemas are the contract's; this section says what squint does
-with them.
+when a newer tag exists. squint conforms to v0.4.0 (M10), pinned `=0.4.0` from crates.io. It lists
+no operations profile, so it emits none of that profile's fields (`artifact_types`, `ports`,
+`artifacts`, the artifact resource, the `binding` refusal), no action is of kind `operation`, and
+it serves neither reserved `export` nor `import` (a call of either is an unknown tool). Field
+names and schemas are the contract's; this section says what squint does with them.
 
 - **Image reference**: `file_sha256`, width and height of the caller's file (enforced), projection
   and topology, an optional `pixel_sha256` in the contract's canonical form. squint computes the
@@ -1472,14 +1475,14 @@ with them.
   item id). Crop, view and aligned frames never leave squint.
 - **`squint serve`**: an MCP server over stdio at revision `2025-11-25`, under the contract's
   server conventions. Tools: one per use case, as `describe` lists them (`source_fidelity`, …: one
-  decision each; images by path or inline bytes in any slot; paths only inside the client's MCP
-  roots narrowed by config; inline bytes bounded), the reserved `estimate` (below), and
+  decision each; images by path or inline bytes in any slot; paths only inside the directories
+  `--allow-dir` gives, narrowed by config; inline bytes bounded), the reserved `estimate` (below), and
   `describe`. It reads
   its configuration once, at start, and never reloads it (table-manners 4.6). Without one that
   loads it still starts, needs no output directory and writes nothing: `describe`, `estimate` and
   the resources answer, and a check is refused before any run as JSON-RPC `-32602` with
   `{"reason": "not_ready", "run": null, "requirements": [the config]}`, which releases its
-  `client_run_id`. Any check is refused the same way, before roots, the permit or any directory,
+  `client_run_id`. Any check is refused the same way, before its paths, the permit or any directory,
   when a requirement it needs (`readiness::Inspection::unmet`) is `missing` or `invalid` now,
   this session's provider answers included, naming only those: the configuration, the
   credential, the model and, when one of its tools runs it, the segmenter file. An `estimate` is
@@ -1500,12 +1503,72 @@ with them.
   against before its first request. The limits check, after the decision's directory exists and
   before its reservation, refuses in this order with zero spend: a call whose named estimate no
   longer binds it (`stale_estimate`, below), the envelope over the per-call cap (`cap`, as is a
-  retry the envelope can no longer cover), the session unable to hold it (`budget`). Paths: when the client offers roots, squint asks for them on
-  every check and estimate and refuses (`input`) a path outside them, or outside
-  `[serve] roots` when the config names any; a client that offers no roots, under a config that
-  names none, can send images only inline (closed by default). A refusal says nothing about the
-  file, not even whether it exists. A check over `serve` is an ordinary decision: its directory, journal,
+  retry the envelope can no longer cover), the session unable to hold it (`budget`). Paths (the
+  path rule, table-manners 5.2): squint never asks a client for MCP roots and never sends a
+  client a request. `squint serve --allow-dir <abs>` (repeatable) names the directories the
+  session reads caller paths from; at start each is resolved by `canonicalize` (`.`, `..` and
+  symlinks), and one that is relative, missing or not a directory ends `serve` with exit 64
+  naming it, before `initialize`. The configuration only narrows: when `[serve] allow_dirs`
+  names any directory, the allowed set is every flag inside one of them plus every configured
+  directory inside a flag, deduplicated; when it names none, the flags stand; a configured
+  directory alone grants nothing, so with no `--allow-dir` every path is refused and images come
+  inline (closed by default). The set is fixed for the session. Each caller path (on a check and
+  on `estimate`) is canonicalised and accepted only when it lies inside an allowed directory by
+  path components, never by string prefix, so neither `..` nor a symlink leads out; the checked
+  real path is the one read. A refused path is `invalid`, `input` on a check, and the
+  `invalid_arguments` refusal (`input`) on `estimate`, and the refusal reads the same whether or
+  not the file exists ("a path outside the directories this session allows"), never "not found".
+  squint writes only inside its own directories (the runs directory, the cache): no argument
+  chooses where it writes. A check over `serve` is an ordinary decision: its directory, journal,
   report and `run.json`, with the action's name.
+- **`squint call <action> --arguments <file>`** (table-manners 4.8): the contract's generic
+  command. The file holds exactly the arguments an MCP call of the action would send (a JSON
+  object, read whole); the job is built by `contract::job_from_call`, the function `serve` uses.
+  `<action>` must be one of the description's actions: a reserved name (`describe`, `estimate`,
+  `export`, `import`, `contract::RESERVED_NAMES`) or an unknown action exits 64 before any run, as
+  do arguments `job_from_call` refuses as usage (an unknown key, an empty `references`, no
+  candidate), a missing configuration, a `--allow-dir` that does not resolve, and an unmet
+  requirement (named as `not_ready` names it). Paths follow the path rule exactly as for `serve`
+  (`serve::allowed_dirs` and `serve::inside_allowed`, shared): the directories `--allow-dir` gives,
+  narrowed by `[serve] allow_dirs`, none meaning every path refused; a refused path is an
+  `invalid` run, `input`, in the served refusal's words (`serve::refused_run` writes it for both),
+  its result on stdout, exit 64. The run is a command-line run (`session_id` and
+  `client_run_id` null) with its run directory and `run.json` like `check`'s; the result (the
+  `run.json`) is printed on stdout, and the exit code is `check`'s (0, 1, 2, 3, 64; 130 and 143
+  when SIGINT or SIGTERM cancels it). `--provider-script` exists in testkit builds. So the mapping
+  is mechanical: an invocation's `arguments`, with a `path` (or `inline`) locator added beside
+  each image's `expect`, are the file for `squint call <invocation.action>`, and the run records
+  the same invocation and the same input identity. `squint check` with a job file stays a
+  person's own command line, outside the path rule.
+- **`squint call --bundle <path>`** (table-manners 4.8, 4.9) replays an invocation bundle, the
+  archive or its unpacked directory, through the same code (`call.rs`), with the same `--config`,
+  `--allow-dir`, `--out` and `--set`, and no action or `--arguments`. The bundle path follows the
+  path rule: it must lie inside an `--allow-dir` (narrowed by `[serve] allow_dirs`). The reader
+  (`squint_core::bundle::Bundle`) then checks it whole: the manifest against
+  `invocation-bundle.json`; every step contract `0.4.0` and tool `squint` (a step of any other
+  tool is refused: a host replays a mixed bundle itself); no `artifacts` or `unportable` entry
+  (squint takes no native inputs); no `reference_only` entry (`call` has no way to supply a
+  left-out input); each step's `inputs` exactly the image arguments of its invocation (each
+  `candidate`, `source` and `references[k]` an `{"expect": …}` with no locator, matched by slot,
+  in order for `references`, to one input with that reference, and no input left over); every
+  member listed and present, each input's bytes hashing to its `file_sha256`. A bundle refused at
+  any of these is refused before any step: the reason (`invalid (input): …`, naming the member or
+  the step, never a file's contents; for the path, in the path rule's words, saying nothing about
+  the file) on stderr, nothing on stdout, no run (no action is known to write one under), no
+  provider call, exit 64. Otherwise squint copies the input members into a directory of its own,
+  `$XDG_CACHE_HOME/squint/bundles/<sha256 of invocation.json>/inputs/` (written only by squint,
+  reused by a later replay of the same bundle; this is 4.9's "under an allowed directory", which
+  squint chose and the caller need not allow), and calls each step in order with its
+  `invocation.arguments` plus a `path` beside each image's `expect`, each step a command-line run
+  with its own run directory and `run.json`. One step prints its result and exits as a call does;
+  several print one result per line (compact JSON) and stop at the first step whose result is not
+  `completed` (or that is refused before a run), exiting with that step's code; when every step
+  completes (a completed `fail` is completed: the replay goes on), it exits with the most serious
+  step's code: an error (3) or `invalid` (64) first, then `fail` (1), then `unsure` (2), then
+  `pass` (0), so a `fail` early in the bundle is never hidden by a later `pass`. squint has no
+  operations, so no step names an earlier step's output and 4.9's binding by port does not
+  arise. A live model's verdict is not promised to repeat, only the call; offline, the scripted
+  provider replays it. Replay writes only under the runs directory and the cache.
 - **Estimates** (table-manners 4.5): a control, never a run: no directory, journal, runs entry or
   `run.json`, no permit, no `client_run_id` claimed, no provider call. The `estimate` tool takes
   `{"action": <an action's name>, "arguments": <exactly the call's arguments, images included>}`
@@ -1516,7 +1579,10 @@ with them.
   then `cap`, then `budget` (the session cannot hold it); the action's `readiness`; `session`, the
   same observation as `squint://session`; `effective.model` (the configured model),
   `effective.config_identity` (sha256 of the redacted configuration's canonical JSON) and under
-  `x-squint` the decision runs, requests per run and billable attempts; `expires`, one hour on;
+  `x-squint` the versions of the rule sets the call resolved (`rules`), the catalog version its
+  prices came from (`catalog_version`, absent for the scripted provider's) and the decision runs,
+  requests per run and billable attempts, each only once the call reached it
+  (`contract::effective`, the function the run's invocation uses too); `expires`, one hour on;
   and `binding`, sha256 over the canonical JSON of the action, the arguments with each image
   replaced by its file digest (a path and inline bytes of one file bind equal) and its `expect`
   kept, the tool version, the configuration's identity and the session id (`return_images` and
@@ -1526,7 +1592,7 @@ with them.
   `effective.config_identity` null, never a made-up zero. A wrong request is a JSON-RPC error,
   since there is no run: arguments the input schema rejects are plain `-32602`; any other
   (`max_spend_usd` above the configured cap, an `expect` that does not match, an unknown action,
-  a path outside the roots) is `-32602` with `{"reason": "invalid_arguments", "run": null,
+  a path outside the allowed directories) is `-32602` with `{"reason": "invalid_arguments", "run": null,
   "error": {"code": "usage" | "input", "retryable": false, "reason": …}}`. `squint estimate
   --json` prints the same document from the command line, priced from the catalog with no
   credential, with `session_id` and `session` null, so no server accepts its binding; a wrong
@@ -1546,8 +1612,7 @@ with them.
   `_meta["table-manners/client_run_id"]` (`^[A-Za-z0-9._:-]{1,128}$`): claimed for the session
   when the request is accepted, written into the run's directory when it is made, and a reuse is
   `-32602` with the earlier request's run (null while it has none). A request that ends in a
-  JSON-RPC error with no run (arguments refused, a `not_ready` refusal, a failed `roots/list`, a
-  server error) releases its id, so the corrected request may use it; one that got a run, or was cancelled before
+  JSON-RPC error with no run (arguments refused, a `not_ready` refusal, a server error) releases its id, so the corrected request may use it; one that got a run, or was cancelled before
   allocation, keeps it for the session (4.4). The server keeps one small entry per kept id for
   the session's life, unbounded: fine over stdio with one trusted host, to bound before any
   networked transport. `notifications/cancelled` stops the
@@ -1556,8 +1621,10 @@ with them.
   decision cache and says so.
 - **The session**: `squint://session` (table-manners 4.6), one atomic observation of the serving
   process's ledger: a random UUID (v4) made at start, when it started, the budget
-  (`[serve] session_budget_usd`), spent with its unresolved part, reserved and remaining; every
-  amount in a result or the session is written to at most six decimals.
+  (`[serve] session_budget_usd`), spent with its unresolved part, reserved and remaining, and
+  `allowed_dirs`, the canonical directories the path rule allows, fixed at start (`[]` with no
+  `--allow-dir`); every amount
+  in a result or the session is written to at most six decimals.
 - **Runs as resources**: `squint://runs` (the newest page of runs, newest first by start time and
   id, `running` included; `squint://runs?cursor=<next_cursor>` the next, fifty to a page, the
   cursor opaque base64url; a run started during a walk is seen by reading page one again),
@@ -1568,14 +1635,31 @@ with them.
   decision directory by `check` on every surface, cache hits and cancelled decisions included: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
   timestamps and duration, input identity (a digest of the resolved inputs, the images'
-  `prep_version` included), spend (with `unresolved_usd`: a provider call that
+  `prep_version` included; how an image arrived and its `expect` are left out and its projection
+  is the resolved one, so a call naming what it expects has the identity of the same call
+  without), spend (with `unresolved_usd`: a provider call that
   never left costs nothing, an authentication rejection costs nothing, and one that failed with no
   usage reported, or was cancelled in flight, counts at its bound, unresolved; a successful answer
   that reports no usage counts its bound too, settled, and makes the basis `estimated` rather
   than `measured`), cache, the images taken in with their
   slots and roles, every finding's location, notes for image warnings and repairs) and squint's
   body (verdict, exit code, whether two runs agreed, the report's path). The result's `action` is
-  the use case's as `describe` names it (`source_fidelity`), from the command line as from MCP. A
+  the use case's as `describe` names it (`source_fidelity`), from the command line as from MCP.
+  Every result carries the `invocation` (table-manners 4.8, `contract::invocation`), the same on
+  every surface (a command-line check, a served one, an evaluation decision, a cache hit, a
+  cancelled or failed run): `action`; `arguments`, what the call resolved to, with `candidate`,
+  `source` and each of `references` (in order) as `{"expect": <image reference>}` computed from
+  the file squint read and no locator, so a check by path and the same check by inline bytes
+  record equal invocations, `brief`, `requirements` and `max_spend_usd` as given, and the
+  delivery-only `return_images` and `image_blocks` left out; `effective`, the estimate's object
+  for the same call (`contract::effective`; its configuration identity is the configuration's as
+  loaded, before `max_spend_usd` lowered its cap); and `requirements`, the name of each readiness
+  requirement the call needed (`readiness::Inspection::used`: the configuration and the segmenter
+  file by file name only, the credential variable and the model by name, never a value). A job
+  file's own image ids and reference labels have no call argument: they are left out and a note
+  says so. `invocation` is null only on an `invalid` run whose arguments did not resolve: an
+  image that could not be read or does not match its `expect`, a path refused, or a call refused
+  before squint read its images. A
   failed image is `completed` with verdict `fail`. squint's error classes map to the contract in one table
   (`contract::status_of`): `resolve` is `invalid` with code `usage`; `input` and
   `image_limit` are `invalid` with code `input`; `credential` (a provider's 401 or 403 during the
@@ -1597,8 +1681,10 @@ with them.
   sets bind the rule files byte for byte), taking `candidate`, the `source` when the
   rule set requires one, and `references`, a `many` slot (a non-empty list of images in, which
   `images.in` lists once per image in the order given), with the brief, requirements and a lower spend cap as parameters
-  (`estimate` is a reserved tool, never an action); every disposition and confidence word a
-  finding can carry (`vocabulary`), the renders (`report view` of kind `server` with a ten-second
+  (`estimate` is a reserved tool, never an action); each action of kind `task` (a whole job a
+  person or agent asks for), with no `group`; every disposition and confidence word a finding can
+  carry (`vocabulary`, the core's object, holding the images profile's four lists and no
+  `group`), the renders (`report view` of kind `server` with a ten-second
   `ready_timeout_s`, `report export` of kind `document`, each with `command[0]` `squint` and the
   placeholders `{run.dir}` and `{frame_ancestor}` only as whole arguments), the cost notice (a check on the
   scripted fake, under the `fake` profile or `--provider-script`, declares `may_spend: false`;
@@ -1680,7 +1766,9 @@ squint tools list --config squint.toml      # manifests as the model will see th
 squint describe --json [--config squint.toml] # the contract's description document (ADR 0018); works with no config
 squint estimate --json --config squint.toml --job job.toml [--max-spend-usd 0.10]   # the estimate of one check; nothing sent
 squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check; above it, exit 64
-squint serve [--config squint.toml] [--out runs/]   # MCP over stdio, protocol 2025-11-25 (table-manners 5); starts with no config
+squint serve [--config squint.toml] [--out runs/] [--allow-dir /abs/dir]…   # MCP over stdio, protocol 2025-11-25 (table-manners 5); starts with no config
+squint call source_fidelity --arguments args.json [--config squint.toml] [--allow-dir /abs/dir]… [--out runs/]   # any action from exactly its MCP arguments (table-manners 4.8); the result on stdout
+squint call --bundle /abs/dir/bundle.tar --allow-dir /abs/dir [--config squint.toml] [--out runs/]   # replay an invocation bundle (table-manners 4.9); one result per step
 squint sets check evalsets/
 squint sets fetch --set reference-consistency/pets-v1
 squint sets seal --set <set> --attest "…"    # writes seal.toml; a blind set's labels move out (--labels-out)
@@ -1701,7 +1789,7 @@ squint catalog list [--json]
 
 Exit codes for `check`: 0 pass, 1 fail, 2 unsure, 3 error, after `[policy]` is applied; 64 for a
 usage error or an `invalid` request (a job that does not resolve, an image that is not the one
-named) whatever the policy; 130 on SIGINT and 143 on SIGTERM.
+named) whatever the policy; 130 on SIGINT and 143 on SIGTERM. `squint call` exits the same way.
 
 ## Project structure
 
@@ -1827,13 +1915,20 @@ published, obligation ids as above, instance ids `<obligation>@<target>`, checkl
   agreement, cancellation, and cache hit, miss and pruned-hit.
 - **Contract conformance** (`cargo test`): the copied table-manners schemas are held to the
   pinned crate by hash; squint's conformance fixtures (`fixtures/contract/squint/`, CONTRACT.md 7
-  item 7: descriptions with and without a configuration and in each credential state, estimates
-  allowed and refused for each reason and from the command line, a `run.json` per status and per
-  error code a run can end with, the runs page, the session and each refusal) are generated by
-  squint's own code and a running `squint serve`, must equal what squint emits now, and are
-  validated as table-manners validates them (schema by file name, contract `0.3.0`, tool
-  `squint`, amounts to six decimals); `UPDATE_CONTRACT_FIXTURES=1` rewrites them for the copy
-  into table-manners `fixtures/squint/`. `describe` and `estimate` are proved to call no provider
+  item 7 at v0.4, without the operations profile's items: descriptions with and without a
+  configuration and in each credential state, every action of kind `task`; estimates allowed and
+  refused for each reason and from the command line; a `run.json` per status and per error code a
+  run can end with, each with its `invocation`; the path rule's refusals (outside, `..`, a
+  symlink, a missing file, no `--allow-dir`, and on `estimate`); the runs page; the sessions with
+  `allowed_dirs` (flags, none, narrowed); each refusal; a `squint call` of a run's invocation; and
+  an invocation bundle, `bundle-check/`, with its replay) are generated by squint's own code, a
+  running `squint serve` and `squint call`, must equal what squint emits now, and are validated
+  as table-manners validates them (schema and type by file name, a `bundle-*/` directory as a
+  manifest with its members and their digests, contract `0.4.0`, tool `squint`, amounts to six
+  decimals, each invocation of its result's action with no locator) and by squint's own v0.4
+  promises (no operations-profile field or file, `invocation` null only on an `invalid` run,
+  requirement names never paths); `UPDATE_CONTRACT_FIXTURES=1` rewrites them for the copy into
+  table-manners `fixtures/squint/`. `describe` and `estimate` are proved to call no provider
   and write nothing (`serve_session_cli.rs`).
 - **Isolation** (`cargo test`): instruction-like text in images, filenames, labels, the brief and
   tool results never alters prompt structure, tool selection or control flow; image and frame ids

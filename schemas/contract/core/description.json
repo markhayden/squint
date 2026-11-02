@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:table-manners:core:description",
-  "title": "Description document (CONTRACT.md 3; readiness 3.1; renders 3.2; the images profile's fields, 11.2)",
+  "title": "Description document (CONTRACT.md 3; readiness 3.1; renders 3.2; the operations profile's fields, 3.3 and 4.7; the images profile's fields, 11.2)",
   "description": "What a tool does, in terms a client needs nothing else to call it by: `<tool> describe --json` and the describe MCP tool.",
   "type": "object",
   "required": [
@@ -21,10 +21,11 @@
       "uniqueItems": true,
       "items": {
         "enum": [
-          "images"
+          "images",
+          "operations"
         ]
       },
-      "description": "The profiles the tool implements; [] for a core-only tool."
+      "description": "The profiles the tool implements; [] for a core-only tool. `operations` requires `images`."
     },
     "tool": {
       "type": "object",
@@ -59,14 +60,12 @@
     "vocabulary": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "disposition",
-        "confidence",
-        "evidence",
-        "score_kind"
-      ],
-      "description": "Images profile: every word the tool emits in a location's disposition, confidence, evidence and score_kind.",
+      "description": "The core's word lists (3): `group` lists every group the actions name; the images profile adds disposition, confidence, evidence and score_kind (11.2). Required whenever any list in it is.",
       "properties": {
+        "group": {
+          "$ref": "#/$defs/words",
+          "description": "Every group an action names; required whenever any action has one, absent or empty otherwise."
+        },
         "disposition": {
           "$ref": "#/$defs/words"
         },
@@ -80,6 +79,13 @@
           "$ref": "#/$defs/words"
         }
       }
+    },
+    "artifact_types": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:table-manners:operations:artifact-type"
+      },
+      "description": "Operations profile (3.3): every type the tool's ports name, once, except `image`."
     },
     "limits": {
       "type": "object",
@@ -113,50 +119,158 @@
     "^x-[a-z][a-z0-9-]*$": {}
   },
   "additionalProperties": false,
-  "if": {
-    "required": [
-      "profiles"
-    ],
-    "properties": {
-      "profiles": {
-        "contains": {
-          "const": "images"
+  "allOf": [
+    {
+      "description": "The images profile's fields: required with it, absent without it (11.2).",
+      "if": {
+        "required": [
+          "profiles"
+        ],
+        "properties": {
+          "profiles": {
+            "contains": {
+              "const": "images"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "vocabulary",
+          "limits"
+        ],
+        "properties": {
+          "vocabulary": {
+            "required": [
+              "disposition",
+              "confidence",
+              "evidence",
+              "score_kind"
+            ]
+          },
+          "actions": {
+            "items": {
+              "required": [
+                "images",
+                "locations",
+                "outputs"
+              ]
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "vocabulary": {
+            "properties": {
+              "disposition": false,
+              "confidence": false,
+              "evidence": false,
+              "score_kind": false
+            }
+          },
+          "limits": false,
+          "actions": {
+            "items": {
+              "properties": {
+                "images": false,
+                "locations": false,
+                "outputs": false
+              }
+            }
+          }
         }
       }
-    }
-  },
-  "then": {
-    "required": [
-      "vocabulary",
-      "limits"
-    ],
-    "properties": {
-      "actions": {
-        "items": {
-          "required": [
-            "images",
-            "locations",
-            "outputs"
-          ]
+    },
+    {
+      "description": "The operations profile requires images and artifact_types; without it there are no artifact types and no operations (1, 3, 3.3).",
+      "if": {
+        "required": [
+          "profiles"
+        ],
+        "properties": {
+          "profiles": {
+            "contains": {
+              "const": "operations"
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "artifact_types"
+        ],
+        "properties": {
+          "profiles": {
+            "contains": {
+              "const": "images"
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "artifact_types": false,
+          "actions": {
+            "items": {
+              "properties": {
+                "kind": {
+                  "not": {
+                    "const": "operation"
+                  }
+                }
+              }
+            }
+          }
         }
       }
-    }
-  },
-  "else": {
-    "properties": {
-      "vocabulary": false,
-      "limits": false,
-      "actions": {
-        "items": {
-          "properties": {
-            "images": false,
-            "locations": false,
-            "outputs": false
+    },
+    {
+      "description": "vocabulary.group lists the groups whenever any action names one (3).",
+      "if": {
+        "required": [
+          "actions"
+        ],
+        "properties": {
+          "actions": {
+            "contains": {
+              "required": [
+                "group"
+              ]
+            }
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "vocabulary"
+        ],
+        "properties": {
+          "vocabulary": {
+            "required": [
+              "group"
+            ],
+            "properties": {
+              "group": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "vocabulary": {
+            "properties": {
+              "group": {
+                "maxItems": 0
+              }
+            }
           }
         }
       }
     }
-  },
+  ],
   "$defs": {
     "words": {
       "type": "array",
@@ -172,6 +286,7 @@
       "required": [
         "name",
         "title",
+        "kind",
         "purpose",
         "params_schema",
         "cost",
@@ -189,16 +304,31 @@
               "not": {
                 "enum": [
                   "describe",
-                  "estimate"
+                  "estimate",
+                  "export",
+                  "import"
                 ]
               }
             }
           ],
-          "description": "The MCP tool name; describe and estimate are reserved (CONTRACT.md 5)."
+          "description": "The MCP tool name; describe, estimate, export and import are reserved (CONTRACT.md 5)."
         },
         "title": {
           "type": "string",
           "minLength": 1
+        },
+        "kind": {
+          "enum": [
+            "task",
+            "operation",
+            "utility"
+          ],
+          "description": "task: a whole job a person or agent asks for; operation: one step on typed artifacts, run alone (4.7), only in a tool that lists operations; utility: neither."
+        },
+        "group": {
+          "type": "string",
+          "pattern": "^[a-z0-9][a-z0-9_-]*$",
+          "description": "A word of the tool's own that sorts actions within a kind; listed in vocabulary.group."
         },
         "purpose": {
           "type": "string",
@@ -300,6 +430,29 @@
             }
           },
           "description": "Images profile."
+        },
+        "ports": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "in",
+            "out"
+          ],
+          "properties": {
+            "in": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:table-manners:operations:port"
+              }
+            },
+            "out": {
+              "type": "array",
+              "items": {
+                "$ref": "urn:table-manners:operations:port"
+              }
+            }
+          },
+          "description": "Operations profile (4.7): required on every operation, absent on every other kind."
         },
         "cost": {
           "type": "object",
@@ -408,50 +561,85 @@
           }
         }
       },
-      "if": {
-        "properties": {
-          "cost": {
+      "allOf": [
+        {
+          "if": {
             "properties": {
-              "may_spend": {
-                "const": true
+              "cost": {
+                "properties": {
+                  "may_spend": {
+                    "const": true
+                  }
+                }
               }
             }
-          }
-        }
-      },
-      "then": {
-        "properties": {
-          "params_schema": {
-            "required": [
-              "properties"
-            ],
+          },
+          "then": {
             "properties": {
-              "properties": {
+              "params_schema": {
                 "required": [
-                  "max_spend_usd"
+                  "properties"
                 ],
                 "properties": {
-                  "max_spend_usd": {
+                  "properties": {
                     "required": [
-                      "type",
-                      "exclusiveMinimum"
+                      "max_spend_usd"
                     ],
                     "properties": {
-                      "type": {
-                        "const": "number"
-                      },
-                      "exclusiveMinimum": {
-                        "const": 0
+                      "max_spend_usd": {
+                        "required": [
+                          "type",
+                          "exclusiveMinimum"
+                        ],
+                        "properties": {
+                          "type": {
+                            "const": "number"
+                          },
+                          "exclusiveMinimum": {
+                            "const": 0
+                          }
+                        }
                       }
                     }
                   }
                 }
               }
-            }
+            },
+            "description": "An action that may spend declares max_spend_usd, a number above zero, so a host can always pass its cap (CONTRACT.md 4.5)."
           }
         },
-        "description": "An action that may spend declares max_spend_usd, a number above zero, so a host can always pass its cap (CONTRACT.md 4.5)."
-      }
+        {
+          "description": "An operation declares ports, and its image and location inputs are ports only (4.7); no other kind has ports.",
+          "if": {
+            "required": [
+              "kind"
+            ],
+            "properties": {
+              "kind": {
+                "const": "operation"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "ports"
+            ],
+            "properties": {
+              "images": {
+                "maxItems": 0
+              },
+              "locations": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "ports": false
+            }
+          }
+        }
+      ]
     },
     "readiness": {
       "type": "object",

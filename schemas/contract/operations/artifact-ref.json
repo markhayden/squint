@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:operations:artifact-ref",
+  "title": "Artifact reference (CONTRACT.md 3.4, operations profile)",
+  "description": "How an operation names an artifact: its type and schema version, the tool that made it, its identity by that tool's recipe (never a workspace id), its opaque frame, optionally the root image it was made on, and the resource that reads it. A host stores references and passes them back.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "schema_version",
+    "tool",
+    "identity",
+    "frame",
+    "resource"
+  ],
+  "properties": {
+    "type": {
+      "$ref": "urn:table-manners:operations:artifact-type#/$defs/type",
+      "description": "One of the tool's artifact_types, or `image`."
+    },
+    "schema_version": {
+      "$ref": "urn:table-manners:operations:artifact-type#/$defs/schema_version",
+      "description": "One of the type's schema_versions; 1 for `image` and `location`."
+    },
+    "tool": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "The tool that made the artifact (its tool.name)."
+    },
+    "identity": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "A digest by the tool's recipe; equal identities are the same artifact anywhere. For an image, `sha256:` and its file_sha256."
+    },
+    "frame": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "minLength": 1
+        }
+      ],
+      "description": "The tool's own identity of the pixel grid the artifact is drawn in; opaque, compared only by the tool. Null for a type with no frame."
+    },
+    "on": {
+      "$ref": "urn:table-manners:images:image-reference",
+      "description": "The root image the artifact was made on, when the tool knows it."
+    },
+    "resource": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9+.-]*://artifact/",
+      "description": "<tool>://artifact/{identity}"
+    }
+  },
+  "if": {
+    "properties": {
+      "type": {
+        "enum": [
+          "image",
+          "location"
+        ]
+      }
+    }
+  },
+  "then": {
+    "properties": {
+      "schema_version": {
+        "const": 1
+      }
+    }
+  }
+}

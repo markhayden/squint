@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:operations:export-response",
+  "title": "Export response (CONTRACT.md 5.1, operations profile)",
+  "description": "What the reserved export tool returns as structuredContent, and `<tool> export --json` prints: the artifact and the file its portable form was written to, in the tool's own data directory. Never a run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "contract",
+    "tool",
+    "artifact",
+    "file"
+  ],
+  "properties": {
+    "contract": {
+      "$ref": "urn:table-manners:core:result#/$defs/version"
+    },
+    "tool": {
+      "$ref": "urn:table-manners:core:result#/$defs/tool"
+    },
+    "artifact": {
+      "$ref": "urn:table-manners:operations:artifact-ref"
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "sha256",
+        "bytes",
+        "media_type"
+      ],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The absolute path the tool chose, outside any run directory."
+        },
+        "sha256": {
+          "$ref": "urn:table-manners:images:image-reference#/$defs/sha256",
+          "description": "SHA-256 of the file's bytes, lowercase hex."
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "media_type": {
+          "$ref": "#/$defs/media_type",
+          "description": "The bundle's media type for a `bundle` type; application/json for a `json` type."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "media_type": {
+      "type": "string",
+      "pattern": "^[a-z]+/[a-z0-9.+-]+$"
+    }
+  }
+}
