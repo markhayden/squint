@@ -49,6 +49,12 @@ default-src 'self'; img-src 'self' data:; frame-ancestors <origin>` (`'none'` wi
 `--frame-ancestor`) and `Connection: close`. The page itself requests nothing but these paths
 from the server that served it: no fonts, scripts or images from anywhere else.
 
+The policy allows no inline style or script, so the viewer carries none: no `style` attribute in
+markup or through `setAttribute`, no `<style>`, no inline `<script>` or event handler. Fixed looks
+are classes in `viewer.css` (the legend swatches); data-driven ones go through CSSOM, as the
+`style` object of `el` in `viewer.js` (the timeline bars' `left` and `width`).
+`report_view_serves_nothing_its_policy_would_block` in `viewer_serve` fails on any of them.
+
 The geometry is held to the Rust reference by `viewer_geometry` in the CLI tests: the stored
 footprints in `fixtures/render/view-footprints.json` are computed by `frames::sphere` and
 recomputed by `geometry.js` under `node` when it is on the path (the comparison is reported as
@@ -150,3 +156,11 @@ candidate and the model reports a violation at `[0.2, 0.2, 0.6, 0.6]` of that cr
 - the finding is drawn on the crop panel at fractions `[0.2, 0.2, 0.6, 0.6]` of the image and on
   the candidate panel at `[0.1, 0.1, 0.3, 0.3]`, which is where the report's `root` location puts
   it, measured from the shapes' bounding boxes against the images'.
+
+## Devtools check (2026-11-02)
+
+The same decision, served by `report view` and loaded in headless Chrome (`--headless=new
+--enable-logging=stderr --dump-dom`, then `--screenshot`): no console messages (before the fix,
+one "Applying inline style violates … default-src 'self'" per legend swatch and timeline bar, at
+`viewer.js:34`); the legend swatches carry their colours and the timeline bars sit at their
+start and width.

@@ -197,6 +197,68 @@ fn report_view_prints_only_its_url_frames_for_one_origin_and_exits_0_when_stdin_
     let _ = std::fs::remove_dir_all(&out);
 }
 
+/// The served page runs under `default-src 'self'` with no `'unsafe-inline'`, so nothing it
+/// serves may need inline styles or inline script: a `style` attribute (set in markup or through
+/// `setAttribute`) is refused by the browser, which once left the legend swatches uncoloured and
+/// the timeline bars unplaced. Styles go through CSSOM (`el`'s `style` object) or viewer.css.
+#[test]
+fn report_view_serves_nothing_its_policy_would_block() {
+    let (out, dir) = decision("inline");
+    let (serving, url, _stdout) = view(&dir, &[]);
+    let (status, head, page) = get(&url, "/");
+    assert_eq!(status, 200);
+    assert!(
+        policy(&head).starts_with("default-src 'self'; img-src 'self' data:;"),
+        "{head}"
+    );
+    let page = String::from_utf8(page).unwrap();
+    for banned in [" style=", "<style", "javascript:"] {
+        assert!(!page.contains(banned), "the page carries {banned:?}");
+    }
+    // No inline event handler (` onclick=` and the like).
+    for (at, _) in page.match_indices(" on") {
+        let name: String = page[at + 3..]
+            .chars()
+            .take_while(char::is_ascii_lowercase)
+            .collect();
+        assert!(
+            !page[at + 3 + name.len()..].starts_with('='),
+            "the page carries an inline handler on{name}"
+        );
+    }
+    // Every script is loaded from the server, none is inline.
+    let scripts: Vec<&str> = page.split("<script").skip(1).collect();
+    assert_eq!(scripts.len(), 3, "geometry.js, timeline.js, viewer.js");
+    for s in scripts {
+        let end = s.find('>').unwrap();
+        assert!(
+            s.starts_with(" src=\"") && s[end + 1..].starts_with("</script>"),
+            "inline script: <script{s}"
+        );
+    }
+    for path in ["/viewer.js", "/geometry.js", "/timeline.js"] {
+        let (status, _, body) = get(&url, path);
+        assert_eq!(status, 200, "{path}");
+        let js = String::from_utf8(body).unwrap().replace('"', "'");
+        for banned in [
+            "setAttribute('style'",
+            "style: '",
+            "style: `",
+            ".cssText",
+            "innerHTML",
+            "outerHTML",
+            "insertAdjacentHTML",
+            "eval(",
+            "new Function",
+            "javascript:",
+        ] {
+            assert!(!js.contains(banned), "{path} uses {banned:?}");
+        }
+    }
+    drop(serving);
+    let _ = std::fs::remove_dir_all(&out);
+}
+
 #[cfg(unix)]
 #[test]
 fn report_view_exits_0_on_sigterm_and_sigint() {
