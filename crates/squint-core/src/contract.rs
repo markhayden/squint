@@ -207,6 +207,9 @@ pub fn usd(amount: f64) -> f64 {
 /// The file every decision directory ends with: the contract's result (table-manners 2).
 pub const RUN_FILE: &str = "run.json";
 
+/// The tool names the contract reserves (3, 5): never an action's, so `squint call` refuses them.
+pub const RESERVED_NAMES: &[&str] = &["describe", "estimate", "export", "import"];
+
 /// The file a served run's association is written to when its directory is made, before any
 /// paid work (table-manners 4.3): a run still going is listed with it.
 pub const ASSOCIATION_FILE: &str = "association.json";
@@ -470,13 +473,24 @@ fn word<T: serde::Serialize>(value: &T) -> String {
 /// What this decision ran on: the images' digests, the job, the resolved rules, the redacted
 /// config, the provider and how it prepared the images (`prep_version`), the tools and the prompt
 /// and harness versions. How an image arrived (a path or inline bytes) is left out: its digest
-/// already says what it was.
+/// already says what it was. So is an image's `expect`, which only checks the file the digest
+/// records, and its projection is the one the image resolved to (asked for, read from the file,
+/// or `flat`), so a call that names what it expects (an invocation's arguments run again, 4.8)
+/// has the identity of the same call without it.
 fn input_identity(report: &Report, images: &[CanonicalImage]) -> String {
     let mut job = serde_json::to_value(&report.job).unwrap_or_default();
     if let Some(list) = job["images"].as_array_mut() {
         for image in list {
             if let Some(fields) = image.as_object_mut() {
                 fields.remove("source");
+                fields.remove("expect");
+                let resolved = images
+                    .iter()
+                    .find(|i| fields.get("id").and_then(|id| id.as_str()) == Some(i.id.as_str()))
+                    .and_then(|i| serde_json::to_value(i.projection).ok());
+                if let Some(projection) = resolved {
+                    fields.insert("projection".into(), projection);
+                }
             }
         }
     }

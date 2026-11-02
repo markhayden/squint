@@ -44,7 +44,7 @@
     ],
     "out": []
   },
-  "input_identity": "sha256:d0353cc452b56e379608cccf0e1c237b95f2a5760e1b7e1c95f58fc19261c982",
+  "input_identity": "sha256:ab7c344d448476e6c17166a743a6a3dbd63fdd978d766115274696e01938d5d0",
   "invocation": {
     "action": "source_fidelity",
     "arguments": {

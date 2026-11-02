@@ -2306,6 +2306,14 @@ them in order with the note.
 
 ### Task 10.4: `squint call <action> --arguments <file>`
 
+**As built** (2026-11-01): the input identity's recipe changed in one respect, so that a call of a
+run's invocation reproduces its identity as well as its invocation: an image's `expect` is left
+out of it (it only checks the bytes whose digest the identity already holds), and each image's
+projection is the one it resolved to rather than the one asked for (an `expect` names one; the
+same call without it resolves the same). 10.3's "recipe unchanged" holds otherwise. The served
+refusal of a path now reads "…; send the image inline, or give its directory with --allow-dir",
+the same words on `serve` and `call`.
+
 **Description.** A new command, `squint call <action> --arguments <file.json> [--config <path>]
 [--allow-dir <abs>]… [--out <dir>] [--set PATH=VALUE]…` (and, in testkit builds,
 `--provider-script`), that runs any action from exactly the arguments an MCP call to it would

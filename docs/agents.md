@@ -133,6 +133,27 @@ ordinary decision (its directory, journal, report and `run.json`).
 - **Results**: the `run.json` below as `structuredContent`; `isError` for `invalid` and `error`.
   Arguments the input schema rejects and unknown tools are JSON-RPC errors, since no run exists.
 
+## Call
+
+```
+squint call <action> --arguments args.json [--config squint.toml] [--allow-dir /abs/images]… [--out runs/] [--set PATH=VALUE]…
+```
+
+Runs any action from exactly the arguments an MCP call to it would send (table-manners 4.8): the
+file is that JSON object, the same `candidate`, `source`, `references`, `brief`,
+`requirements`, `max_spend_usd` a `tools/call` carries. Image paths follow the same rule as
+`serve`: only inside a directory given by `--allow-dir` (narrowed by `[serve] allow_dirs`); with
+none every path is refused and images go inline. A refused path is an `invalid` run, `input`, in
+the same words `serve` uses, exit 64. The run is an ordinary command-line run (its directory and
+`run.json`, no session); the result is printed on stdout and the exit code is `check`'s. An
+unknown action, a reserved name (`describe`, `estimate`, `export`, `import`) or arguments squint
+refuses exit 64 with nothing written.
+
+To run a recorded call again, take a result's `invocation`, add a locator (`"path"` or
+`"inline"`) beside each image's `expect`, write its `arguments` to a file and pass it to `squint
+call <invocation.action>`: the new run records the same invocation and input identity, and the
+`expect` makes sure the files are the ones first used.
+
 ## run.json
 
 Every decision directory ends with `run.json`, written atomically, from the command line and from
@@ -178,7 +199,7 @@ path refused).
 | 2 | unsure (under the default policy) |
 | 3 | error |
 | 64 | a usage error, or an `invalid` request (a job that does not resolve, an image that is not the one named), whatever the policy |
-| 130, 143 | cancelled by SIGINT, SIGTERM (`check` and `eval run`) |
+| 130, 143 | cancelled by SIGINT, SIGTERM (`check`, `call` and `eval run`) |
 | 69, 70, 74 | `playground` only: Wafflery unavailable, its startup failed, its install failed |
 
 ## Wafflery

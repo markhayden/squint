@@ -40,7 +40,7 @@
     ],
     "out": []
   },
-  "input_identity": "sha256:35b6693374457583b1899771499edb3861e00256677e2cde2900011048edbf4b",
+  "input_identity": "sha256:ef392f0e432af09f3477ad5ff6055d1c334e355ac0ac1e9852e783c29f492665",
   "invocation": {
     "action": "source_fidelity",
     "arguments": {

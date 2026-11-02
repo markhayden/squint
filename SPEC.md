@@ -1522,6 +1522,25 @@ names and schemas are the contract's; this section says what squint does with th
   squint writes only inside its own directories (the runs directory, the cache): no argument
   chooses where it writes. A check over `serve` is an ordinary decision: its directory, journal,
   report and `run.json`, with the action's name.
+- **`squint call <action> --arguments <file>`** (table-manners 4.8): the contract's generic
+  command. The file holds exactly the arguments an MCP call of the action would send (a JSON
+  object, read whole); the job is built by `contract::job_from_call`, the function `serve` uses.
+  `<action>` must be one of the description's actions: a reserved name (`describe`, `estimate`,
+  `export`, `import`, `contract::RESERVED_NAMES`) or an unknown action exits 64 before any run, as
+  do arguments `job_from_call` refuses as usage (an unknown key, an empty `references`, no
+  candidate), a missing configuration, a `--allow-dir` that does not resolve, and an unmet
+  requirement (named as `not_ready` names it). Paths follow the path rule exactly as for `serve`
+  (`serve::allowed_dirs` and `serve::inside_allowed`, shared): the directories `--allow-dir` gives,
+  narrowed by `[serve] allow_dirs`, none meaning every path refused; a refused path is an
+  `invalid` run, `input`, in the served refusal's words (`serve::refused_run` writes it for both),
+  its result on stdout, exit 64. The run is a command-line run (`session_id` and
+  `client_run_id` null) with its run directory and `run.json` like `check`'s; the result (the
+  `run.json`) is printed on stdout, and the exit code is `check`'s (0, 1, 2, 3, 64; 130 and 143
+  when SIGINT or SIGTERM cancels it). `--provider-script` exists in testkit builds. So the mapping
+  is mechanical: an invocation's `arguments`, with a `path` (or `inline`) locator added beside
+  each image's `expect`, are the file for `squint call <invocation.action>`, and the run records
+  the same invocation and the same input identity. `squint check` with a job file stays a
+  person's own command line, outside the path rule.
 - **Estimates** (table-manners 4.5): a control, never a run: no directory, journal, runs entry or
   `run.json`, no permit, no `client_run_id` claimed, no provider call. The `estimate` tool takes
   `{"action": <an action's name>, "arguments": <exactly the call's arguments, images included>}`
@@ -1588,7 +1607,9 @@ names and schemas are the contract's; this section says what squint does with th
   decision directory by `check` on every surface, cache hits and cancelled decisions included: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
   timestamps and duration, input identity (a digest of the resolved inputs, the images'
-  `prep_version` included), spend (with `unresolved_usd`: a provider call that
+  `prep_version` included; how an image arrived and its `expect` are left out and its projection
+  is the resolved one, so a call naming what it expects has the identity of the same call
+  without), spend (with `unresolved_usd`: a provider call that
   never left costs nothing, an authentication rejection costs nothing, and one that failed with no
   usage reported, or was cancelled in flight, counts at its bound, unresolved; a successful answer
   that reports no usage counts its bound too, settled, and makes the basis `estimated` rather
@@ -1718,6 +1739,7 @@ squint describe --json [--config squint.toml] # the contract's description docum
 squint estimate --json --config squint.toml --job job.toml [--max-spend-usd 0.10]   # the estimate of one check; nothing sent
 squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check; above it, exit 64
 squint serve [--config squint.toml] [--out runs/] [--allow-dir /abs/dir]…   # MCP over stdio, protocol 2025-11-25 (table-manners 5); starts with no config
+squint call source_fidelity --arguments args.json [--config squint.toml] [--allow-dir /abs/dir]… [--out runs/]   # any action from exactly its MCP arguments (table-manners 4.8); the result on stdout
 squint sets check evalsets/
 squint sets fetch --set reference-consistency/pets-v1
 squint sets seal --set <set> --attest "…"    # writes seal.toml; a blind set's labels move out (--labels-out)
@@ -1738,7 +1760,7 @@ squint catalog list [--json]
 
 Exit codes for `check`: 0 pass, 1 fail, 2 unsure, 3 error, after `[policy]` is applied; 64 for a
 usage error or an `invalid` request (a job that does not resolve, an image that is not the one
-named) whatever the policy; 130 on SIGINT and 143 on SIGTERM.
+named) whatever the policy; 130 on SIGINT and 143 on SIGTERM. `squint call` exits the same way.
 
 ## Project structure
 

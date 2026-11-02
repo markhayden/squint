@@ -4,6 +4,7 @@
 mod arm_prompts;
 mod budget_cli;
 mod cache_cli;
+mod call_cli;
 mod cancel_cli;
 mod catalog_cli;
 mod cli;

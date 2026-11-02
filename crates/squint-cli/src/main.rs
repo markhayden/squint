@@ -1,6 +1,7 @@
 //! The `squint` binary: argument parsing and wiring only. All behaviour lives in the library
 //! crates.
 
+mod call;
 mod catalog;
 mod describe;
 mod eval;
@@ -56,6 +57,9 @@ enum Command {
     Estimate(EstimateArgs),
     /// Serve the contract's actions over MCP on stdio (protocol 2025-11-25).
     Serve(serve::ServeArgs),
+    /// Run any action from exactly the arguments an MCP call to it would send (table-manners
+    /// 4.8): the result on stdout, a run like `check`'s.
+    Call(call::CallArgs),
     /// Open Wafflery, the shared local workspace, on squint (`wafflery --tool squint`).
     Playground(playground::PlaygroundArgs),
 }
@@ -231,6 +235,7 @@ fn main() {
         Some(Command::Describe(args)) => describe::run(&args),
         Some(Command::Estimate(args)) => estimate(&args),
         Some(Command::Serve(args)) => serve::run(&args),
+        Some(Command::Call(args)) => call::run(&args),
         Some(Command::Playground(args)) => playground::run(&args),
     };
     std::process::exit(code);
@@ -244,19 +249,7 @@ fn check(args: &CheckArgs) -> i32 {
             return EXIT_USAGE;
         }
     };
-    // Resolve-time checks against the catalog (profile, model, controls, image size, allowances)
-    // and the consent binding. The scripted pair passes in testkit builds, and in a dry run,
-    // where nothing is sent.
-    if let Err(e) = squint_providers::catalog::Catalog::shipped().and_then(|c| {
-        c.check_config(&config, cfg!(feature = "testkit") || args.dry_run)?;
-        match c.profile(&config.provider.profile) {
-            Some(profile) => {
-                squint_providers::privacy::consent(&config, &config.provider.profile, profile)
-                    .map(|_| ())
-            }
-            None => Ok(()),
-        }
-    }) {
+    if let Err(e) = admitted(&config, args.dry_run) {
         eprintln!("squint: {e}");
         return EXIT_USAGE;
     }
@@ -412,6 +405,24 @@ fn check(args: &CheckArgs) -> i32 {
             }
         }
     }
+}
+
+/// The resolve-time checks of a command-line run (`check`, `call`) against the catalog (profile,
+/// model, controls, image size, allowances) and the consent binding, before any tool pack starts.
+/// The scripted pair passes in testkit builds, and in a dry run, where nothing is sent.
+fn admitted(config: &Config, dry_run: bool) -> Result<(), String> {
+    squint_providers::catalog::Catalog::shipped()
+        .and_then(|c| {
+            c.check_config(config, cfg!(feature = "testkit") || dry_run)?;
+            match c.profile(&config.provider.profile) {
+                Some(profile) => {
+                    squint_providers::privacy::consent(config, &config.provider.profile, profile)
+                        .map(|_| ())
+                }
+                None => Ok(()),
+            }
+        })
+        .map_err(|e| e.to_string())
 }
 
 /// Whether a command-line check may run (task 9.6): of what it needs, nothing `missing` or

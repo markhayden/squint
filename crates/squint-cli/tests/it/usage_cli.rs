@@ -11,6 +11,7 @@ fn an_unknown_flag_exits_64_on_every_command() {
         &["describe"],
         &["estimate"],
         &["serve"],
+        &["call"],
         &["playground"],
         &["report", "view"],
         &["eval", "run"],

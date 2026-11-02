@@ -899,26 +899,43 @@ impl Server {
         body: Map<String, Value>,
     ) -> Result<CallToolResult, ErrorData> {
         let (_, out_dir) = self.configured()?;
-        let started = contract::now_ms();
-        let dir = new_run_dir(out_dir, action, started)
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
-        self.allocated(&dir, association);
-        let result = contract::action_result(
-            &dir,
-            VERSION,
-            action,
-            association,
-            started,
-            &Value::Object(args.clone()),
-            error,
-            // Refused before squint read the call's images: its arguments never resolved.
-            None,
-            body,
-        );
-        contract::write_run_result(&dir, &result)
-            .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
+        let result = refused_run(out_dir, action, association, args, error, body, |dir| {
+            self.allocated(dir, association);
+        })
+        .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         Ok(tool_result(&result))
     }
+}
+
+/// The run of a call refused before its decision was allocated (a served check, or `squint
+/// call`): a fresh run directory under `out_dir`, told to `allocated` once it exists, holding the
+/// `run.json` that `contract::action_result` makes of the error; its invocation is null, since
+/// squint refused the call before reading its images, so its arguments never resolved.
+pub(crate) fn refused_run(
+    out_dir: &Path,
+    action: &str,
+    association: &contract::Association,
+    args: &Map<String, Value>,
+    error: Option<&squint_core::Error>,
+    body: Map<String, Value>,
+    allocated: impl FnOnce(&Path),
+) -> squint_core::Result<table_manners::RunResult> {
+    let started = contract::now_ms();
+    let dir = new_run_dir(out_dir, action, started)?;
+    allocated(&dir);
+    let result = contract::action_result(
+        &dir,
+        VERSION,
+        action,
+        association,
+        started,
+        &Value::Object(args.clone()),
+        error,
+        None,
+        body,
+    );
+    contract::write_run_result(&dir, &result)?;
+    Ok(result)
 }
 
 impl Server {
@@ -1146,13 +1163,17 @@ pub(crate) fn allowed_dirs(
 /// nothing about it (table-manners 5.2).
 const OUTSIDE: &str = "a path outside the directories this session allows";
 
-/// Every image path of `job` inside one of the session's allowed directories (table-manners 5.2),
+/// Every image path of `job` inside one of the session's allowed directories (table-manners 5.2;
+/// a served check and `squint call` alike, in the same words),
 /// else `input`: the path is resolved (`..` and symlinks included) and compared by components,
 /// so neither a `..` nor a symlink leads out. A path that does not resolve is refused in the same
 /// words as one outside, never "not found". With no allowed directory every path is refused;
 /// inline images need none. Each path is replaced by the real one it was checked as, so a symlink
 /// swapped afterwards cannot lead out.
-fn inside_allowed(job: &mut squint_core::job::Job, allowed: &[PathBuf]) -> squint_core::Result<()> {
+pub(crate) fn inside_allowed(
+    job: &mut squint_core::job::Job,
+    allowed: &[PathBuf],
+) -> squint_core::Result<()> {
     for image in &mut job.images {
         let squint_core::job::ImageSource::Path { path, .. } = &mut image.source else {
             continue;
@@ -1161,8 +1182,8 @@ fn inside_allowed(job: &mut squint_core::job::Job, allowed: &[PathBuf]) -> squin
             Ok(real) if allowed.iter().any(|dir| real.starts_with(dir)) => *path = real,
             _ => {
                 return Err(squint_core::Error::Input(format!(
-                    "{}: {} is {OUTSIDE}; send the image inline, or start squint serve with \
-                     --allow-dir for its directory",
+                    "{}: {} is {OUTSIDE}; send the image inline, or give its directory with \
+                     --allow-dir",
                     image.id,
                     path.display()
                 )));
