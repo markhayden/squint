@@ -79,6 +79,18 @@ the model's answer and its reason, any findings with where they are, why the ver
 is, what the check spent against its cap, and the `squint report view <dir>` command that opens
 the full report. `--quiet` prints only the verdict and the decision directory.
 
+Say what matters for this image in plain words, without writing a file:
+
+```
+squint check --use-case reference-consistency --candidate scene.png --ref dog=dog.jpg \
+  --must-hold "The dog's coat pattern is unchanged." \
+  --must-not "A white patch is added to the dog." \
+  --allow "The dog's pose may change."
+```
+
+Each becomes a job requirement (`RQ1`, `RQ2`, …) checked beside the use case's built-in rules; a
+confident violation of any of them fails the check.
+
 ## How it is built
 
 The method is the brief's: measure first, then earn each tool.

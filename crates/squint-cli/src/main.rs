@@ -194,6 +194,19 @@ struct JobArgs {
     /// Shorthand job: the use case, for example `source-fidelity`.
     #[arg(long, requires = "candidate")]
     use_case: Option<String>,
+    /// A requirement in your words that must hold in the candidate, for example "the dog's
+    /// markings are unchanged" (repeatable). Requirements are numbered RQ1, RQ2, …: every
+    /// --must-hold, then every --must-not, then every --allow.
+    #[arg(long = "must-hold", value_name = "TEXT")]
+    must_hold: Vec<String>,
+    /// Something that must not happen in the candidate, for example "a white patch is added"
+    /// (repeatable); the model marking it a violation fails the check.
+    #[arg(long = "must-not", value_name = "TEXT")]
+    must_not: Vec<String>,
+    /// What may change without counting against any rule, for example "the pose may change"
+    /// (repeatable); it waives nothing.
+    #[arg(long = "allow", value_name = "TEXT")]
+    allow: Vec<String>,
     /// Lower the configured per-call spend cap for this check; a value above it is refused.
     #[arg(long, value_name = "USD")]
     max_spend_usd: Option<f64>,
@@ -659,7 +672,25 @@ fn load_config(args: &JobArgs) -> Result<(Config, String), String> {
     Ok((config, identity))
 }
 
+/// The job from `--job` or the shorthand, with the requirements `--must-hold`, `--must-not` and
+/// `--allow` state (refused beside a job file that has its own).
 fn load_job(args: &JobArgs) -> Result<Job, String> {
+    let intent = squint_core::job::Intent {
+        must_hold: args.must_hold.clone(),
+        must_not: args.must_not.clone(),
+        allow: args.allow.clone(),
+    };
+    let origin = args
+        .job
+        .as_ref()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|| "the job".into());
+    load_stated_job(args)?
+        .with_intent(&intent, &origin)
+        .map_err(|e| e.to_string())
+}
+
+fn load_stated_job(args: &JobArgs) -> Result<Job, String> {
     match (&args.job, &args.candidate) {
         (Some(path), None) => Job::load(path).map_err(|e| e.to_string()),
         (None, Some(candidate)) => {

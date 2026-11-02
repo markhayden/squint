@@ -229,6 +229,16 @@ projection = "flat"           # optional override
 expect = { file_sha256 = "3f9a…", width = 1600, height = 900, projection = "flat", topology = "bounded" }
 ```
 
+On the command line (`check`, `estimate`; task 11.2) `--must-hold "<text>"`, `--must-not
+"<text>"` and `--allow "<text>"` (each repeatable) state requirements without a file. They become
+`[[job.requirements]]` exactly as written in a job file would: `RQ1`, `RQ2`, … numbered over every
+`--must-hold`, then every `--must-not`, then every `--allow`, each kind in the order given; scope
+and evidence left to the defaults (the candidate; every source and reference); `--allow` an
+exemption with `waives = []`. So they render in the prompt and `--dry-run`, carry the provenance
+`job`, and enter the cache key and the report's rules like a file's. They go with the shorthand or
+with `--job`, but a job file that has its own requirements refuses them (exit 64, naming the file):
+one place states a job's requirements, and nothing is merged or renumbered.
+
 An image may carry `expect`, the contract's image reference the caller expects the file to have
 (see "External interface"): its `file_sha256`, width and height are verified before anything else
 runs, and a mismatch, like a mismatched `sha256` pin, is `error: input` with nothing spent; a
@@ -1757,6 +1767,7 @@ uv run --frozen --offline --no-sync ruff check . && uv run --frozen --offline --
 # The binary
 squint tools setup --config squint.toml     # provisions bundles and artifacts (network allowed here)
 squint check --config squint.toml --candidate out.png --ref "pip=refs/pip.jpg" --brief "…"
+squint check --use-case reference-consistency --candidate out.png --ref "pip=refs/pip.jpg" --must-hold "…" --must-not "…" --allow "…"   # requirements RQ1… without a job file (also on estimate)
 squint check --config squint.toml --job job.toml [--quiet]   # verdict on stdout; decision dir and the summary on stderr
 squint report view ./squint-out/<run-id>    # prints only its URL; Ctrl-C or end of stdin stops it
 squint report export ./squint-out/<run-id>  # one self-contained page in ~/.cache/squint/reports/

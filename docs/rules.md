@@ -35,7 +35,9 @@ extra = ["./rules/mine.toml"]
 ```
 
 Merge order: base, then the profile (it `extends` the base), then each consumer file in order,
-then the job's `[[job.requirements]]`. The same `id` replaces the earlier obligation and takes
+then the job's `[[job.requirements]]` (or, on the command line, `--must-hold`, `--must-not` and
+`--allow`, which become those requirements: `RQ1`, `RQ2`, … over every `--must-hold`, then every
+`--must-not`, then every `--allow`; a job file that has its own requirements refuses them). The same `id` replaces the earlier obligation and takes
 the new provenance; `disabled = true` removes it; a new id appends. Without a `[rules]` section
 the base is the job's use case.
 

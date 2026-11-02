@@ -2632,6 +2632,24 @@ builder in `squint-core`, `just check`.
 **Files.** `crates/squint-core/src/job.rs`, `crates/squint-cli/src/main.rs`, `SPEC.md` ("Job",
 "Commands"), `docs/rules.md`, `README.md`. **Size.** S.
 
+**As built** (2026-11-02): `squint_core::job::Intent` turns the three lists into obligations and
+`Job::with_intent` sets them as the job's requirements, so everything downstream (merge,
+resolve, prompt, checklist, cache key, report, `run.json`) sees an ordinary job with
+requirements; there is no second path. Numbering is by kind (every `--must-hold`, then
+`--must-not`, then `--allow`), not by position on the line, so reordering flags of different
+kinds never renumbers or changes the cache key. Beside `--job` they are allowed only when the
+file has no `[[job.requirements]]` (refused with `<file> has its own [[job.requirements]]; state
+every requirement there, or every one with --must-hold, --must-not and --allow`, exit 64): a
+merge would have to pick numbers the file's author did not write, and `allowed_by` and waives
+name requirements by id. A blank sentence is refused naming its flag. The flags live on
+`JobArgs`, so `check` and `estimate` take them; `call` takes MCP arguments, where `requirements`
+already exists. The rendered exemption line puts the prompt's fixed note straight after the
+text, so a sentence without a final full stop runs into it; changing that is a prompt change
+(`PROMPT_VERSION`, recordings), left for a prompt revision. Tests: `intent_cli.rs` (dry run, a
+`--must-not` violation fails, flags and the equivalent job file share a cache key, the refusal,
+`estimate`), two unit tests in `job.rs`; fixtures `fixtures/jobs/pair-must-not.toml` and
+`fixtures/scripts/intent-must-not-violation.json`.
+
 ### Task 11.3: The rules discoverable
 
 **Description.** (i) `squint rules list` lists the shipped bases (use case, required roles,
