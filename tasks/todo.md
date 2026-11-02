@@ -231,3 +231,15 @@ follow the assumed answers until told otherwise. No paid provider calls (estimat
 - [x] 10.6 v0.4 fixtures for table-manners `fixtures/squint/` (every result with `invocation`, `run-call.json`, `bundle-check/` and `run-bundle-replay.json`, `session.json` and `session-no-allow-dir.json`, `run-path-*.json`; no operations files), validated as table-manners validates them; SPEC, agents.md, architecture, README, fixtures README, ADR 0018 amendment — after 10.2–10.5b (2026-11-01: 45 fixtures, eleven new: `run-path-outside`, `-dotdot`, `-symlink`, `-missing`, `-no-allow-dir`, `refusal-invalid-arguments-path-outside`, `session-no-allow-dir`, `session-narrowed`, `run-call`, `bundle-check/` and `run-bundle-replay`; `the_path_rule_fixtures_are_what_squint_serves` and `the_call_and_bundle_fixtures_are_what_squint_emits` in `contract_fixtures_served.rs`; `every_fixture_validates_as_table_manners_reads_it` reads types, bundles and the v0.4 semantic checks; table-manners' `tests/fixtures.rs` at `d9e6058` passes on the directory)
 - [x] 10.7 `table-manners = "=0.4.0"` from crates.io instead of the path — after 10.6 and the owner's publication (2026-11-02: `cargo tree -i table-manners` shows the registry source; `UPDATE_CONTRACT=1` rewrote only `SOURCES.toml`'s branch and commit lines away, the schema copy byte-identical to the published crate; `UPDATE_CONTRACT_FIXTURES=1` left every fixture unchanged, so nothing is re-sent; `scripts/check-contract-tag.sh` reports v0.4.0 the newest)
 - [ ] Checkpoint M10 → tag `m10`
+
+## M11: CLI usability (branch `usability`)
+
+PLAN.md "Milestone M11" (2026-11-02), from the owner's first real check on the command line. No
+paid provider calls (estimate and spend $0).
+
+- [x] Owner: M11 approved (2026-11-02)
+- [ ] 11.1 The verdict explained: a summary on stderr after `decision:` (items, findings, why, spend against the cap, `report view`), `--quiet` for the M10 output
+- [ ] 11.2 Intent flags: `--must-hold`, `--must-not`, `--allow` as `RQ1…` on `check` and `estimate`; refused beside a job file with its own requirements
+- [ ] 11.3 `rules list [<use-case>]`, `rules init <use-case> [--out <dir>]`, `docs/rules.md` examples complete and tested, README
+- [ ] 11.4 The cap refusal explained (breakdown, tier, worst case, knobs, real recent spend only); `squint init [--provider] [--model]`
+- [ ] Checkpoint M11 → tag `m11`

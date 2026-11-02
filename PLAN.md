@@ -2554,6 +2554,135 @@ answer the tasks assume until told otherwise.
    `bundle-*/invocation.json` to the bundle schema, and does it want the input members beside the
    manifest? Assumed: yes to all three.
 
+## Milestone M11: CLI usability
+
+From the owner's first real reference-consistency check on the command line (2026-11-02): the
+result printed only `unsure` and a decision path, with no reason; stating intent ("the subject
+must not change; an added white patch should fail") took two TOML files, and `docs/rules.md`'s
+layering example left out the `[rules]` header a rules file requires, so following it failed with
+"missing field `rules`"; nothing on the command line showed the built-in rules; a
+`--max-spend-usd 0.50` refusal named a $0.6285 envelope with no explanation, when the run itself
+cost $0.0018 (the envelope is the worst case: every tool turn, the final turn and the repair at
+the full output allowance, the retry reserve, priced at the long-prompt tier); and every run
+needed `--config` with a long path. The owner approved the four tasks below (2026-11-02). The
+branch `usability` starts from `main` at `m10`. Nothing here calls a paid provider: every test
+runs on the scripted provider or a replay, so the estimated and actual spend is $0. No shipped
+rules file (`crates/squint-core/rules/*.toml`) changes.
+
+### Task 11.1: The verdict explained in the terminal
+
+**Description.** After `squint check`, a human summary of the decision, read back from its
+report: one line per checklist item (id, the rule's text shortened to a label, disposition,
+confidence, the model's reason trimmed to one line), the findings and observations with their
+location, why the verdict is what it is (the failing items, or the items that made it unsure
+and how: tentative, can't tell, hidden; or "every mandatory item held"; for two runs, their
+disagreement), the spend against the cap (`spent $x of the $y cap; the envelope reserved $z`)
+and the `squint report view <dir>` command. Compatibility: stdout's first line stays exactly
+the verdict word and stderr keeps `decision: <path>`; the summary follows on stderr, after the
+decision line, as every other human line of `check` already does (stdout is the machine's
+answer). `--quiet` prints today's output exactly.
+
+**Acceptance.** A scripted unsure run (one item held tentatively) prints `unsure` alone on stdout
+and, on stderr after `decision:`, a line per item with its reason, "unsure: SF1@candidate held
+only tentatively", the spend line and the `report view` command; a failing run names the
+violated item with its reason and location; a cache hit prints the summary of the decision it
+copies; `--quiet` gives exactly the M10 stdout and stderr.
+
+**Verification.** `crates/squint-cli/tests/it/summary_cli.rs`, `just check`.
+
+**Files.** `crates/squint-cli/src/summary.rs`, `crates/squint-cli/src/main.rs`, `SPEC.md`
+("Commands"), `README.md`, `docs/agents.md` if it describes the output. **Size.** M.
+
+### Task 11.2: Intent on the command line
+
+**Description.** `--must-hold "<text>"`, `--must-not "<text>"` and `--allow "<text>"`,
+repeatable, on every command that takes the shorthand job (`check`, `estimate`). They become the
+job's requirements `RQ1`, `RQ2`, … (the `must_hold` flags first, then `must_not`, then `allow`,
+each in command-line order, so the numbering does not depend on how the kinds interleave) under
+the obligation model's defaults: scope `candidate`, evidence every source and reference. `--allow`
+is an exemption with `waives = []`: it states what may change and waives nothing. Being job
+requirements, they show in `--dry-run`, carry the provenance `job` and enter the cache key and the
+decision's rules exactly as `[[job.requirements]]` from a job file do. With `--job`: allowed when
+the file has no requirements of its own; refused (exit 64, naming the file) when it has, so one
+place states a job's requirements and no numbering is merged or guessed.
+
+**Acceptance.** `--dry-run` with the three flags lists `RQ1`–`RQ3` with their kinds and
+provenance `job`; a scripted run whose provider marks the `--must-not` item a violation fails;
+the same flags give the same cache key as the equivalent job file; a job file with requirements
+plus a flag exits 64; `estimate --json` takes the flags.
+
+**Verification.** `crates/squint-cli/tests/it/intent_cli.rs`, unit tests for the requirement
+builder in `squint-core`, `just check`.
+
+**Files.** `crates/squint-core/src/job.rs`, `crates/squint-cli/src/main.rs`, `SPEC.md` ("Job",
+"Commands"), `docs/rules.md`, `README.md`. **Size.** S.
+
+### Task 11.3: The rules discoverable
+
+**Description.** (i) `squint rules list` lists the shipped bases (use case, required roles,
+profiles); `squint rules list <use-case>` prints each rule's id, kind, scope, evidence and text,
+then a short "to change these" note: the intent flags, `[rules] extra` files, where the same id
+replaces a rule and `disabled = true` removes it. (ii) `squint rules init <use-case> [--out
+<dir>]` writes a starter `squint.toml` (`[rules] base` and `extra`) and a `rules.toml` with the
+correct `[rules]` header and every base rule present but commented out, with notes on overriding,
+replacing and disabling; it refuses to overwrite either file (checking both before writing
+either). (iii) `docs/rules.md`'s examples are complete files, and a test parses every TOML block
+of the page (a rules file merges over its base, a config's `[rules]` loads), so the page cannot
+drift again. (iv) README's usage section mentions all of it briefly.
+
+**Acceptance.** `rules list` names the five bases and the `architecture` profile;
+`rules list reference-consistency` prints RC1–RC5 with kind, scope, evidence and text and the
+note; an unknown use case exits 64 naming the known ones; `rules init` writes two files that load
+(`rules show --config` on the result succeeds and lists the base rules unchanged), uncommenting a
+rule replaces it, and a second `rules init` into the same directory exits 64 and changes nothing;
+the docs test fails on the old example (no header) and passes on the new one.
+
+**Verification.** `crates/squint-cli/tests/it/rules_cli.rs`, `crates/squint-core/tests/it/docs_rules.rs`,
+`just check`.
+
+**Files.** `crates/squint-cli/src/main.rs`, `crates/squint-cli/src/rules.rs`,
+`crates/squint-core/src/obligations.rs` (profile listing), `docs/rules.md`, `README.md`,
+`SPEC.md` ("Commands"). **Size.** M.
+
+### Task 11.4: Cost and setup
+
+**Description.** (i) When the per-call cap refuses a check, the refusal explains itself on
+stderr from the decision's planned envelope: the requests one run plans by kind with their
+count, output allowance and bound, the retry reserve (`retries` × the largest bound), the number
+of decision runs, and the price tier that applies with why (the catalog's long-prompt tier and
+its threshold against the planned prompt, or the one tier the model has); that the envelope is a
+worst-case bound reserved before the first request, not an expected cost; and the knobs that
+lower it or raise the cap (`--max-spend-usd` up to `[budget] spend_cap_usd`,
+`budget.tool_turns`, `provider.max_output_tokens`, `budget.repairs` and
+`budget.repair_output_tokens`, `budget.retries`, `budget.decision_runs`, each with its value
+now). It invents no typical cost: the only spend shown is real, the settled spend of the most
+recent completed decisions in the same output directory with the same model and use case, when
+there are any. (ii) `squint init [--provider <profile>] [--model <id>]` writes a personal
+default config at `$XDG_CONFIG_HOME/squint/squint.toml` (`~/.config/squint/squint.toml`), the
+path the lookup already searches, with no secret in it (the account id comes from an environment
+variable), refuses to overwrite one, rejects a profile or model the catalog lacks (or a model of
+another adapter), and prints which environment variables hold the key and the account.
+
+**Acceptance.** A scripted check refused by the cap prints the breakdown, the worst-case
+sentence, the tier line and the knobs with their values; with an earlier completed decision in
+the output directory it prints that decision's real spend, and without one prints no cost
+figure but the envelope's; `squint init` into an empty `XDG_CONFIG_HOME` writes a file that
+`check --dry-run` (no `--config`) loads, names `ANTHROPIC_API_KEY`, and a second `init` exits 64
+leaving the file unchanged; `--provider openai` picks an OpenAI model; an unknown model exits 64.
+
+**Verification.** `crates/squint-cli/tests/it/budget_cli.rs`, `crates/squint-cli/tests/it/init_cli.rs`,
+unit tests for the tier explanation in `squint-providers`, `just check`.
+
+**Files.** `crates/squint-cli/src/summary.rs`, `crates/squint-cli/src/init.rs`,
+`crates/squint-cli/src/main.rs`, `crates/squint-providers/src/catalog.rs`,
+`crates/squint-core/src/config.rs` (the user config path), `SPEC.md` ("Config", "Commands"),
+`README.md`. **Size.** M.
+
+### Checkpoint M11
+- [ ] The owner's dog check repeated with `--replay` or a scripted script: the reason, the intent
+      flags and the cap explanation read as the owner asked.
+- [ ] Review; merge; tag `m11` (owner).
+
 ## Risks and mitigations
 
 | Risk | Impact | Mitigation |
