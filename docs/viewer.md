@@ -3,17 +3,33 @@
 The static viewer under `crates/squint-cli/viewer/` (`index.html`, `viewer.js`, `geometry.js`,
 `timeline.js`, `viewer.css`): plain HTML and vanilla JavaScript, no build step, embedded in the
 binary so an installed `squint` carries it. It is served live by `report view`, or written as one
-self-contained page by `report export`.
+self-contained page by `report export`. These are the run's two renders in the description
+(table-manners 3.2): a host runs `squint report view {run.dir} --port 0 --frame-ancestor
+{frame_ancestor}` (kind `server`, `ready_timeout_s` 10) and `squint report export {run.dir}` (kind
+`document`), with the same `squint` executable it serves and each placeholder a whole argument.
+Neither modifies the decision directory.
 
 ## Serving a run
 
 ```
-squint report view <decision dir> [--port 0] [--open]
+squint report view <decision dir> [--port 0] [--frame-ancestor <origin>] [--open]
 ```
 
-Binds `127.0.0.1:<port>` (0 picks a free port), prints the URL, and serves until stopped. With
-`--open` the system browser is launched on it. The directory must hold `report.json`
-(`squint report rebuild` makes one from the journals).
+Binds `127.0.0.1:<port>` (0 picks a free port) and, once listening, prints exactly one stdout
+line, the URL (`http://127.0.0.1:<port>/`), and nothing else ever; what it says for people goes to
+stderr. It serves until its stdin reaches end of file or it receives SIGTERM or SIGINT, then exits
+0. Whoever starts it holds its stdin open for as long as it should serve: in a terminal that is
+the terminal (Ctrl-C or Ctrl-D stops it); a background shell job's stdin is `/dev/null`, which
+stops it at once, so a script pipes from a sleeping writer (the offline smoke uses a FIFO fed by
+`sleep`) and stops it with SIGTERM. With `--open` the system browser is launched on the URL. The
+directory must hold `report.json` (`squint report rebuild` makes one from the journals).
+`report view` writes nothing anywhere.
+
+`--frame-ancestor <origin>` names the one page origin allowed to frame the viewer, as a host that
+embeds it passes its own (`http://127.0.0.1:4801`): `http` or `https`, a host, an optional port,
+no path and no trailing slash. Anything else (a path, a wildcard, a CSP keyword, another scheme)
+exits 64. Without the flag no page may frame it (`frame-ancestors 'none'`); loopback in general
+is never allowed.
 
 The server answers `GET` and `HEAD` only, for exactly these paths:
 
@@ -29,7 +45,8 @@ report and the artifacts) can be read through it. A request whose `Host` header 
 `127.0.0.1:<port>` or `localhost:<port>` is refused with `421` before any route, so a page from
 elsewhere cannot reach the report through a name rebound to loopback. Responses carry
 `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Content-Security-Policy:
-default-src 'self'` and `Connection: close`. The page itself requests nothing but these paths
+default-src 'self'; img-src 'self' data:; frame-ancestors <origin>` (`'none'` without
+`--frame-ancestor`) and `Connection: close`. The page itself requests nothing but these paths
 from the server that served it: no fonts, scripts or images from anywhere else.
 
 The geometry is held to the Rust reference by `viewer_geometry` in the CLI tests: the stored
@@ -43,8 +60,13 @@ skipped otherwise).
 squint report export <decision dir> [--out <file>] [--open]
 ```
 
-Writes one HTML file (`<decision dir>/report.html` by default) that opens from disk with no
-server: the viewer's scripts and stylesheet inlined, and `report.json`, every run's journal and
+Writes one HTML file outside the decision directory
+(`$XDG_CACHE_HOME/squint/reports/<run id>.html`, or `~/.cache/squint/reports/<run id>.html`, by
+default; the run id is the directory's name) and prints only its absolute path on stdout, its size
+on stderr. Exit 0 means the file exists whole (it is written beside its destination and renamed
+into place). An `--out` inside the decision directory exits 64 before anything is written. The
+page opens from disk with no server and needs no file beside it: the viewer's scripts and
+stylesheet inlined, and `report.json`, every run's journal and
 every run artifact (the images the model saw, each request and response body, each tool
 envelope) carried in a `SQUINT_BUNDLE` object the viewer reads instead of the server. A decision
 of the arm C run is about 5 MB; the page grows with the images a run saw. It is the page to keep
@@ -101,10 +123,18 @@ location lands at the mapped position on the candidate.
 
 ## Tests
 
-`cargo test -p squint-cli --features testkit --test viewer_serve` runs a decision with a returned
-crop frame and checks the server's routes, types and refusals. The offline smoke
-(`scripts/offline-smoke.sh`, run on every packaged and released binary) starts `report view` on a
-minimal directory and fetches the page and the report. The embedded assets are covered by
+`cargo nextest run -p squint-cli --features testkit viewer_serve` runs a decision with a returned
+crop frame and checks the server's routes, types and refusals, and both renders as a host runs
+them: `report view` prints one URL line and nothing more across requests, carries exactly the
+`frame-ancestors` it was given, refuses a bad origin with 64, and exits 0 on end of stdin, SIGTERM
+and SIGINT; `report export` prints one absolute path outside the decision directory to a page with
+no relative `src` or `href`; the decision directory is byte-identical after both. The offline
+smoke (`scripts/offline-smoke.sh`, run on every packaged and released binary) starts `report view`
+on a minimal directory with its stdin held open by a FIFO fed by `sleep`, checks the URL line, the
+page, the report and the framing header, stops it with SIGTERM expecting exit 0, exports the
+directory into a scratch cache, and checks that neither changed it; `scripts/test-checks.sh`
+proves it fails on fakes that print more than the URL, die on SIGTERM, serve nothing or export no
+bundle. The embedded assets are covered by
 `scripts/check-packaging.sh`.
 
 ## Devtools check (2026-10-27)

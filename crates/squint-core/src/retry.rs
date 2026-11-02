@@ -1,7 +1,11 @@
 //! Transport retries (SPEC "Retries"): connection errors, timeouts before any byte, HTTP 408, 409,
 //! 429 and 5xx are retried with exponential backoff and full jitter from 1 s, capped at 30 s,
-//! honouring `retry-after`, at most `budget.retries` times after the first attempt. Any other
-//! failure is `error: provider` at once. Adapters never retry; the state machine owns it.
+//! honouring `retry-after`, at most `budget.retries` times after the first attempt. A 400 whose
+//! body names no cause ([`TransportError::causeless`], the adapter's reading of its provider's
+//! error body) is retried once in a turn, inside the same budget; a second such 400, and every
+//! 400 that names its cause, is final. A 401 or 403 is `error: credential` at once
+//! (table-manners 2.2: the provider rejected the key); any other failure is final at once.
+//! Adapters never retry; the state machine owns it.
 
 use std::fmt;
 use std::future::Future;
@@ -22,6 +26,10 @@ pub struct TransportError {
     /// Whether the request left this process: false when the connection itself failed, so the
     /// provider never saw it (table-manners 2.3: not sent, costs nothing).
     pub sent: bool,
+    /// Whether the provider's error body names no cause (no field, parameter or limit), as the
+    /// adapter reads its provider's error shape. Only a 400 uses it: one such 400 in a turn is
+    /// retried once, since an identical request may pass; every other failure leaves it false.
+    pub causeless: bool,
 }
 
 impl TransportError {
@@ -29,10 +37,21 @@ impl TransportError {
     /// (table-manners 2.3): it was sent and the answer, if any, reported no usage. A call that
     /// never left, and an authentication rejection (refused before any work), cost nothing.
     pub fn unresolved(&self) -> bool {
-        self.sent && !matches!(self.status, Some(401 | 403))
+        self.sent && !self.rejected_credential()
     }
 
-    /// Whether the spec allows a retry of this failure.
+    /// Whether the provider rejected the credential (HTTP 401 or 403).
+    pub fn rejected_credential(&self) -> bool {
+        matches!(self.status, Some(401 | 403))
+    }
+
+    /// A 400 that names no cause: retried once in a turn, then final ([`send_with_retries`]).
+    pub fn causeless_rejection(&self) -> bool {
+        self.status == Some(400) && self.causeless
+    }
+
+    /// Whether the spec retries this failure as many times as `budget.retries` allows. A
+    /// [`causeless_rejection`](Self::causeless_rejection) is not among them: it gets one retry.
     pub fn retryable(&self) -> bool {
         match self.status {
             None => true,
@@ -114,7 +133,9 @@ pub struct Sent {
 }
 
 /// Sends a request, retrying transport failures. `on_retry` runs before each wait so the journal
-/// holds the attempt even if the process dies while sleeping.
+/// holds the attempt even if the process dies while sleeping. A rejected credential ends it as
+/// [`Error::Credential`], never retried. A 400 that names no cause is retried once; the second
+/// one is returned as it came (`provider_rejected`).
 pub async fn send_with_retries<'a>(
     provider: &'a dyn Provider,
     request: TurnRequest<'a>,
@@ -125,6 +146,7 @@ pub async fn send_with_retries<'a>(
     on_retry: &mut dyn FnMut(&Attempt) -> Result<()>,
 ) -> Result<Sent> {
     let mut attempt: u32 = 0;
+    let mut causeless_retried = false;
     loop {
         match provider.send(request.clone()).await {
             Ok(response) => {
@@ -133,7 +155,16 @@ pub async fn send_with_retries<'a>(
                     attempts: attempt + 1,
                 });
             }
-            Err(Error::Transport(t)) if t.retryable() && attempt < retries => {
+            Err(Error::Transport(t)) if t.rejected_credential() => {
+                return Err(Error::Credential(format!(
+                    "the provider rejected the credential: {t}"
+                )));
+            }
+            Err(Error::Transport(t))
+                if (t.retryable() || (t.causeless_rejection() && !causeless_retried))
+                    && attempt < retries =>
+            {
+                causeless_retried |= t.causeless_rejection();
                 attempt += 1;
                 let delay = backoff.delay(attempt, t.retry_after, jitter());
                 on_retry(&Attempt {
@@ -202,6 +233,18 @@ mod tests {
             retry_after: retry_after.map(Duration::from_secs),
             message: "scripted".into(),
             sent: true,
+            causeless: false,
+        }))
+    }
+
+    /// A 400 whose body names no cause.
+    fn bare_400() -> Result<TurnResponse> {
+        Err(Error::Transport(TransportError {
+            status: Some(400),
+            retry_after: None,
+            message: "scripted".into(),
+            sent: true,
+            causeless: true,
         }))
     }
 
@@ -274,10 +317,94 @@ mod tests {
     }
 
     #[test]
-    fn retry_never_happens_on_a_400() {
+    fn retry_never_happens_on_a_400_that_names_its_cause() {
         let (result, slept, seen) = run(vec![transport(Some(400), None), ok()], 3);
         assert!(matches!(result, Err(Error::Transport(t)) if t.status == Some(400)));
         assert!(slept.is_empty() && seen.is_empty());
+    }
+
+    #[test]
+    fn retry_of_a_causeless_400_happens_once_then_the_request_passes() {
+        let (result, slept, seen) = run(vec![bare_400(), ok()], 3);
+        assert_eq!(result.expect("the retry succeeds").attempts, 2);
+        assert_eq!(slept, [Duration::from_millis(500)], "the usual backoff");
+        assert_eq!((seen.len(), seen[0].status), (1, Some(400)));
+        assert!(
+            seen[0].unresolved,
+            "the failed attempt is charged like any other"
+        );
+    }
+
+    #[test]
+    fn retry_of_a_causeless_400_happens_once_and_the_second_is_final() {
+        let (result, _, seen) = run(vec![bare_400(), bare_400(), ok()], 3);
+        let Err(e) = result else {
+            panic!("the second causeless 400 is final")
+        };
+        assert_eq!(e.class(), "provider_rejected", "{e}");
+        assert_eq!(seen.len(), 1, "exactly one retry");
+        // Another failure between them does not earn the second 400 a retry.
+        let (result, _, seen) = run(
+            vec![bare_400(), transport(Some(503), None), bare_400(), ok()],
+            3,
+        );
+        assert!(matches!(result, Err(Error::Transport(t)) if t.status == Some(400)));
+        assert_eq!(seen.len(), 2);
+    }
+
+    #[test]
+    fn retry_of_a_causeless_400_stays_inside_the_retry_budget() {
+        let (result, slept, seen) = run(vec![bare_400(), ok()], 0);
+        assert!(matches!(result, Err(Error::Transport(t)) if t.status == Some(400)));
+        assert!(slept.is_empty() && seen.is_empty());
+    }
+
+    #[test]
+    fn only_a_400_is_retried_for_naming_no_cause() {
+        for status in [404, 422] {
+            let causeless = Err(Error::Transport(TransportError {
+                status: Some(status),
+                retry_after: None,
+                message: String::new(),
+                sent: true,
+                causeless: true,
+            }));
+            let (result, _, seen) = run(vec![causeless, ok()], 3);
+            assert!(result.is_err() && seen.is_empty(), "{status}");
+        }
+    }
+
+    #[test]
+    fn a_rejected_credential_is_never_retried_and_is_its_own_class() {
+        for status in [401, 403] {
+            let (result, slept, seen) = run(vec![transport(Some(status), None), ok()], 3);
+            let Err(e) = result else {
+                panic!("{status}: a rejection is an error")
+            };
+            assert_eq!(e.class(), "credential", "{status}");
+            assert!(e.to_string().contains(&format!("HTTP {status}")), "{e}");
+            assert!(slept.is_empty() && seen.is_empty(), "{status}: no retry");
+        }
+    }
+
+    #[test]
+    fn a_transport_failure_is_retryable_only_when_the_spec_retries_it() {
+        let class = |status| {
+            Error::Transport(TransportError {
+                status,
+                retry_after: None,
+                message: String::new(),
+                sent: true,
+                causeless: false,
+            })
+            .class()
+        };
+        for s in [Some(503), Some(529), Some(429), None] {
+            assert_eq!(class(s), "provider", "{s:?}");
+        }
+        for s in [400, 404, 422] {
+            assert_eq!(class(Some(s)), "provider_rejected", "{s}");
+        }
     }
 
     #[test]
@@ -287,6 +414,7 @@ mod tests {
             retry_after: None,
             message: String::new(),
             sent: true,
+            causeless: false,
         };
         for s in [408, 409, 429, 500, 502, 503, 599] {
             assert!(t(Some(s)).retryable(), "{s}");
@@ -326,6 +454,7 @@ mod tests {
             retry_after: None,
             message: "slow down".into(),
             sent: true,
+            causeless: false,
         });
         assert_eq!(e.to_string(), "provider: HTTP 429: slow down");
         assert_eq!(e.class(), "provider");

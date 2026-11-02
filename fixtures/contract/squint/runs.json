@@ -1,16 +1,7 @@
 {
-  "contract": "0.2.0",
+  "contract": "0.3.0",
   "next_cursor": null,
   "runs": [
-    {
-      "action": "estimate",
-      "client_run_id": "host-attempt-3",
-      "id": "served-estimate",
-      "resource": "squint://run/served-estimate/run.json",
-      "session_id": "00000000-0000-4000-8000-000000000001",
-      "started": "2026-01-01T00:00:00.000Z",
-      "status": "completed"
-    },
     {
       "action": "source_fidelity",
       "client_run_id": "host-attempt-1",

@@ -1,6 +1,8 @@
 //! Task 8.3: correlation and the run reference (table-manners 4.3, 4.4): a client's
 //! `client_run_id` claimed when its request is accepted and refused when reused, and the run's
-//! reference on every progress notification from allocation and in every listing.
+//! reference on every progress notification from allocation and in every listing. Task 9.7: a
+//! request that ends in a JSON-RPC error with no run releases its id; one cancelled before
+//! allocation keeps it. Task 9.6: a `not_ready` refusal is one of those.
 #![cfg(feature = "testkit")]
 #![allow(clippy::unwrap_used)]
 
@@ -143,12 +145,15 @@ fn an_accepted_id_is_the_runs_and_a_reused_one_is_refused_with_that_run() {
     assert_eq!(data["run"]["resource"], first["run"]["resource"]);
     assert_eq!(data["run"]["session_id"], session_id);
     assert_eq!(data["run"]["client_run_id"], "host-attempt-1");
-    // An estimate claims ids the same way.
-    let mut call = pair();
-    call["use_case"] = json!("source-fidelity");
-    let (code, _) =
-        refused(c.call_with_meta("estimate", call, json!({ CLIENT: "host-attempt-1" })));
-    assert_eq!(code, -32602);
+    // An estimate is never a run, so it claims no id and is answered whatever id it carries.
+    let estimated = c
+        .call_with_meta(
+            "estimate",
+            json!({ "action": "source_fidelity", "arguments": pair() }),
+            json!({ CLIENT: "host-attempt-1" }),
+        )
+        .unwrap();
+    assert!(!estimated.is_error, "{estimated:?}");
 }
 
 #[test]
@@ -166,6 +171,66 @@ fn a_malformed_id_is_invalid_params() {
         assert_eq!(code, -32602, "{bad}");
         assert!(data.get("reason").is_none(), "{bad}: not a reuse: {data}");
     }
+}
+
+/// The runs list once it holds `count` runs and none is still running.
+fn runs_once_ended(c: &mut Client, count: usize) -> serde_json::Value {
+    let started = Instant::now();
+    loop {
+        let runs: serde_json::Value =
+            serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+        let entries = runs["runs"].as_array().unwrap();
+        if entries.len() == count && entries.iter().all(|r| r["status"] != "running") {
+            return runs;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(30),
+            "runs never ended: {runs}"
+        );
+    }
+}
+
+/// A request refused with a JSON-RPC error before any run releases its id (table-manners 4.4,
+/// squint's M8 review S3): the client fixes the request and sends it again under the same id,
+/// which is accepted, and its run carries the id. The refusals left no run behind.
+#[test]
+fn an_id_refused_with_no_run_is_released_for_the_corrected_request() {
+    let mut c = client(&out("released"), "held.json");
+    let mut unknown = pair();
+    unknown["colour"] = json!("blue");
+    let mut no_cap = pair();
+    no_cap["max_spend_usd"] = json!("a dollar");
+    for (tool, call) in [
+        ("source_fidelity", unknown),
+        ("source_fidelity", no_cap),
+        // Arguments with no `max_spend_usd` above zero.
+        ("source_fidelity", {
+            let mut zero = pair();
+            zero["max_spend_usd"] = json!(0);
+            zero
+        }),
+    ] {
+        let (code, data) = refused(c.call_with_meta(tool, call, json!({ CLIENT: "fix-1" })));
+        assert_eq!(code, -32602, "{tool}");
+        assert!(data.get("reason").is_none(), "{tool}: not a reuse: {data}");
+    }
+    let runs: serde_json::Value =
+        serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+    assert_eq!(runs["runs"], json!([]), "a refusal makes no run");
+
+    let accepted = c
+        .call_with_meta("source_fidelity", pair(), json!({ CLIENT: "fix-1" }))
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_eq!(accepted["status"], "completed", "{accepted}");
+    assert_eq!(accepted["run"]["client_run_id"], "fix-1");
+    // Once it has a run, the id is that run's for the session.
+    let (code, data) =
+        refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: "fix-1" })));
+    assert_eq!(code, -32602);
+    valid("urn:table-manners:core:refusal", &data);
+    assert_eq!(data["run"]["id"], accepted["run"]["id"]);
 }
 
 /// An id is claimed when its request is accepted, so one cancelled while it waited for the
@@ -191,28 +256,28 @@ fn an_id_cancelled_before_its_run_stays_claimed_with_no_run() {
     // Its heartbeat: accepted, claimed and waiting for the permit, so the cancel lands there.
     first_progress(&mut c, "q");
     c.cancel(queued).unwrap();
-    std::thread::sleep(Duration::from_millis(300));
-    let mut call = pair();
-    call["use_case"] = json!("source-fidelity");
-    let (code, data) = refused(c.call_with_meta("estimate", call, json!({ CLIENT: "q" })));
+    // The server reads the two cancellations in order. Once the running call's run has ended,
+    // the permit is free, and the queued call, cancelled first, has given up its wait with no
+    // run: the one run listed is the running call's.
+    c.cancel(running).unwrap();
+    let runs = runs_once_ended(&mut c, 1);
+    assert_eq!(runs["runs"][0]["client_run_id"], "a", "{runs}");
+    let (code, data) = refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: "q" })));
     assert_eq!(code, -32602);
     valid("urn:table-manners:core:refusal", &data);
     assert_eq!(data["reason"], "client_run_id_reused");
     assert!(data["run"].is_null(), "{data}");
-    c.cancel(running).unwrap();
 }
 
 /// Two requests sent together with one id: the first accepted takes it, the other is refused.
 #[test]
 fn concurrent_requests_with_one_id_run_once() {
     let mut c = client(&out("concurrent"), "held.json");
-    let mut call = pair();
-    call["use_case"] = json!("source-fidelity");
     let one = c
-        .start_call_with_meta("estimate", call.clone(), json!({ CLIENT: "same" }))
+        .start_call_with_meta("source_fidelity", pair(), json!({ CLIENT: "same" }))
         .unwrap();
     let two = c
-        .start_call_with_meta("estimate", call, json!({ CLIENT: "same" }))
+        .start_call_with_meta("source_fidelity", pair(), json!({ CLIENT: "same" }))
         .unwrap();
     let results = [c.finish(one), c.finish(two)];
     let accepted = results.iter().filter(|r| r.is_ok()).count();
@@ -245,8 +310,8 @@ fn an_id_in_use_is_refused_while_queued_and_while_running() {
         )
         .unwrap();
     // The queued call's heartbeat, before any allocation: no reference. It also shows "q" is
-    // accepted and claimed; sent without waiting for it, the estimate below could be accepted
-    // first and take the id itself.
+    // accepted and claimed; sent without waiting for it, the call below could be accepted first
+    // and take the id itself. A call refused as a reuse never reaches the permit.
     let heartbeat = first_progress(&mut c, "q");
     assert!(
         heartbeat["params"]["message"]
@@ -259,13 +324,11 @@ fn an_id_in_use_is_refused_while_queued_and_while_running() {
         heartbeat["params"]["_meta"].get(RUN).is_none(),
         "{heartbeat}"
     );
-    let mut call = pair();
-    call["use_case"] = json!("source-fidelity");
-    let (code, data) = refused(c.call_with_meta("estimate", call.clone(), json!({ CLIENT: "q" })));
+    let (code, data) = refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: "q" })));
     assert_eq!(code, -32602);
     valid("urn:table-manners:core:refusal", &data);
     assert!(data["run"].is_null(), "queued, so no run yet: {data}");
-    let (code, data) = refused(c.call_with_meta("estimate", call, json!({ CLIENT: "a" })));
+    let (code, data) = refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: "a" })));
     assert_eq!(code, -32602);
     assert_eq!(data["run"], reference, "running, so its run");
     c.cancel(queued).unwrap();
@@ -319,4 +382,76 @@ fn progress_carries_the_run_reference_from_allocation() {
     assert_eq!(running["id"], reference["id"]);
     assert_eq!(running["client_run_id"], "host-7");
     c.cancel(id).unwrap();
+}
+
+/// Task 9.6 (table-manners 3.1): with the profile's key unset, a check is refused before any run
+/// as `-32602` `not_ready`, naming only what it needs that is missing (the credential, not the
+/// configuration or the model); nothing is written, not even the output directory, and its id is
+/// released: the same id is refused for readiness again rather than as a reuse. An estimate is
+/// never gated (task 9.4): it answers, its estimate refused for readiness.
+#[test]
+fn a_check_without_its_key_is_refused_not_ready_and_releases_its_id() {
+    let dir = out("not-ready");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_squint"));
+    command
+        .current_dir(repo_root())
+        .args([
+            "serve",
+            "--config",
+            "fixtures/config/minimal.toml",
+            "--set",
+            "provider.profile=anthropic",
+            "--set",
+            "provider.model=claude-haiku-5-5",
+            "--provider-script",
+            "fixtures/scripts/held.json",
+            "--out",
+        ])
+        .arg(&dir)
+        .env_remove("ANTHROPIC_API_KEY");
+    let mut c = Client::start(&mut command).unwrap();
+    c.roots = vec![format!(
+        "file://{}",
+        repo_root().join("fixtures/images").display()
+    )];
+    let before = session(&mut c);
+    for _ in 0..2 {
+        let (code, data) =
+            refused(c.call_with_meta("source_fidelity", pair(), json!({ CLIENT: "needs-key-1" })));
+        assert_eq!(code, -32602);
+        valid("urn:table-manners:core:refusal", &data);
+        assert_eq!(data["reason"], "not_ready", "{data}");
+        assert_eq!(data["run"], serde_json::Value::Null);
+        assert_eq!(
+            data["requirements"],
+            json!([{
+                "kind": "credential",
+                "name": "ANTHROPIC_API_KEY",
+                "state": "missing",
+                "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with."
+            }])
+        );
+    }
+    let runs: serde_json::Value =
+        serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+    assert_eq!(runs["runs"], json!([]), "a refusal makes no run");
+    assert!(!dir.exists(), "a refusal writes nothing");
+    let after = session(&mut c);
+    assert_eq!(
+        (&after["spent_usd"], &after["reserved_usd"]),
+        (&before["spent_usd"], &before["reserved_usd"]),
+        "a refusal spends and reserves nothing"
+    );
+    // An estimate is a control, not gated by readiness: it answers, refused for readiness.
+    let estimated = c
+        .call(
+            "estimate",
+            json!({ "action": "source_fidelity", "arguments": pair() }),
+        )
+        .unwrap();
+    assert!(!estimated.is_error, "{estimated:?}");
+    let estimate = estimated.structured.unwrap();
+    assert_eq!(estimate["allowed"], false, "{estimate}");
+    assert_eq!(estimate["refused"], "readiness", "{estimate}");
+    assert!(!dir.exists(), "an estimate writes nothing");
 }

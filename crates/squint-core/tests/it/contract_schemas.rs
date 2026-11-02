@@ -1,7 +1,10 @@
 //! Task 7.1: the table-manners schemas copied under `schemas/contract/` are the pinned release's,
 //! byte for byte, and `SOURCES.toml` records the tag and each file's sha256, so an edit to the copy
 //! fails here. After a deliberate version bump of the `table-manners` dependency,
-//! `UPDATE_CONTRACT=1` rewrites the copy and the record from the crate.
+//! `UPDATE_CONTRACT=1` rewrites the copy and the record from the crate. While the dependency is a
+//! path to an unpublished checkout (M9 builds on the contract's `v0.3` branch until v0.3.0 is
+//! published), the record also names that checkout's branch and commit; once it is the registry's
+//! release again, it names neither.
 #![allow(clippy::unwrap_used)]
 
 use sha2::{Digest, Sha256};
@@ -24,13 +27,47 @@ fn sha256(bytes: &[u8]) -> String {
         .collect()
 }
 
+/// The checkout the workspace takes `table-manners` from, when it is a path dependency.
+fn path_source() -> Option<std::path::PathBuf> {
+    let root = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let manifest: toml::Table =
+        toml::from_str(&std::fs::read_to_string(root.join("Cargo.toml")).unwrap()).unwrap();
+    let path = manifest["workspace"]["dependencies"]["table-manners"]
+        .get("path")?
+        .as_str()?;
+    Some(root.join(path))
+}
+
+fn git(checkout: &std::path::Path, args: &[&str]) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(checkout)
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "git {args:?} in {}",
+        checkout.display()
+    );
+    String::from_utf8(out.stdout).unwrap().trim().to_string()
+}
+
 fn write_copy() {
     let mut sources = format!(
         "# The table-manners schemas squint conforms to, copied from the crate pinned in Cargo.toml.\n\
-         # Regenerate after a version bump: UPDATE_CONTRACT=1 cargo test -p squint-core --test contract_schemas\n\
+         # Regenerate after a version bump: UPDATE_CONTRACT=1 cargo test -p squint-core --test it contract_schemas\n\
          tag = \"v{}\"\n",
         table_manners::CONTRACT_VERSION
     );
+    if let Some(checkout) = path_source() {
+        sources += &format!(
+            "# Copied from an unpublished checkout by path; the registry's release replaces it.\n\
+             branch = \"{}\"\ncommit = \"{}\"\n",
+            git(&checkout, &["rev-parse", "--abbrev-ref", "HEAD"]),
+            git(&checkout, &["rev-parse", "HEAD"]),
+        );
+    }
     for (id, text) in table_manners::SCHEMAS {
         let path = path_of(id);
         let file = dir().join(&path);
@@ -48,6 +85,8 @@ fn write_copy() {
 #[serde(deny_unknown_fields)]
 struct Sources {
     tag: String,
+    branch: Option<String>,
+    commit: Option<String>,
     file: Vec<SourceFile>,
 }
 
@@ -71,6 +110,11 @@ fn the_copied_contract_schemas_are_the_pinned_release() {
         sources.tag,
         format!("v{}", table_manners::CONTRACT_VERSION),
         "SOURCES.toml names another release than the crate pinned in Cargo.toml"
+    );
+    assert_eq!(
+        (sources.branch.is_some(), sources.commit.is_some()),
+        (path_source().is_some(), path_source().is_some()),
+        "SOURCES.toml names a branch and commit exactly when table-manners is a path dependency"
     );
 
     let mut recorded: Vec<&str> = sources.file.iter().map(|f| f.id.as_str()).collect();

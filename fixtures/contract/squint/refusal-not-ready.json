@@ -1,0 +1,12 @@
+{
+  "reason": "not_ready",
+  "requirements": [
+    {
+      "kind": "credential",
+      "name": "ANTHROPIC_API_KEY",
+      "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with.",
+      "state": "missing"
+    }
+  ],
+  "run": null
+}

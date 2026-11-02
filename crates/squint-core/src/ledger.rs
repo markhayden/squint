@@ -35,6 +35,11 @@ pub trait Pricing: Send + Sync {
     fn bound(&self, shape: &RequestShape) -> Result<f64>;
     /// The cost in USD of reported usage.
     fn cost(&self, usage: &Usage) -> f64;
+    /// The model's per-request image limits, which resolve plans the conversation's images
+    /// against before any request (SPEC "Image preparation"); `None` when it states none.
+    fn image_limits(&self) -> Option<crate::image::RequestImageLimits> {
+        None
+    }
 }
 
 /// A linear price list: the stub catalog entry.
@@ -84,6 +89,13 @@ pub struct PlanInput {
     pub tool_images: u64,
 }
 
+/// The most images one request of the run can carry: the job's images plus every tool result the
+/// call budget allows at the largest tool's `returns.max_images`. The plan bounds the later
+/// requests with it, and resolve prepares the images against it.
+pub fn worst_case_images(config: &Config, input: &PlanInput) -> u64 {
+    input.job_images + u64::from(config.budget.tool_calls) * input.tool_images
+}
+
 /// One planned request of the envelope.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -129,7 +141,7 @@ pub fn plan(config: &Config, input: &PlanInput, pricing: &dyn Pricing) -> Result
     // The whole call budget may be spent at any point, so every request after the first carries
     // every tool result the run can produce.
     let tool_tokens = planned_tokens(u64::from(b.tool_calls) * input.tool_envelope_bytes);
-    let tool_images = u64::from(b.tool_calls) * input.tool_images;
+    let tool_images = worst_case_images(config, input) - input.job_images;
     let max_output = u64::from(config.provider.max_output_tokens);
 
     let mut requests = Vec::new();
@@ -205,10 +217,13 @@ pub trait Ledger: Send + Sync {
     }
 }
 
-/// The per-job ledger: one cap, a mutex around the balances.
+/// A ledger with one cap and a mutex around the balances: a shared budget (a session's, an
+/// evaluation's), whose refusals are `budget`, or one decision's per-call cap, whose refusals are
+/// `cap` (table-manners 4.5, ADR 0018 amendment).
 #[derive(Debug)]
 pub struct CapLedger {
     cap: f64,
+    per_call: bool,
     balances: Mutex<Balances>,
 }
 
@@ -223,10 +238,20 @@ struct Balances {
 const EPSILON: f64 = 1e-9;
 
 impl CapLedger {
+    /// A shared budget: a reservation it cannot hold is `budget`.
     pub fn new(cap: f64) -> CapLedger {
         CapLedger {
             cap,
+            per_call: false,
             balances: Mutex::new(Balances::default()),
+        }
+    }
+
+    /// One decision's per-call cap: a reservation over it is `cap`.
+    pub fn per_call(cap: f64) -> CapLedger {
+        CapLedger {
+            per_call: true,
+            ..CapLedger::new(cap)
         }
     }
 
@@ -254,10 +279,17 @@ impl Ledger for CapLedger {
             .map_err(|_| Error::Budget("ledger poisoned".into()))?;
         let remaining = self.cap - b.reserved - b.spent;
         if usd > remaining + EPSILON {
-            return Err(Error::Budget(format!(
-                "decision envelope ${usd:.4} exceeds the remaining ${remaining:.4} of the ${:.2} cap",
-                self.cap
-            )));
+            return Err(if self.per_call {
+                Error::Cap(format!(
+                    "decision envelope ${usd:.4} exceeds the remaining ${remaining:.4} of the ${:.2} per-call cap",
+                    self.cap
+                ))
+            } else {
+                Error::Budget(format!(
+                    "decision envelope ${usd:.4} exceeds the remaining ${remaining:.4} of the ${:.2} budget",
+                    self.cap
+                ))
+            });
         }
         b.reserved += usd;
         Ok(())

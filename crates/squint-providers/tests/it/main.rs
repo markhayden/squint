@@ -4,6 +4,7 @@
 mod anthropic;
 mod catalog;
 mod gemini;
+mod many_images;
 mod openai;
 mod prepare;
 mod privacy;

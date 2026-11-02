@@ -9,7 +9,7 @@ use std::sync::{Arc, Mutex};
 
 use serde_json::{Value, json};
 use squint_core::config::Config;
-use squint_core::image::Prepared;
+use squint_core::image::{ImagePlan, Prepared};
 use squint_core::provider::{
     ContentBlock, Message, MessageRole, Provider, StopReason, ToolDefinition, TurnRequest,
 };
@@ -481,7 +481,9 @@ fn anthropic_reports_recipient_pricing_and_preparation() {
     assert!((cost - 2.0).abs() < 1e-9);
     let img =
         image::DynamicImage::ImageRgb8(image::RgbImage::from_pixel(10, 8, image::Rgb([1, 2, 3])));
-    let prepared = p.prepare_image("candidate", &img).unwrap();
+    let prepared = p
+        .prepare_image("candidate", &img, ImagePlan::Standard)
+        .unwrap();
     assert_eq!(
         (
             prepared.media_type.as_str(),
@@ -500,4 +502,48 @@ fn anthropic_without_usage_reports_none() {
     let body = json!({ "id": "m", "content": [{ "type": "text", "text": "hi" }], "stop_reason": "end_turn" });
     let r = p.parse_response(&body.to_string(), None).unwrap();
     assert_eq!(r.usage, None);
+}
+
+/// F3: an Anthropic 400 names no cause only when its body is empty or the error envelope's
+/// message is; the run loop retries those once and no other.
+#[tokio::test]
+async fn anthropic_a_400_names_no_cause_only_with_an_empty_body_or_message() {
+    let (p, t) = provider("claude-opus-5-5", "", json!({}));
+    let (h, tl, im) = (history(), tools(), images());
+    let envelope = |message: Value| {
+        json!({ "type": "error", "error": { "type": "invalid_request_error", "message": message }, "request_id": "req_x" }).to_string()
+    };
+    let cases = [
+        (400, String::new(), true),
+        (400, " \n".to_string(), true),
+        (400, envelope(json!("")), true),
+        (400, envelope(Value::Null), true),
+        (
+            400,
+            json!({ "type": "error", "error": { "type": "invalid_request_error" } }).to_string(),
+            true,
+        ),
+        (
+            400,
+            envelope(json!("messages.0.content: Field required")),
+            false,
+        ),
+        (400, "<html>Bad Request</html>".to_string(), false),
+        (400, json!({ "unexpected": true }).to_string(), false),
+        (404, String::new(), false),
+    ];
+    for (status, body, causeless) in cases {
+        *t.response.lock().unwrap() = Response {
+            status,
+            headers: BTreeMap::new(),
+            body: body.clone(),
+        };
+        match p.send(request(&h, &tl, &im)).await.unwrap_err() {
+            squint_core::Error::Transport(e) => {
+                assert_eq!(e.causeless_rejection(), causeless, "{status} {body:?}");
+                assert!(!e.retryable(), "{status} {body:?}");
+            }
+            other => panic!("{other}"),
+        }
+    }
 }

@@ -73,10 +73,20 @@ pub struct Services<'a> {
     /// The serving session and client request the decision belongs to, written into its
     /// directory when it is made (table-manners 4.3); none outside a server.
     pub association: Option<crate::contract::Association>,
+    /// Told of every settled provider answer (table-manners 3.1): a response is accepted, a 401
+    /// or 403 rejected; a server keeps them for its readiness.
+    pub answered: Option<Answered>,
+    /// Why the estimate the call named (table-manners 4.5) no longer binds it, as the server
+    /// found when the call arrived: the decision then fails `stale_estimate` at the limits check,
+    /// with zero spend. None when the call named no estimate or its binding holds.
+    pub stale_estimate: Option<String>,
 }
 
 /// See [`Services::allocated`].
 pub type Allocated = std::sync::Arc<dyn Fn(&Path) + Send + Sync>;
+
+/// See [`Services::answered`].
+pub type Answered = std::sync::Arc<dyn Fn(crate::readiness::Answer) + Send + Sync>;
 
 impl<'a> Services<'a> {
     pub fn new(provider: &'a dyn Provider, tools: &'a ToolRegistry) -> Services<'a> {
@@ -90,7 +100,19 @@ impl<'a> Services<'a> {
             observer: None,
             allocated: None,
             association: None,
+            answered: None,
+            stale_estimate: None,
         }
+    }
+
+    pub fn with_stale_estimate(mut self, reason: Option<String>) -> Services<'a> {
+        self.stale_estimate = reason;
+        self
+    }
+
+    pub fn with_answered(mut self, answered: Answered) -> Services<'a> {
+        self.answered = Some(answered);
+        self
     }
 
     pub fn with_association(mut self, association: crate::contract::Association) -> Services<'a> {
@@ -212,7 +234,7 @@ pub async fn check(
             // Whatever failed, the decision's directory ends with its own result (table-manners
             // 4.3, 7.3): rebuilt from the journals when there are any, else the header alone.
             if !dir.join(crate::contract::RUN_FILE).exists() {
-                let result = match Report::rebuild(&dir) {
+                let mut result = match Report::rebuild(&dir) {
                     Ok(report) => {
                         let mut result = crate::contract::run_result(&report, &dir, started_ms);
                         let (status, code) = crate::contract::status_of(e.class());
@@ -237,6 +259,10 @@ pub async fn check(
                         serde_json::Map::new(),
                     ),
                 };
+                // The reason is the error's text, redacted as the journal's messages are.
+                if let Some(error) = &mut result.error {
+                    error.reason = crate::artifacts::redact(&error.reason, &config.secrets);
+                }
                 let _ = crate::contract::write_run_result(&dir, &result);
             }
             Err(e)
@@ -259,22 +285,15 @@ async fn decide(
     let tools = services.tools;
     let shared = services.shared_ledger;
     let dir = dir.to_path_buf();
-    let setup = setup(config, job, job_base, tools);
+    let setup = setup(config, job, job_base, tools, provider.pricing());
 
     // The cache, once per decision: a hit returns the whole cached decision before any request.
     let cache = Cache::from_config(&config.cache)?;
     let mut cache_status = CacheStatus::off();
-    if let (Ok(s), Some(cache)) = (&setup, &cache) {
-        let key = KeyInput::gather(
-            config,
-            job,
-            &s.images,
-            &s.prepared,
-            tools,
-            provider,
-            harness_version,
-        )
-        .key()?;
+    if let (Ok(s), Some(cache)) = (&setup, &cache)
+        && let Ok(plan) = s.image_plan()
+    {
+        let key = KeyInput::gather(config, job, s, plan, tools, provider, harness_version).key()?;
         cache_status = CacheStatus {
             status: if services.evaluation {
                 "bypass"
@@ -324,13 +343,9 @@ async fn decide(
         return Ok(outcome(dir, report));
     }
 
-    let job_ledger = CapLedger::new(config.budget.spend_cap_usd);
+    let job_ledger = CapLedger::per_call(config.budget.spend_cap_usd);
     let envelope = match (&setup, provider.pricing()) {
-        (Ok(s), Some(pricing)) => Some(ledger::plan(
-            config,
-            &plan_input(&s.prepared, job, tools),
-            pricing,
-        )),
+        (Ok(s), Some(pricing)) => Some(envelope_of(config, s, job, tools, pricing)),
         (Ok(_), None) => Some(Err(Error::Budget(
             "the provider cannot bound request costs; refusing to run".into(),
         ))),
@@ -412,10 +427,20 @@ fn outcome(dir: PathBuf, report: Report) -> Outcome {
     }
 }
 
-/// What every run of a decision shares: the resolved rules and the decoded images.
+/// What every run of a decision shares: the resolved rules, the decoded images and how they are
+/// prepared for the model, or why the model cannot take them (an `image_limit` refusal, made
+/// before any spend: [`Setup::image_plan`]).
 pub struct Setup {
     pub prepared: Prepared,
     pub images: Vec<CanonicalImage>,
+    pub planned: std::result::Result<image::ImagePlan, String>,
+}
+
+impl Setup {
+    /// The image plan, or the decision's `image_limit` refusal.
+    pub fn image_plan(&self) -> Result<image::ImagePlan> {
+        self.planned.clone().map_err(Error::ImageLimit)
+    }
 }
 
 /// The decision envelope a run of this job would reserve (SPEC "Cost ledger"), without running:
@@ -427,12 +452,37 @@ pub fn envelope(
     tools: &ToolRegistry,
     pricing: &dyn Pricing,
 ) -> Result<ledger::Envelope> {
-    let s = setup(config, job, job_base, tools)?;
-    ledger::plan(config, &plan_input(&s.prepared, job, tools), pricing)
+    envelope_of(
+        config,
+        &setup(config, job, job_base, tools, Some(pricing))?,
+        job,
+        tools,
+        pricing,
+    )
 }
 
-/// Resolves the rules and decodes the images once per decision.
-pub fn setup(config: &Config, job: &Job, job_base: &Path, tools: &ToolRegistry) -> Result<Setup> {
+/// [`envelope`] for a job whose rules and images are already set up.
+pub fn envelope_of(
+    config: &Config,
+    setup: &Setup,
+    job: &Job,
+    tools: &ToolRegistry,
+    pricing: &dyn Pricing,
+) -> Result<ledger::Envelope> {
+    // A decision the model's image limits refuse has no envelope: its estimate is the refusal.
+    setup.image_plan()?;
+    ledger::plan(config, &plan_input(&setup.prepared, job, tools), pricing)
+}
+
+/// Resolves the rules, decodes the images and plans their preparation once per decision, against
+/// the image limits of the model `pricing` describes (none when it is not known).
+pub fn setup(
+    config: &Config,
+    job: &Job,
+    job_base: &Path,
+    tools: &ToolRegistry,
+    pricing: Option<&dyn Pricing>,
+) -> Result<Setup> {
     let prepared = resolve_rules(config, job, job_base, tools)?;
     let bounds = config.images.decode_bounds();
     let images = job
@@ -440,7 +490,49 @@ pub fn setup(config: &Config, job: &Job, job_base: &Path, tools: &ToolRegistry) 
         .iter()
         .map(|spec| image::load(spec, job_base, &bounds))
         .collect::<Result<Vec<_>>>()?;
-    Ok(Setup { prepared, images })
+    // Kept apart from the resolve errors above: a refusal is the model's limit, not a bad job.
+    let planned = image_plan(
+        config,
+        &plan_input(&prepared, job, tools),
+        pricing.and_then(|p| p.image_limits()),
+    )
+    .map_err(|e| match e {
+        Error::ImageLimit(m) => m,
+        other => other.to_string(),
+    });
+    Ok(Setup {
+        prepared,
+        images,
+        planned,
+    })
+}
+
+/// How the decision's images are prepared (SPEC "Image preparation"), decided before the first
+/// request from the most images one request can carry ([`ledger::worst_case_images`]): when that
+/// can pass the model's many-image threshold, every image is prepared at the many-image size
+/// from the start; when it exceeds the per-request count, the decision is refused with
+/// `image_limit` before any spend. Either way no request fails preflight mid-run.
+pub fn image_plan(
+    config: &Config,
+    input: &ledger::PlanInput,
+    limits: Option<image::RequestImageLimits>,
+) -> Result<image::ImagePlan> {
+    let Some(limits) = limits else {
+        return Ok(image::ImagePlan::Standard);
+    };
+    let worst = ledger::worst_case_images(config, input);
+    if worst > u64::from(limits.max_per_request) {
+        return Err(Error::ImageLimit(format!(
+            "a request of this run can carry {worst} images ({} from the job and up to {} from each of {} tool calls), over the model's limit of {} per request; refused before any request",
+            input.job_images, input.tool_images, config.budget.tool_calls, limits.max_per_request
+        )));
+    }
+    Ok(match limits.many {
+        Some(many) if worst > u64::from(many.threshold) => image::ImagePlan::Many {
+            long_edge: many.max_long_edge,
+        },
+        _ => image::ImagePlan::Standard,
+    })
 }
 
 /// One run of the state machine, recorded in its journal. Never fails for run-level reasons:
@@ -473,10 +565,11 @@ async fn run_once(
     match result {
         Ok(verdict) => journal.append(&Event::Verdict(events::VerdictReached { verdict })),
         Err(e) => {
-            // A cancellation ends the journal in `cancelled` with the state reached.
+            // A cancellation ends the journal in `cancelled` with the state reached. The message
+            // is redacted like every stored body: a provider's error excerpt may echo a secret.
             let terminal = events::Terminal {
                 class: e.class().into(),
-                message: e.to_string(),
+                message: state.artifacts.redact(&e.to_string()),
                 state: journal.last_event().map(str::to_string),
             };
             journal.append(&if matches!(e, Error::Cancelled(_)) {
@@ -580,6 +673,8 @@ struct RunState {
     images: Vec<CanonicalImage>,
     /// The bytes the provider sends per content-block id (job image ids and frame ids).
     prepared_images: BTreeMap<String, image::Prepared>,
+    /// How every image is prepared, decided at resolve.
+    image_plan: image::ImagePlan,
     instances: Vec<Instance>,
     checklist: Checklist,
     registry: Registry,
@@ -601,6 +696,7 @@ impl RunState {
             images_sent: BTreeMap::new(),
             images: Vec::new(),
             prepared_images: BTreeMap::new(),
+            image_plan: image::ImagePlan::Standard,
             instances: Vec::new(),
             checklist: Checklist::default(),
             registry: Registry::new(),
@@ -621,7 +717,7 @@ impl RunState {
         frame_id: &str,
         pixels: &::image::DynamicImage,
     ) -> Result<ArtifactRef> {
-        let prepared = provider.prepare_image(block_id, pixels)?;
+        let prepared = provider.prepare_image(block_id, pixels, self.image_plan)?;
         let r = self.artifacts.put(&prepared.bytes)?;
         self.images_sent.insert(frame_id.to_string(), r.clone());
         self.prepared_images.insert(block_id.to_string(), prepared);
@@ -704,8 +800,11 @@ async fn drive(
     let provider = services.provider;
     let tools = services.tools;
     let prepared = &setup.prepared;
-    // Resolve: the shared images and rules become this run's state.
+    // Refused before anything else when the model's image limits cannot take this run.
+    let image_plan = setup.image_plan()?;
+    // Resolve: the shared images, rules and image plan become this run's state.
     state.images = setup.images.clone();
+    state.image_plan = image_plan;
     state.instances = prepared.resolved.instances.clone();
     state.checklist = prepared.checklist.clone();
     for img in &state.images {
@@ -734,7 +833,7 @@ async fn drive(
         tools: tools.manifests().map(|m| m.name.clone()).collect(),
     }))?;
     journal.append(&Event::Prepared(events::Prepared {
-        prep_version: provider.prep_version().to_string(),
+        prep_version: image_plan.prep_version(provider.prep_version()),
         images: state.images.len(),
     }))?;
 
@@ -749,6 +848,11 @@ async fn drive(
             "the provider cannot bound request costs".into(),
         ));
     };
+    // The limits check (table-manners 4.5): an estimate the call named that no longer binds it,
+    // then the per-call cap, then the session budget; zero spend whichever refuses.
+    if let Some(reason) = &services.stale_estimate {
+        return Err(Error::StaleEstimate(reason.clone()));
+    }
     if money.account.is_none() {
         money.job_ledger.reserve(envelope.usd)?;
         if let Some(shared) = money.shared
@@ -819,7 +923,7 @@ async fn drive(
     while turns_used < config.budget.tool_turns {
         let response = send_turn(
             config,
-            provider,
+            services,
             prepared,
             &history,
             &definitions,
@@ -828,7 +932,6 @@ async fn drive(
             state,
             pricing,
             account,
-            services.cancel,
         )
         .await?;
         allowance = config.provider.max_output_tokens;
@@ -995,7 +1098,7 @@ async fn drive(
     loop {
         let response = send_turn(
             config,
-            provider,
+            services,
             prepared,
             &history,
             &definitions,
@@ -1004,7 +1107,6 @@ async fn drive(
             state,
             pricing,
             account,
-            services.cancel,
         )
         .await?;
         allowance = config.provider.max_output_tokens;
@@ -1229,7 +1331,7 @@ fn assistant_message(response: &TurnResponse) -> Message {
 #[allow(clippy::too_many_arguments)]
 async fn send_turn(
     config: &Config,
-    provider: &dyn Provider,
+    services: &Services<'_>,
     prepared: &Prepared,
     history: &[Message],
     definitions: &[ToolDefinition],
@@ -1238,8 +1340,8 @@ async fn send_turn(
     state: &mut RunState,
     pricing: &dyn Pricing,
     account: &mut Account,
-    cancel: Option<&Cancel>,
 ) -> Result<TurnResponse> {
+    let (provider, cancel) = (services.provider, services.cancel);
     let turn = state.turns + 1;
     if let Some(c) = cancel
         && c.is_cancelled()
@@ -1294,11 +1396,11 @@ async fn send_turn(
             attempt: a.attempt,
             status: a.status,
             delay_ms: a.delay.as_millis() as u64,
-            error: a.message.clone(),
+            error: state.artifacts.redact(&a.message),
             charged_usd: charge,
         }))?;
         if !account.covers(bound_usd) {
-            return Err(Error::Budget(format!(
+            return Err(Error::Cap(format!(
                 "turn {turn}: the envelope cannot cover another attempt (${:.4} unallocated, bound ${bound_usd:.4}) after {} failed attempt(s); the retry reserve is spent",
                 account.unallocated(),
                 a.attempt
@@ -1328,6 +1430,15 @@ async fn send_turn(
         }
         None => send.await,
     };
+    // A settled answer tells the session's readiness about the credential and the model.
+    let answer = match &sent {
+        Ok(_) => Some(crate::readiness::Answer::Accepted),
+        Err(Error::Credential(_)) => Some(crate::readiness::Answer::Rejected),
+        Err(_) => None,
+    };
+    if let (Some(answer), Some(answered)) = (answer, &services.answered) {
+        answered(answer);
+    }
     let sent = match sent {
         Ok(sent) => sent,
         Err(e) => {
@@ -1337,8 +1448,10 @@ async fn send_turn(
             let unresolved = match &e {
                 Error::Cancelled(_) => !sleeper.sleeping(),
                 Error::Transport(t) => t.unresolved(),
+                // A rejected credential is an answer that refused before any work (2.3).
+                Error::Credential(_) => false,
                 // A retry the envelope refused was never sent; the attempt before it is charged.
-                Error::Budget(_) => false,
+                Error::Cap(_) => false,
                 _ => true,
             };
             let charge = if unresolved {
@@ -1355,7 +1468,7 @@ async fn send_turn(
                     turn,
                     attempts: 1 + retries_made,
                     class: e.class().into(),
-                    error: e.to_string(),
+                    error: state.artifacts.redact(&e.to_string()),
                     charged_usd: charge,
                 }))?;
             }

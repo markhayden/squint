@@ -231,6 +231,11 @@ pub struct RunReport {
     /// Every image the model saw, by frame id: the job images as sent and every image a tool
     /// returned.
     pub images_sent: BTreeMap<String, ArtifactRef>,
+    /// The preparation the images went through (the `prepared` event): the provider's
+    /// `prep_version`, `+many<edge>` when resolve prepared them at the many-image size. `None`
+    /// when the run ended before its images were prepared.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prep_version: Option<String>,
     /// The frame registry: raw frames and every crop a tool returned, by frame id.
     #[serde(default)]
     pub frames: BTreeMap<String, FrameEntry>,
@@ -365,6 +370,7 @@ impl RunReport {
             terminal: TERMINAL_INCOMPLETE.into(),
             images: Vec::new(),
             images_sent: BTreeMap::new(),
+            prep_version: None,
             frames: BTreeMap::new(),
             instances: Vec::new(),
             checklist: Checklist::default(),
@@ -409,7 +415,8 @@ impl RunReport {
                         .collect();
                     r.checklist = e.checklist.clone();
                 }
-                Event::Prepared(_) | Event::Reserved(_) => {}
+                Event::Prepared(e) => r.prep_version = Some(e.prep_version.clone()),
+                Event::Reserved(_) => {}
                 Event::TurnSent(e) => r.turns.push(TurnEntry {
                     turn: e.turn,
                     max_output_tokens: e.max_output_tokens,

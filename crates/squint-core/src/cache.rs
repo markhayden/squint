@@ -17,11 +17,11 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::config::{BudgetConfig, CONFIG_VERSION, CacheConfig, ImagesConfig, RulesConfig};
-use crate::image::{CanonicalImage, hex};
+use crate::image::hex;
 use crate::job::{Job, Projection, Role};
 use crate::obligations::Instance;
 use crate::report::{REPORT_VERSION, Report};
-use crate::run::{Prepared, RulesSummary};
+use crate::run::RulesSummary;
 use crate::submission::SUBMISSION_SCHEMA_VERSION;
 use crate::tool::envelope::ENVELOPE_VERSION;
 use crate::tool::manifest::MANIFEST_VERSION;
@@ -75,14 +75,17 @@ impl KeyInput {
     pub fn gather(
         config: &crate::config::Config,
         job: &Job,
-        images: &[CanonicalImage],
-        prepared: &Prepared,
+        setup: &crate::run::Setup,
+        plan: crate::image::ImagePlan,
         tools: &ToolRegistry,
         provider: &dyn crate::provider::Provider,
         harness_version: &str,
     ) -> KeyInput {
+        let (images, prepared) = (&setup.images, &setup.prepared);
         let adapter = provider.id();
-        let prep_version = provider.prep_version();
+        // The provider's preparation under the decision's plan: images prepared at the
+        // many-image size are a different input from the same images prepared as usual.
+        let prep_version = plan.prep_version(provider.prep_version());
         KeyInput {
             use_case: job.use_case.clone(),
             brief: job.brief.clone(),

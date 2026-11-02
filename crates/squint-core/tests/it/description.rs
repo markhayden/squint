@@ -1,5 +1,6 @@
 //! Task 7.5: squint's description document (table-manners 3 and 11.2), valid against the
-//! contract's schema, with one action per shipped use case and every word squint can emit.
+//! contract's schema, with one action per shipped use case and every word squint can emit; since
+//! task 9.1 (v0.3), each action's readiness and render kinds, and no `estimate` action.
 #![allow(clippy::unwrap_used)]
 
 use std::path::PathBuf;
@@ -7,30 +8,59 @@ use std::path::PathBuf;
 use squint_core::aggregate::Confidence;
 use squint_core::config::Config;
 use squint_core::contract;
+use squint_core::readiness::{self, Answers, Credential, Inspection};
 use squint_core::submission::FindingDisposition;
-use table_manners::{Description, Profile};
+use table_manners::{
+    Description, Profile, ReadinessState, RenderKind, Requirement, RequirementKind,
+    RequirementState,
+};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
+/// A paid provider whose profile reads `GEMINI_API_KEY`, set, and calls `gemini-3.8-flash`.
+fn inspection(present: bool) -> Inspection {
+    Inspection {
+        config: present_config(),
+        credential: Some(Credential {
+            name: "GEMINI_API_KEY".to_string(),
+            present,
+        }),
+        model: Some("gemini-3.8-flash".to_string()),
+        files: Vec::new(),
+    }
+}
+
+fn present_config() -> Requirement {
+    Requirement {
+        kind: RequirementKind::Config,
+        name: "squint.toml".into(),
+        state: RequirementState::Present,
+        setup: None,
+    }
+}
+
 fn described() -> (Description, serde_json::Value) {
+    described_with(
+        contract::Executor::Paid,
+        &inspection(true).readiness(&Answers::default()),
+    )
+}
+
+fn described_with(
+    executor: contract::Executor,
+    readiness: &table_manners::Readiness,
+) -> (Description, serde_json::Value) {
     let text = std::fs::read_to_string(root().join("fixtures/config/minimal.toml")).unwrap();
     let config = Config::parse(&text, &[], &|_| None).unwrap();
-    let d = contract::description(
-        &config,
-        "0.9.0",
-        &contract::Executor::Paid {
-            needs_env: vec!["GEMINI_API_KEY".to_string()],
-        },
-    )
-    .unwrap();
+    let d = contract::description(Some(&config), "0.9.0", executor, readiness).unwrap();
     let doc = serde_json::to_value(&d).unwrap();
     valid(&doc);
     (d, doc)
 }
 
-fn valid(doc: &serde_json::Value) {
+fn description_schema() -> jsonschema::Validator {
     struct Embedded;
     impl jsonschema::Retrieve for Embedded {
         fn retrieve(
@@ -49,11 +79,17 @@ fn valid(doc: &serde_json::Value) {
         .find(|(id, _)| *id == "urn:table-manners:core:description")
         .unwrap();
     let schema: serde_json::Value = serde_json::from_str(text).unwrap();
-    let validator = jsonschema::options()
+    jsonschema::options()
         .with_retriever(Embedded)
         .build(&schema)
-        .unwrap();
-    let errors: Vec<String> = validator.iter_errors(doc).map(|e| e.to_string()).collect();
+        .unwrap()
+}
+
+fn valid(doc: &serde_json::Value) {
+    let errors: Vec<String> = description_schema()
+        .iter_errors(doc)
+        .map(|e| e.to_string())
+        .collect();
     assert!(errors.is_empty(), "{errors:?}\n{doc:#}");
 }
 
@@ -96,15 +132,15 @@ fn the_description_is_the_contracts_with_the_images_profile() {
 }
 
 #[test]
-fn one_action_per_shipped_use_case_and_estimate() {
-    let (d, _) = described();
+fn one_action_per_shipped_use_case_and_no_estimate() {
+    let (d, doc) = described();
     let mut names: Vec<&str> = d.actions.iter().map(|a| a.name.as_str()).collect();
     names.sort_unstable();
+    // `estimate` is reserved (table-manners 3, 5): a served tool, never an action.
     assert_eq!(
         names,
         [
             "brief_compliance",
-            "estimate",
             "product_fidelity",
             "reality_checks",
             "reference_consistency",
@@ -129,14 +165,147 @@ fn one_action_per_shipped_use_case_and_estimate() {
         [("candidate", true), ("source", true), ("references", false)]
     );
     assert!(sf.cost.may_spend);
-    assert_eq!(sf.cost.needs_env, ["GEMINI_API_KEY"]);
+    assert!(!doc.to_string().contains("needs_env"));
     assert!(!sf.purpose.is_empty());
     // Requirements are typed: an obligation's own schema, not "any object".
     let item = &sf.params_schema["properties"]["requirements"]["items"];
     assert_eq!(item["required"], serde_json::json!(["id", "kind"]));
     assert!(item["properties"]["kind"].is_object());
-    let estimate = d.actions.iter().find(|a| a.name == "estimate").unwrap();
-    assert!(!estimate.cost.may_spend);
+    // Every paid action lets a host pass its cap: a number above zero (table-manners 4.5).
+    for action in &d.actions {
+        assert!(action.cost.may_spend, "{}", action.name);
+        assert_eq!(
+            action.params_schema["properties"]["max_spend_usd"],
+            serde_json::json!({
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Lowers the configured per-call cap; a value above it is refused."
+            }),
+            "{}",
+            action.name
+        );
+    }
+}
+
+/// `references` is a `many` slot on every action and the other slots take one image, so `many`
+/// is serialized on `references` alone (table-manners 10.1, 11.2); since the contract has list
+/// slots, no `x-squint` key works around their absence.
+#[test]
+fn references_is_the_only_many_slot_and_no_extension_mentions_a_list() {
+    let (d, doc) = described();
+    for (action, json) in d.actions.iter().zip(doc["actions"].as_array().unwrap()) {
+        let slots = action.images.as_ref().unwrap();
+        for (slot, json) in slots.iter().zip(json["images"].as_array().unwrap()) {
+            let many = slot.slot == "references";
+            assert_eq!(slot.many, many, "{}: {}", action.name, slot.slot);
+            assert_eq!(
+                json.get("many"),
+                many.then_some(&serde_json::Value::Bool(true)),
+                "{}: {json}",
+                action.name
+            );
+        }
+        assert!(
+            slots.iter().any(|s| s.slot == "references"),
+            "{}",
+            action.name
+        );
+    }
+    assert_eq!(
+        doc["x-squint"],
+        serde_json::json!({
+            "self_description": [
+                "squint rules show --json",
+                "squint tools list --json",
+                "squint catalog show"
+            ]
+        })
+    );
+}
+
+/// The schema holds a paid action to declaring `max_spend_usd` above zero: one without it, or
+/// with `minimum: 0`, does not validate (table-manners 4.5).
+#[test]
+fn a_paid_action_without_a_positive_max_spend_does_not_validate() {
+    let (_, doc) = described();
+    let schema = description_schema();
+    let mut missing = doc.clone();
+    missing["actions"][0]["params_schema"]["properties"]
+        .as_object_mut()
+        .unwrap()
+        .remove("max_spend_usd");
+    assert!(!schema.is_valid(&missing));
+    let mut zero_allowed = doc.clone();
+    zero_allowed["actions"][0]["params_schema"]["properties"]["max_spend_usd"] =
+        serde_json::json!({ "type": "number", "minimum": 0 });
+    assert!(!schema.is_valid(&zero_allowed));
+    assert!(schema.is_valid(&doc));
+}
+
+/// Every action carries the readiness it is given (table-manners 3.1), and a check on the
+/// scripted fake declares no spend.
+#[test]
+fn each_action_carries_the_readiness_and_the_cost() {
+    for present in [true, false] {
+        let readiness = inspection(present).readiness(&Answers::default());
+        let (d, _) = described_with(contract::Executor::Paid, &readiness);
+        for action in d.actions {
+            assert_eq!(action.readiness, readiness, "{}", action.name);
+            assert!(action.cost.may_spend);
+        }
+    }
+    let ready = Inspection::config_only(present_config()).readiness(&Answers::default());
+    let (free, _) = described_with(contract::Executor::Free, &ready);
+    for action in free.actions {
+        assert_eq!(action.readiness.state, ReadinessState::Ready);
+        assert!(!action.cost.may_spend);
+    }
+}
+
+/// A run shows as a server page and as a document (table-manners 3.2): each runs the tool's own
+/// executable (`command[0]` is `tool.name`), and a placeholder is only ever a whole argument.
+#[test]
+fn the_renders_are_a_server_and_a_document() {
+    let (d, _) = described();
+    for action in &d.actions {
+        let kinds: Vec<(&str, RenderKind, Option<u32>)> = action
+            .renders
+            .iter()
+            .map(|r| (r.name.as_str(), r.kind, r.ready_timeout_s))
+            .collect();
+        assert_eq!(
+            kinds,
+            [
+                ("report", RenderKind::Server, Some(10)),
+                ("export", RenderKind::Document, None)
+            ]
+        );
+        for render in &action.renders {
+            assert_eq!(render.command[0], d.tool.name);
+            assert_eq!(render.command[0], "squint");
+            for arg in &render.command {
+                assert!(
+                    !arg.contains(['{', '}'])
+                        || matches!(arg.as_str(), "{run.dir}" | "{frame_ancestor}"),
+                    "{arg:?} holds a placeholder that is not a whole argument"
+                );
+            }
+        }
+        let command = |name: &str| {
+            action
+                .renders
+                .iter()
+                .find(|r| r.name == name)
+                .unwrap()
+                .command
+                .join(" ")
+        };
+        assert_eq!(
+            command("report"),
+            "squint report view {run.dir} --port 0 --frame-ancestor {frame_ancestor}"
+        );
+        assert_eq!(command("export"), "squint report export {run.dir}");
+    }
 }
 
 #[test]
@@ -164,8 +333,8 @@ fn the_inline_limit_is_the_decode_bound() {
 }
 
 /// A config that names its rules describes only that use case (review I6): the one action a
-/// call can succeed with, and `estimate` offering only it. A rules file that cannot be read is an
-/// error, not a silent description of the shipped base.
+/// call can succeed with. A rules file that cannot be read is an error, not a silent description
+/// of the shipped base.
 #[test]
 fn a_config_with_rules_describes_only_its_use_case() {
     let minimal = std::fs::read_to_string(root().join("fixtures/config/minimal.toml")).unwrap();
@@ -175,25 +344,22 @@ fn a_config_with_rules_describes_only_its_use_case() {
     };
     let mine = root().join("fixtures/rules/mine.toml");
     let d = contract::description(
-        &with_rules(mine.to_str().unwrap()),
+        Some(&with_rules(mine.to_str().unwrap())),
         "0.9.0",
-        &contract::Executor::Free,
+        contract::Executor::Free,
+        &Inspection::config_only(present_config()).readiness(&Answers::default()),
     )
     .unwrap();
     valid(&serde_json::to_value(&d).unwrap());
     let names: Vec<&str> = d.actions.iter().map(|a| a.name.as_str()).collect();
-    assert_eq!(names, ["source_fidelity", "estimate"]);
-    let estimate = d.actions.iter().find(|a| a.name == "estimate").unwrap();
-    assert_eq!(
-        estimate.params_schema["properties"]["use_case"]["enum"],
-        serde_json::json!(["source-fidelity"])
-    );
+    assert_eq!(names, ["source_fidelity"]);
     let missing = root().join("fixtures/rules/no-such-rules.toml");
     assert!(
         contract::description(
-            &with_rules(missing.to_str().unwrap()),
+            Some(&with_rules(missing.to_str().unwrap())),
             "0.9.0",
-            &contract::Executor::Free
+            contract::Executor::Free,
+            &Inspection::config_only(present_config()).readiness(&Answers::default())
         )
         .is_err()
     );
@@ -214,14 +380,77 @@ fn every_params_schema_compiles_on_its_own() {
     for action in &d.actions {
         let schema = jsonschema::draft202012::new(&action.params_schema)
             .unwrap_or_else(|e| panic!("{}: {e}", action.name));
-        // `estimate` also names its use case.
-        let with_case = |mut call: serde_json::Value| {
-            if let Some(case) = action.params_schema["properties"]["use_case"]["enum"].get(0) {
-                call["use_case"] = case.clone();
-            }
-            call
-        };
-        assert!(schema.is_valid(&with_case(good.clone())), "{}", action.name);
-        assert!(!schema.is_valid(&with_case(bad.clone())), "{}", action.name);
+        assert!(schema.is_valid(&good), "{}", action.name);
+        assert!(!schema.is_valid(&bad), "{}", action.name);
     }
+}
+
+/// With no configuration (table-manners 3.1, task 9.2) squint describes every shipped use case
+/// with the default image limits, each needing setup for the one requirement it can name, the
+/// configuration: the credential and model are the configuration's choice.
+#[test]
+fn an_unconfigured_description_needs_only_the_configuration() {
+    let path = std::env::temp_dir().join(format!(
+        "squint-description-none-{}/squint.toml",
+        std::process::id()
+    ));
+    let file = Config::open_with(Some(&path), &[], &|_| None);
+    let config = readiness::config_requirement(&file);
+    assert_eq!(
+        (config.kind, config.state, config.name.as_str()),
+        (
+            RequirementKind::Config,
+            RequirementState::Missing,
+            path.to_str().unwrap()
+        )
+    );
+    assert!(config.setup.as_deref().unwrap().contains("--config"));
+    let d = contract::description(
+        None,
+        "0.9.0",
+        contract::Executor::Paid,
+        &Inspection::config_only(config.clone()).readiness(&Answers::default()),
+    )
+    .unwrap();
+    valid(&serde_json::to_value(&d).unwrap());
+    let names: Vec<String> = d.actions.iter().map(|a| a.name.replace('_', "-")).collect();
+    assert_eq!(names, squint_core::obligations::SHIPPED_BASES);
+    for action in &d.actions {
+        assert_eq!(action.readiness.state, ReadinessState::NeedsSetup);
+        assert_eq!(action.readiness.requirements, std::slice::from_ref(&config));
+        assert!(
+            action.cost.may_spend,
+            "a configuration may choose a paid provider"
+        );
+    }
+    assert_eq!(
+        d.limits.unwrap().inline_bytes,
+        squint_core::config::ImagesConfig::default().max_decode_bytes
+    );
+}
+
+/// A configuration that does not load is `invalid`; when an unset `${VAR}` is why, the setup
+/// sentence names the variable and never a value.
+#[test]
+fn an_invalid_configuration_says_what_to_fix() {
+    let dir = std::env::temp_dir().join(format!("squint-description-bad-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("squint.toml");
+    std::fs::write(&path, "[provider\n").unwrap();
+    let r = readiness::config_requirement(&Config::open_with(Some(&path), &[], &|_| None));
+    assert_eq!(r.state, RequirementState::Invalid);
+    let text = std::fs::read_to_string(root().join("examples/source-fidelity.toml")).unwrap();
+    std::fs::write(&path, text).unwrap();
+    let r = readiness::config_requirement(&Config::open_with(Some(&path), &[], &|_| None));
+    assert_eq!(r.state, RequirementState::Invalid);
+    assert!(
+        r.setup
+            .as_deref()
+            .unwrap()
+            .contains("SQUINT_ANTHROPIC_ACCOUNT"),
+        "{r:?}"
+    );
+    let loaded = Config::open_with(Some(&path), &[], &|_| Some("org-x".into()));
+    let r = readiness::config_requirement(&loaded);
+    assert_eq!((r.state, r.setup), (RequirementState::Present, None));
 }

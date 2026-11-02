@@ -117,10 +117,83 @@ impl Prepared {
     }
 }
 
-/// The canonical pixels as lossless PNG, unresized: what a provider without its own preparation
-/// sends (`prep_version` `canonical`).
-pub fn canonical_png(id: &str, pixels: &DynamicImage) -> Result<Prepared> {
+/// A model's per-request image limits, as resolve needs them to decide how a conversation's
+/// images are prepared (SPEC "Image preparation"): the count a request may carry, and the stricter
+/// long edge that applies above a count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RequestImageLimits {
+    pub max_per_request: u32,
+    pub many: Option<ManyImages>,
+}
+
+/// Above `threshold` images in one request, no image may be longer than `max_long_edge` pixels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManyImages {
+    pub threshold: u32,
+    pub max_long_edge: u32,
+}
+
+/// How a decision's images are prepared, decided once at resolve from the most images any of its
+/// requests can carry, so a conversation never crosses a limit mid-run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum ImagePlan {
+    /// The provider's usual preparation.
+    #[default]
+    Standard,
+    /// The usual preparation with the long edge fitted to at most `long_edge`: the worst case can
+    /// pass the model's many-image threshold.
+    Many { long_edge: u32 },
+}
+
+impl ImagePlan {
+    /// The long edge every image is fitted to at most, beyond the usual preparation.
+    pub fn long_edge(self) -> Option<u32> {
+        match self {
+            ImagePlan::Standard => None,
+            ImagePlan::Many { long_edge } => Some(long_edge),
+        }
+    }
+
+    /// The `prep_version` recorded for a preparation `base` under this plan: `base` itself, or
+    /// `base+many<edge>` (`1+many2000`), so the cache key and the input identity tell them apart.
+    pub fn prep_version(self, base: &str) -> String {
+        match self {
+            ImagePlan::Standard => base.to_string(),
+            ImagePlan::Many { long_edge } => format!("{base}+many{long_edge}"),
+        }
+    }
+}
+
+/// The dimensions that fit the long edge, never upscaling, never below 1 pixel.
+pub fn fit(w: u32, h: u32, long_edge: u32) -> (u32, u32) {
+    let long = w.max(h);
+    if long <= long_edge {
+        return (w, h);
+    }
+    let scale = f64::from(long_edge) / f64::from(long);
+    let scaled = |v: u32| ((f64::from(v) * scale).round() as u32).max(1);
+    if w >= h {
+        (long_edge, scaled(h))
+    } else {
+        (scaled(w), long_edge)
+    }
+}
+
+/// The canonical pixels as lossless PNG: what a provider without its own preparation sends
+/// (`prep_version` `canonical`). Unresized, except that a many-image plan fits the long edge with
+/// Lanczos3 (`canonical+many<edge>`).
+pub fn canonical_png(id: &str, pixels: &DynamicImage, plan: ImagePlan) -> Result<Prepared> {
     use image::ImageEncoder;
+    let (sw, sh) = (pixels.width(), pixels.height());
+    let fitted;
+    let pixels = match plan.long_edge().map(|edge| fit(sw, sh, edge.max(1))) {
+        Some((w, h)) if (w, h) != (sw, sh) => {
+            fitted = pixels.resize_exact(w, h, image::imageops::FilterType::Lanczos3);
+            &fitted
+        }
+        _ => pixels,
+    };
     let (w, h) = (pixels.width(), pixels.height());
     let mut bytes = Vec::new();
     let encoder = image::codecs::png::PngEncoder::new_with_quality(
@@ -149,10 +222,10 @@ pub fn canonical_png(id: &str, pixels: &DynamicImage) -> Result<Prepared> {
         media_type: "image/png".into(),
         width: w,
         height: h,
-        source_width: w,
-        source_height: h,
+        source_width: sw,
+        source_height: sh,
         sha256: hex(&Sha256::digest(&bytes)),
-        prep_version: "canonical".into(),
+        prep_version: plan.prep_version("canonical"),
         bytes,
     })
 }
@@ -248,6 +321,21 @@ pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<Cano
         pixels: Some(Arc::new(rgb)),
         alpha: alpha.flatten().map(Arc::new),
     })
+}
+
+/// The image's file digest (table-manners 8.1) without decoding it: the bytes read as [`load`]
+/// reads them, bounded by `max_bytes`, so it equals the loaded image's `sha256`. What a server
+/// recomputes a call's estimate binding from.
+pub fn file_sha256(spec: &ImageSpec, base: &Path, max_bytes: u64) -> Result<String> {
+    let bytes = read_bytes(spec, base, max_bytes)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(Error::ImageLimit(format!(
+            "{}: {} bytes exceeds the decode bound of {max_bytes} bytes",
+            spec.id,
+            bytes.len()
+        )));
+    }
+    Ok(hex(&Sha256::digest(&bytes)))
 }
 
 /// The image's bytes: a path is read only when it is a regular file, and never past `max_bytes`

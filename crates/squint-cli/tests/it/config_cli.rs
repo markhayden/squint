@@ -198,3 +198,53 @@ fn a_reference_in_shorthand_gets_a_ref_id_and_label() {
             .any(|i| i["id"] == "ref:pip" && i["role"] == "reference" && i["label"] == "pip")
     );
 }
+
+/// `check` cannot run without a configuration (task 9.2): with none on the lookup it exits 64
+/// naming where squint looked, and writes nothing. `estimate` answers like `describe` (task 9.4):
+/// refused for readiness, with nothing priced and the configuration's identity null.
+#[test]
+fn check_without_a_config_names_the_lookup() {
+    let dir = tempdir("none");
+    for sub in ["work", "xdg", "home"] {
+        std::fs::create_dir_all(dir.join(sub)).unwrap();
+    }
+    let candidate = repo_root().join("fixtures/images/candidate-64x48.png");
+    let source = repo_root().join("fixtures/images/source-64x48.png");
+    let run = |command: &[&str]| {
+        Command::new(env!("CARGO_BIN_EXE_squint"))
+            .current_dir(dir.join("work"))
+            .args(command)
+            .args(["--use-case", "source-fidelity", "--candidate"])
+            .arg(&candidate)
+            .arg("--source")
+            .arg(&source)
+            .env("XDG_CONFIG_HOME", dir.join("xdg"))
+            .env("HOME", dir.join("home"))
+            .output()
+            .unwrap()
+    };
+    let estimated = run(&["estimate", "--json"]);
+    assert_eq!(
+        estimated.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&estimated.stderr)
+    );
+    let e: serde_json::Value = serde_json::from_slice(&estimated.stdout).unwrap();
+    assert_eq!(e["refused"], "readiness");
+    assert_eq!(e["worst_case_usd"], serde_json::Value::Null);
+    assert_eq!(e["effective"]["model"], serde_json::Value::Null);
+    assert_eq!(e["effective"]["config_identity"], serde_json::Value::Null);
+    assert_eq!(e["readiness"]["requirements"][0]["state"], "missing");
+    assert_eq!(std::fs::read_dir(dir.join("work")).unwrap().count(), 0);
+    let o = run(&["check"]);
+    let stderr = String::from_utf8_lossy(&o.stderr);
+    assert_eq!(o.status.code(), Some(64), "{stderr}");
+    let expected = dir.join("xdg/squint/squint.toml");
+    assert!(
+        stderr.contains(expected.to_str().unwrap()) && stderr.contains("--config"),
+        "{stderr}"
+    );
+    assert!(stderr.contains("./squint.toml"), "{stderr}");
+    assert_eq!(std::fs::read_dir(dir.join("work")).unwrap().count(), 0);
+}

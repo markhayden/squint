@@ -14,7 +14,8 @@ use table_manners::images::{
 };
 use table_manners::{
     Action, CONTRACT_VERSION, Cache, Cost, DescribedTool, Description, Duration, ErrorCode,
-    ErrorInfo, Profile, Render, Run, RunResult, Spend, SpendBasis, Status, Tool,
+    ErrorInfo, Profile, Readiness, Render, RenderKind, Run, RunResult, Spend, SpendBasis, Status,
+    Tool,
 };
 
 use crate::aggregate::Confidence;
@@ -242,18 +243,24 @@ impl Association {
 
 /// How a squint error class reads in the contract (table-manners 2.1, 2.2): the status, and for
 /// `invalid` and `error` the code and whether an identical retry may succeed. A request that
-/// could not be resolved (the job, the config, a credential) or an image that is not the one
-/// named is the caller's to fix; a model or provider failure may pass on a retry.
+/// could not be resolved (the job, the config) or an image that is not the one named is the
+/// caller's to fix; a credential the provider rejected is a person's to replace; a model or
+/// provider failure may pass on a retry, unless the provider rejected the request as sent
+/// (`provider_rejected`: a 400, 404 or 422).
 pub fn status_of(class: &str) -> (Status, Option<(ErrorCode, bool)>) {
     match class {
         "cancelled" => (Status::Cancelled, None),
         "input" | "image_limit" => (Status::Invalid, Some((ErrorCode::Input, false))),
-        "resolve" | "auth" => (Status::Invalid, Some((ErrorCode::Usage, false))),
+        "resolve" => (Status::Invalid, Some((ErrorCode::Usage, false))),
+        "credential" => (Status::Error, Some((ErrorCode::Credential, false))),
+        "provider_rejected" => (Status::Error, Some((ErrorCode::Provider, false))),
         "provider" | "submission_invalid" | "no_submission" | "model_output" => {
             (Status::Error, Some((ErrorCode::Provider, true)))
         }
         "tool" => (Status::Error, Some((ErrorCode::ToolProcess, false))),
         "budget" => (Status::Error, Some((ErrorCode::Budget, false))),
+        "cap" => (Status::Error, Some((ErrorCode::Cap, false))),
+        "stale_estimate" => (Status::Invalid, Some((ErrorCode::StaleEstimate, false))),
         "io" => (Status::Error, Some((ErrorCode::Io, false))),
         _ => (Status::Error, Some((ErrorCode::Internal, false))),
     }
@@ -424,8 +431,9 @@ pub fn write_run_result(dir: &Path, result: &RunResult) -> crate::Result<()> {
     Ok(())
 }
 
-/// The slot an image of `role` comes in through, as `describe` declares it: references share one
-/// list slot.
+/// The slot an image of `role` comes in through, as `describe` declares it: references share the
+/// one `many` slot, which `images.in` lists once per image, in the order given (table-manners
+/// 11.1).
 fn slot_word(role: Role) -> &'static str {
     match role {
         Role::Reference => "references",
@@ -450,8 +458,9 @@ fn word<T: serde::Serialize>(value: &T) -> String {
 }
 
 /// What this decision ran on: the images' digests, the job, the resolved rules, the redacted
-/// config, the provider, the tools and the prompt and harness versions. How an image arrived (a
-/// path or inline bytes) is left out: its digest already says what it was.
+/// config, the provider and how it prepared the images (`prep_version`), the tools and the prompt
+/// and harness versions. How an image arrived (a path or inline bytes) is left out: its digest
+/// already says what it was.
 fn input_identity(report: &Report, images: &[CanonicalImage]) -> String {
     let mut job = serde_json::to_value(&report.job).unwrap_or_default();
     if let Some(list) = job["images"].as_array_mut() {
@@ -467,6 +476,7 @@ fn input_identity(report: &Report, images: &[CanonicalImage]) -> String {
         "rules": report.rules,
         "config": report.config,
         "provider": report.provider,
+        "prep_version": report.runs.iter().find_map(|r| r.prep_version.as_deref()),
         "tools": report.tools,
         "prompt_version": report.prompt_version,
         "harness_version": report.harness_version,
@@ -511,28 +521,29 @@ pub fn rfc3339(unix_ms: u64) -> String {
 /// The longest gap between progress notifications on a live run (table-manners 4.1).
 pub const PROGRESS_INTERVAL_S: u32 = 10;
 
-/// What a check runs on, as far as the description must say (table-manners 3: cost).
-#[derive(Debug, Clone, PartialEq)]
+/// What a check runs on, as far as the description's cost must say (table-manners 3): a
+/// provider that may charge (any catalog profile, or one not chosen yet with no configuration),
+/// or one that never can (the scripted fake). Readiness is [`crate::readiness`]'s.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Executor {
-    /// A provider that may charge: the credential variable its profile reads (its name, never
-    /// its value; from the catalog, which this crate does not read).
-    Paid { needs_env: Vec<String> },
-    /// A provider that can never charge and reads no credential (the scripted fake).
+    Paid,
     Free,
 }
 
 /// squint's description document (table-manners 3 and 11.2): one action per use case a check can
-/// run (the one `[rules]` names, else every shipped base), taking the images its rules require,
-/// plus `estimate`; every disposition and confidence
-/// word a finding can carry; the inline limit from the decode bound. `executor` says what a check
-/// will run on, so the declared cost is the truth of this configuration (squint issue #2).
+/// run (the one `[rules]` names, else every shipped base, which is also what squint describes
+/// with no configuration), taking the images its rules require (`estimate` is reserved and never
+/// an action); every disposition and confidence word a finding can carry; the inline limit from
+/// the decode bound (the default one with no configuration). `executor` says what a check will
+/// run on, so the declared cost is the truth of this configuration (squint issue #2); every
+/// action carries `readiness` ([`crate::readiness`]).
 pub fn description(
-    config: &Config,
+    config: Option<&Config>,
     version: &str,
-    executor: &Executor,
+    executor: Executor,
+    readiness: &Readiness,
 ) -> crate::Result<Description> {
-    let use_cases = use_cases(config)?;
-    let mut actions: Vec<Action> = use_cases
+    let actions: Vec<Action> = use_cases(config)?
         .iter()
         .map(|(base, requires_roles)| {
             let base = base.as_str();
@@ -541,12 +552,12 @@ pub fn description(
             if required(Role::Source) {
                 images.push(slot("source", "source", true));
             }
-            images.push(slot("references", "reference", required(Role::Reference)));
+            images.push(references_slot(required(Role::Reference)));
             Action {
                 name: base.replace('-', "_"),
                 title: title(base),
                 purpose: purpose(base).into(),
-                params_schema: params_schema(None),
+                params_schema: params_schema(),
                 images: Some(images),
                 locations: Some(Vec::new()),
                 outputs: Some(Outputs {
@@ -554,30 +565,44 @@ pub fn description(
                     locations: vec![LocationOutput::Found],
                 }),
                 cost: match executor {
-                    Executor::Paid { needs_env } => Cost {
+                    Executor::Paid => Cost {
                         may_spend: true,
                         basis: Some(SpendBasis::Measured),
-                        needs_env: needs_env.clone(),
                     },
                     Executor::Free => Cost {
                         may_spend: false,
                         basis: None,
-                        needs_env: Vec::new(),
                     },
                 },
+                readiness: readiness.clone(),
                 duration: Duration {
                     typical_s: 60.0,
                     max_s: 900.0,
                 },
+                // Each render runs the tool's own executable, `command[0]` being `tool.name`, with
+                // the contract's placeholders only as whole arguments (table-manners 3.2).
                 renders: vec![
                     Render {
                         name: "report".into(),
-                        command: ["squint", "report", "view", "{run.dir}", "--port", "0"]
-                            .map(String::from)
-                            .to_vec(),
+                        kind: RenderKind::Server,
+                        ready_timeout_s: Some(10),
+                        command: [
+                            "squint",
+                            "report",
+                            "view",
+                            "{run.dir}",
+                            "--port",
+                            "0",
+                            "--frame-ancestor",
+                            "{frame_ancestor}",
+                        ]
+                        .map(String::from)
+                        .to_vec(),
                     },
                     Render {
                         name: "export".into(),
+                        kind: RenderKind::Document,
+                        ready_timeout_s: None,
                         command: ["squint", "report", "export", "{run.dir}"]
                             .map(String::from)
                             .to_vec(),
@@ -586,37 +611,6 @@ pub fn description(
             }
         })
         .collect();
-    actions.push(Action {
-        name: "estimate".into(),
-        title: "Estimate".into(),
-        purpose: "The worst-case cost of one check of a use case, against the per-call cap.".into(),
-        params_schema: params_schema(Some(
-            &use_cases
-                .iter()
-                .map(|(base, _)| base.as_str())
-                .collect::<Vec<_>>(),
-        )),
-        images: Some(vec![
-            slot("candidate", "candidate", true),
-            slot("source", "source", false),
-            slot("references", "reference", false),
-        ]),
-        locations: Some(Vec::new()),
-        outputs: Some(Outputs {
-            images: Vec::new(),
-            locations: Vec::new(),
-        }),
-        cost: Cost {
-            may_spend: false,
-            basis: None,
-            needs_env: Vec::new(),
-        },
-        duration: Duration {
-            typical_s: 1.0,
-            max_s: 30.0,
-        },
-        renders: Vec::new(),
-    });
     let mut extensions = std::collections::BTreeMap::new();
     extensions.insert(
         "x-squint".into(),
@@ -625,8 +619,7 @@ pub fn description(
                 "squint rules show --json",
                 "squint tools list --json",
                 "squint catalog show"
-            ],
-            "references_slot": "takes a list of images, one per reference"
+            ]
         }),
     );
     Ok(Description {
@@ -656,7 +649,10 @@ pub fn description(
             score_kind: Vec::new(),
         }),
         limits: Some(Limits {
-            inline_bytes: config.images.max_decode_bytes,
+            inline_bytes: config.map_or_else(
+                || crate::config::ImagesConfig::default().max_decode_bytes,
+                |c| c.images.max_decode_bytes,
+            ),
         }),
         progress_interval_s: PROGRESS_INTERVAL_S,
         resources: [
@@ -674,9 +670,9 @@ pub fn description(
 
 /// The use cases a check can run, each with the roles its rules require: the one `[rules]`
 /// names, merged with its profile and extra files (resolved as `check` resolves them, against the
-/// working directory), else every shipped base.
-fn use_cases(config: &Config) -> crate::Result<Vec<(String, Vec<Role>)>> {
-    let Some(rules) = &config.rules else {
+/// working directory), else (and with no configuration) every shipped base.
+fn use_cases(config: Option<&Config>) -> crate::Result<Vec<(String, Vec<Role>)>> {
+    let Some(rules) = config.and_then(|c| c.rules.as_ref()) else {
         return Ok(SHIPPED_BASES
             .iter()
             .filter_map(|base| {
@@ -721,12 +717,38 @@ fn purpose(base: &str) -> &'static str {
     }
 }
 
+/// A slot that takes one image in.
 fn slot(slot: &str, role: &str, required: bool) -> ImageSlot {
     ImageSlot {
         slot: slot.into(),
         role: role.into(),
         required,
+        many: false,
     }
+}
+
+/// `references`: a `many` slot, a non-empty list of images in, one per reference (table-manners
+/// 10.1, 11.2).
+fn references_slot(required: bool) -> ImageSlot {
+    ImageSlot {
+        many: true,
+        ..slot("references", "reference", required)
+    }
+}
+
+/// The `arguments` the reserved `estimate` tool takes (table-manners 4.5): exactly what a call of
+/// any action would send, so its parameters and image slots, `references` a `many` slot, every
+/// slot optional but the candidate (whether an action needs its source is that action's to say,
+/// when the arguments are checked as its call's).
+pub fn estimate_arguments() -> (serde_json::Value, Vec<ImageSlot>) {
+    (
+        params_schema(),
+        vec![
+            slot("candidate", "candidate", true),
+            slot("source", "source", false),
+            references_slot(false),
+        ],
+    )
 }
 
 /// `source-fidelity` reads as "Source fidelity".
@@ -758,10 +780,10 @@ fn obligation_schema() -> (serde_json::Value, serde_json::Value) {
 }
 
 /// The arguments of a check beside its images: the brief, the job's requirements, a lower spend
-/// cap; and for `estimate`, which use case.
-fn params_schema(use_cases: Option<&[&str]>) -> serde_json::Value {
+/// cap.
+fn params_schema() -> serde_json::Value {
     let (obligation, defs) = obligation_schema();
-    let mut properties = serde_json::json!({
+    let properties = serde_json::json!({
         "brief": { "type": "string", "description": "What was asked for, in words." },
         "requirements": {
             "type": "array",
@@ -771,18 +793,13 @@ fn params_schema(use_cases: Option<&[&str]>) -> serde_json::Value {
         "max_spend_usd": {
             "type": "number",
             "exclusiveMinimum": 0,
-            "description": "Lowers the configured per-call cap; never raises it."
+            "description": "Lowers the configured per-call cap; a value above it is refused."
         }
     });
-    let mut required = Vec::new();
-    if let Some(cases) = use_cases {
-        properties["use_case"] = serde_json::json!({ "enum": cases });
-        required.push("use_case");
-    }
     serde_json::json!({
         "type": "object",
         "properties": properties,
-        "required": required,
+        "required": [],
         "additionalProperties": false,
         "$defs": defs
     })
@@ -797,16 +814,15 @@ const CALL_ARGUMENTS: &[&str] = &[
     "brief",
     "requirements",
     "max_spend_usd",
-    "use_case",
     "return_images",
     "image_blocks",
 ];
 
 /// A job from a contract call's arguments (table-manners 10.1): `candidate` and an optional
-/// `source`, each one image in, and `references`, a list of them (`ref:1`, `ref:2`, …); the
-/// brief and requirements as in a job file. A path must be absolute; inline bytes become a base64
-/// image; an `expect` is kept, and its projection is the image's. Anything else, or a malformed
-/// image in, is a usage error.
+/// `source`, each one image in, and `references`, a non-empty list of them (`ref:1`, `ref:2`, …,
+/// in the order given); the brief and requirements as in a job file. A path must be absolute;
+/// inline bytes become a base64 image; an `expect` is kept, and its projection is the image's.
+/// Anything else, an empty `references`, or a malformed image in, is a usage error.
 pub fn job_from_call(
     use_case: &str,
     args: &serde_json::Map<String, serde_json::Value>,
@@ -875,7 +891,8 @@ pub fn job_from_call(
     if let Some(references) = args.get("references") {
         let list = references
             .as_array()
-            .ok_or_else(|| Error::Job("references: a list of images".into()))?;
+            .filter(|list| !list.is_empty())
+            .ok_or_else(|| Error::Job("references: a non-empty list of images".into()))?;
         for (n, value) in list.iter().enumerate() {
             images.push(image(format!("ref:{}", n + 1), Role::Reference, value)?);
         }
@@ -900,9 +917,268 @@ pub fn job_from_call(
     Ok(job)
 }
 
-/// The result of an action that is not a decision (`estimate`): the header with no spend and no
-/// images or locations, and the action's own body; `error` sets the status from its class. The
-/// input identity is a digest of the call's arguments.
+/// How long the server honours an estimate's binding: one hour (table-manners 4.5, ADR 0018
+/// amendment), after which prices or the catalog may have moved.
+pub const ESTIMATE_TTL_MS: u64 = 3_600_000;
+
+/// A JSON value as canonical text: object keys sorted at every level, no whitespace, so two equal
+/// documents digest equal however their keys arrived.
+fn canonical(value: &serde_json::Value) -> String {
+    fn sorted(value: &serde_json::Value) -> serde_json::Value {
+        match value {
+            serde_json::Value::Object(map) => {
+                let mut keys: Vec<&String> = map.keys().collect();
+                keys.sort();
+                let mut out = serde_json::Map::new();
+                for key in keys {
+                    out.insert(key.clone(), sorted(&map[key]));
+                }
+                serde_json::Value::Object(out)
+            }
+            serde_json::Value::Array(items) => {
+                serde_json::Value::Array(items.iter().map(sorted).collect())
+            }
+            other => other.clone(),
+        }
+    }
+    // Keys are written in insertion order whether or not serde_json keeps it, so sorting once
+    // and writing by hand gives the same text under either feature.
+    fn write(value: &serde_json::Value, out: &mut String) {
+        match value {
+            serde_json::Value::Object(map) => {
+                out.push('{');
+                for (n, (key, item)) in map.iter().enumerate() {
+                    if n > 0 {
+                        out.push(',');
+                    }
+                    out.push_str(&serde_json::Value::String(key.clone()).to_string());
+                    out.push(':');
+                    write(item, out);
+                }
+                out.push('}');
+            }
+            serde_json::Value::Array(items) => {
+                out.push('[');
+                for (n, item) in items.iter().enumerate() {
+                    if n > 0 {
+                        out.push(',');
+                    }
+                    write(item, out);
+                }
+                out.push(']');
+            }
+            other => out.push_str(&other.to_string()),
+        }
+    }
+    let mut out = String::new();
+    write(&sorted(value), &mut out);
+    out
+}
+
+/// `sha256:<hex>` of a value's canonical text.
+fn digest(value: &serde_json::Value) -> String {
+    format!(
+        "sha256:{}",
+        hex(&Sha256::digest(canonical(value).as_bytes()))
+    )
+}
+
+/// The identity of the configuration in force (table-manners 4.5 `effective.config_identity`):
+/// the digest of the redacted configuration's canonical JSON, so a secret never shapes it and the
+/// same settings read from anywhere are the same identity.
+pub fn config_identity(config: &Config) -> String {
+    digest(&config.redacted_json())
+}
+
+/// What an estimate's binding covers beside the call (table-manners 4.5): the tool version, the
+/// configuration's identity (none without one) and the session (none from the command line).
+pub struct Binder<'a> {
+    pub version: &'a str,
+    pub config_identity: Option<&'a str>,
+    pub session_id: Option<&'a str>,
+}
+
+impl Binder<'_> {
+    /// The binding of one call of `action` (table-manners 4.5, ADR 0018 amendment): sha256 over
+    /// the canonical JSON of the action, the call's arguments with every image replaced by its
+    /// file digest (`file_digests`, one per job image in order, so a path and inline bytes of the
+    /// same file bind equal) and its `expect` kept, the tool version, the configuration's identity
+    /// and the session id. `return_images` and `image_blocks` only choose how results are
+    /// delivered and are not part of it; an empty `requirements` is the same call as none.
+    pub fn binding(
+        &self,
+        action: &str,
+        job: &crate::job::Job,
+        file_digests: &[String],
+        max_spend_usd: Option<f64>,
+    ) -> String {
+        let image = |n: usize| {
+            let spec = &job.images[n];
+            let mut bound = serde_json::Map::new();
+            bound.insert(
+                "file_sha256".into(),
+                file_digests.get(n).cloned().unwrap_or_default().into(),
+            );
+            if let Some(expect) = &spec.expect {
+                bound.insert(
+                    "expect".into(),
+                    serde_json::to_value(expect).unwrap_or_default(),
+                );
+            }
+            serde_json::Value::Object(bound)
+        };
+        let of_role = |role: Role| -> Vec<serde_json::Value> {
+            (0..job.images.len())
+                .filter(|&n| job.images[n].role == role)
+                .map(image)
+                .collect()
+        };
+        let mut arguments = serde_json::Map::new();
+        if let Some(candidate) = of_role(Role::Candidate).pop() {
+            arguments.insert("candidate".into(), candidate);
+        }
+        if let Some(source) = of_role(Role::Source).pop() {
+            arguments.insert("source".into(), source);
+        }
+        let references = of_role(Role::Reference);
+        if !references.is_empty() {
+            arguments.insert("references".into(), references.into());
+        }
+        if let Some(brief) = &job.brief {
+            arguments.insert("brief".into(), brief.clone().into());
+        }
+        if !job.requirements.is_empty() {
+            arguments.insert(
+                "requirements".into(),
+                serde_json::to_value(&job.requirements).unwrap_or_default(),
+            );
+        }
+        if let Some(max) = max_spend_usd {
+            arguments.insert("max_spend_usd".into(), max.into());
+        }
+        digest(&serde_json::json!({
+            "action": action,
+            "arguments": arguments,
+            "tool_version": self.version,
+            "config_identity": self.config_identity,
+            "session_id": self.session_id,
+        }))
+    }
+}
+
+/// What an estimate is computed under (table-manners 4.5): the configuration in force (none when
+/// none loaded), its tools, the action's readiness, the prices the limits check would plan with
+/// (none when the call cannot be priced), the session observed once (none from the command line)
+/// and the clock.
+pub struct EstimateContext<'a> {
+    pub binder: Binder<'a>,
+    pub config: Option<&'a Config>,
+    pub tools: &'a crate::tool::ToolRegistry,
+    pub readiness: Readiness,
+    pub pricing: Option<&'a dyn crate::ledger::Pricing>,
+    pub session: Option<table_manners::Session>,
+    pub now_ms: u64,
+    /// How long the binding is honoured; [`ESTIMATE_TTL_MS`] outside tests.
+    pub ttl_ms: u64,
+}
+
+/// The estimate of one call of `action` (table-manners 4.5): never a run, never a provider call.
+/// The images are read and checked as a check reads them (an `expect` that does not match is
+/// `input`), the rules resolved when a configuration is loaded, and the worst case planned by the
+/// same envelope the limits check reserves. A call that cannot be priced (no configuration, or no
+/// prices for its model) is refused for readiness with nulls, never a made-up zero; otherwise the
+/// refusal is the first of readiness, cap and budget that applies. `max_spend_usd` above the
+/// configured cap is a usage error, never silently lowered.
+pub fn estimate(
+    ctx: &EstimateContext<'_>,
+    action: &str,
+    job: &crate::job::Job,
+    job_base: &Path,
+    max_spend_usd: Option<f64>,
+) -> crate::Result<table_manners::Estimate> {
+    use table_manners::{Effective, Estimate, EstimateRefusal, ReadinessState};
+    // With no configuration, squint's defaults stand for the cap and the image bounds.
+    let configured_cap = ctx.config.map_or_else(
+        || crate::config::BudgetConfig::default().spend_cap_usd,
+        |c| c.budget.spend_cap_usd,
+    );
+    let cap = crate::config::call_cap(configured_cap, max_spend_usd)?;
+    let (images, setup) = match ctx.config {
+        Some(config) => {
+            let setup = crate::run::setup(config, job, job_base, ctx.tools, ctx.pricing)?;
+            (setup.images.clone(), Some(setup))
+        }
+        None => {
+            let bounds = crate::config::ImagesConfig::default().decode_bounds();
+            let images = job
+                .images
+                .iter()
+                .map(|spec| crate::image::load(spec, job_base, &bounds))
+                .collect::<crate::Result<Vec<_>>>()?;
+            (images, None)
+        }
+    };
+    let file_digests: Vec<String> = images.iter().map(|i| i.sha256.clone()).collect();
+    let envelope = match (ctx.config, &setup, ctx.pricing) {
+        (Some(config), Some(setup), Some(pricing)) => Some(crate::run::envelope_of(
+            config, setup, job, ctx.tools, pricing,
+        )?),
+        _ => None,
+    };
+    let worst = envelope.as_ref().map(|e| usd(e.usd));
+    let remaining = ctx.session.as_ref().and_then(|s| s.remaining_usd);
+    // Rounding slack, as the ledgers compare.
+    const EPSILON: f64 = 1e-9;
+    let refused = match worst {
+        None => Some(EstimateRefusal::Readiness),
+        Some(_) if ctx.readiness.state != ReadinessState::Ready => Some(EstimateRefusal::Readiness),
+        Some(w) if w > cap + EPSILON => Some(EstimateRefusal::Cap),
+        Some(w) if remaining.is_some_and(|r| w > r + EPSILON) => Some(EstimateRefusal::Budget),
+        Some(_) => None,
+    };
+    let mut extensions = std::collections::BTreeMap::new();
+    if let Some(e) = &envelope {
+        extensions.insert(
+            "x-squint".into(),
+            serde_json::json!({
+                "decision_runs": e.decision_runs,
+                "requests": e.requests.len(),
+                "attempts": e.attempts,
+            }),
+        );
+    }
+    Ok(Estimate {
+        contract: CONTRACT_VERSION.into(),
+        tool: Tool {
+            name: "squint".into(),
+            version: ctx.binder.version.into(),
+        },
+        action: action.into(),
+        binding: ctx
+            .binder
+            .binding(action, job, &file_digests, max_spend_usd),
+        session_id: ctx.binder.session_id.map(str::to_string),
+        effective: Effective {
+            model: envelope
+                .as_ref()
+                .and(ctx.config)
+                .map(|c| c.provider.model.clone()),
+            config_identity: ctx.binder.config_identity.map(str::to_string),
+            extensions,
+        },
+        worst_case_usd: worst,
+        cap_usd: Some(usd(cap)),
+        allowed: refused.is_none(),
+        refused,
+        readiness: ctx.readiness.clone(),
+        session: ctx.session.clone(),
+        expires: rfc3339(ctx.now_ms.saturating_add(ctx.ttl_ms)),
+    })
+}
+
+/// The result of a check refused before its decision was allocated (its arguments, a path outside
+/// the roots, its provider): the header with no spend and no images or locations; `error` sets
+/// the status from its class. The input identity is a digest of the call's arguments.
 #[allow(clippy::too_many_arguments)]
 pub fn action_result(
     dir: &Path,
@@ -988,18 +1264,21 @@ mod tests {
             Error::Input(_) | Error::ImageLimit(_) => {
                 (Status::Invalid, Some((ErrorCode::Input, false)))
             }
-            Error::Config(_)
-            | Error::Job(_)
-            | Error::Image(_)
-            | Error::Toml(_)
-            | Error::Auth(_) => (Status::Invalid, Some((ErrorCode::Usage, false))),
+            Error::Config(_) | Error::Job(_) | Error::Image(_) | Error::Toml(_) => {
+                (Status::Invalid, Some((ErrorCode::Usage, false)))
+            }
+            Error::Credential(_) => (Status::Error, Some((ErrorCode::Credential, false))),
+            // The tool's judgement for this occurrence (2.2): a failure the spec retries (a 5xx,
+            // 429 or timeout, after the retries ran out) may pass on a retry; a 400 never will.
+            Error::Transport(t) => (Status::Error, Some((ErrorCode::Provider, t.retryable()))),
             Error::Provider(_)
-            | Error::Transport(_)
             | Error::Submission(_)
             | Error::NoSubmission(_)
             | Error::ModelOutput(_) => (Status::Error, Some((ErrorCode::Provider, true))),
             Error::Tool(_) => (Status::Error, Some((ErrorCode::ToolProcess, false))),
             Error::Budget(_) => (Status::Error, Some((ErrorCode::Budget, false))),
+            Error::Cap(_) => (Status::Error, Some((ErrorCode::Cap, false))),
+            Error::StaleEstimate(_) => (Status::Invalid, Some((ErrorCode::StaleEstimate, false))),
             Error::Io(_) | Error::Json(_) => (Status::Error, Some((ErrorCode::Io, false))),
         }
     }
@@ -1015,19 +1294,36 @@ mod tests {
             Error::Job(s()),
             Error::Image(s()),
             Error::Toml(toml::from_str::<toml::Value>("=").unwrap_err()),
-            Error::Auth(s()),
+            Error::Credential(s()),
             Error::Provider(s()),
             Error::Transport(crate::retry::TransportError {
                 status: Some(503),
                 retry_after: None,
                 message: s(),
                 sent: true,
+                causeless: false,
+            }),
+            Error::Transport(crate::retry::TransportError {
+                status: None,
+                retry_after: None,
+                message: s(),
+                sent: true,
+                causeless: false,
+            }),
+            Error::Transport(crate::retry::TransportError {
+                status: Some(400),
+                retry_after: None,
+                message: s(),
+                sent: true,
+                causeless: false,
             }),
             Error::Submission(s()),
             Error::NoSubmission(s()),
             Error::ModelOutput(s()),
             Error::Tool(s()),
             Error::Budget(s()),
+            Error::Cap(s()),
+            Error::StaleEstimate(s()),
             Error::Io(std::io::Error::other("x")),
             Error::Json(serde_json::from_str::<serde_json::Value>("{").unwrap_err()),
         ];

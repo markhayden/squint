@@ -1,0 +1,35 @@
+{
+  "action": "source_fidelity",
+  "allowed": true,
+  "binding": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "cap_usd": 2.0,
+  "contract": "0.3.0",
+  "effective": {
+    "config_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+    "model": "fake-model",
+    "x-squint": {
+      "attempts": 9,
+      "decision_runs": 1,
+      "requests": 6
+    }
+  },
+  "expires": "2026-01-01T00:00:00.000Z",
+  "readiness": {
+    "requirements": [
+      {
+        "kind": "config",
+        "name": "fixtures/config/minimal.toml",
+        "state": "present"
+      }
+    ],
+    "state": "ready"
+  },
+  "refused": null,
+  "session": null,
+  "session_id": null,
+  "tool": {
+    "name": "squint",
+    "version": "0.0.0"
+  },
+  "worst_case_usd": 0.15344
+}

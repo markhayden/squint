@@ -20,6 +20,22 @@ pub const MAX_BODY_BYTES: usize = 2 * 1024 * 1024;
 /// What replaces a secret in a stored body.
 pub const REDACTED: &str = "[redacted]";
 
+/// Replaces every expanded secret, in the raw form and as a JSON string would escape it. The one
+/// redaction pass: stored bodies, journaled error messages (a provider's error excerpt among them)
+/// and the command line's stderr all go through it.
+pub fn redact(text: &str, secrets: &[String]) -> String {
+    let mut out = text.to_string();
+    for s in secrets.iter().filter(|s| !s.is_empty()) {
+        out = out.replace(s.as_str(), REDACTED);
+        let escaped = serde_json::to_string(s).unwrap_or_default();
+        let escaped = escaped.trim_matches('"');
+        if escaped != s && !escaped.is_empty() {
+            out = out.replace(escaped, REDACTED);
+        }
+    }
+    out
+}
+
 /// A reference to a stored artifact, as journal events and the report carry it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -94,18 +110,9 @@ impl ArtifactStore {
         Ok(r)
     }
 
-    /// Replaces every expanded secret, in the raw form and as a JSON string would escape it.
+    /// Replaces every expanded secret of this run ([`redact`]).
     pub fn redact(&self, text: &str) -> String {
-        let mut out = text.to_string();
-        for s in &self.secrets {
-            out = out.replace(s, REDACTED);
-            let escaped = serde_json::to_string(s).unwrap_or_default();
-            let escaped = escaped.trim_matches('"');
-            if escaped != s && !escaped.is_empty() {
-                out = out.replace(escaped, REDACTED);
-            }
-        }
-        out
+        redact(text, &self.secrets)
     }
 
     /// Write to a temporary name, fsync, rename into place, mode 0600. An artifact that already

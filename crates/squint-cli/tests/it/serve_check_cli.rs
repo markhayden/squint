@@ -1,6 +1,7 @@
 //! Task 7.7b: a use case's action over `squint serve` is one decision (table-manners 5, 10):
 //! images by path inside the client's roots or inline, the result the decision's `run.json`,
-//! `invalid` for a path outside the roots, and the session budget refusing before any request.
+//! `invalid` for a path outside the roots, and the session budget refusing before any request;
+//! since task 9.8, `references` a `many` slot: a non-empty list, taken in once per image in order.
 #![cfg(feature = "testkit")]
 #![allow(clippy::unwrap_used)]
 
@@ -8,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use serde_json::json;
-use squint_testkit::mcp_client::Client;
+use squint_testkit::mcp_client::{Client, Failure};
 
 fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -134,8 +135,9 @@ fn a_path_outside_the_clients_roots_is_invalid_input_and_spends_nothing() {
 }
 
 /// `estimate` reads its images too, so it answers to the same roots as a check (review C1): a
-/// path outside them is refused before it is opened, and a missing path is refused in the same
-/// words, so nothing about the file (its digest, size or existence) comes back.
+/// path outside them is refused before it is opened (the `invalid_arguments` refusal, `input`,
+/// since an estimate has no result), and a missing path is refused in the same words, so nothing
+/// about the file (its digest, size or existence) comes back.
 #[test]
 fn estimate_refuses_a_path_outside_the_roots_without_reading_it() {
     // A catalog model, so an estimate that ignored the roots would go on to read the image.
@@ -150,19 +152,20 @@ fn estimate_refuses_a_path_outside_the_roots_without_reading_it() {
     let missing = repo_root().join("fixtures/images/no-such-image.png");
     let mut reasons = Vec::new();
     for path in [&outside, &missing] {
-        let r = c
-            .call(
-                "estimate",
-                json!({ "use_case": "source-fidelity",
-                        "candidate": { "path": path, "expect": expect },
-                        "source": image("source-64x48.png") }),
-            )
-            .unwrap();
-        assert!(r.is_error, "{path:?}");
-        let r = r.structured.unwrap();
-        assert_eq!(r["status"], "invalid", "{r}");
-        assert_eq!(r["error"]["code"], "input", "{r}");
-        let reason = r["error"]["reason"].as_str().unwrap().to_string();
+        let r = c.call(
+            "estimate",
+            json!({ "action": "source_fidelity",
+                    "arguments": { "candidate": { "path": path, "expect": expect },
+                                   "source": image("source-64x48.png") } }),
+        );
+        let Err(Failure::Rpc { code, data, .. }) = r else {
+            panic!("{path:?}: {r:?}");
+        };
+        assert_eq!(code, -32602);
+        let data = data.unwrap();
+        assert_eq!(data["reason"], "invalid_arguments", "{data}");
+        assert_eq!(data["error"]["code"], "input", "{data}");
+        let reason = data["error"]["reason"].as_str().unwrap().to_string();
         assert!(!reason.contains("file_sha256"), "{reason}");
         reasons.push(reason.replace(&path.display().to_string(), "<path>"));
     }
@@ -344,20 +347,275 @@ fn every_tool_input_schema_compiles_on_its_own() {
     }
 }
 
-/// A server running the scripted provider declares what it can do: no check spends or needs a
-/// credential (squint issue #2), whatever profile the config names.
+/// A server running the scripted provider declares what it can do: no check spends (squint
+/// issue #2), whatever profile the config names. Its readiness is still the configured
+/// profile's (task 9.3): the script stands in for that endpoint, so the configuration, the
+/// profile's credential by name and the model are listed.
 #[test]
 fn a_scripted_server_declares_free_checks() {
-    let mut c = client(
+    let mut command = server(
         &out("free"),
         &[
             "provider.profile=anthropic",
             "provider.model=claude-haiku-5-5",
         ],
     );
+    command.env("ANTHROPIC_API_KEY", "sk-scripted-not-a-key");
+    let mut c = Client::start(&mut command).unwrap();
     let d = c.call("describe", json!({})).unwrap().structured.unwrap();
+    assert!(!d.to_string().contains("sk-scripted-not-a-key"));
     for action in d["actions"].as_array().unwrap() {
         assert_eq!(action["cost"]["may_spend"], false, "{}", action["name"]);
-        assert_eq!(action["cost"]["needs_env"], json!([]), "{}", action["name"]);
+        assert_eq!(
+            action["readiness"],
+            json!({ "state": "ready", "requirements": [
+                { "kind": "config", "name": "fixtures/config/minimal.toml", "state": "present" },
+                {
+                    "kind": "credential",
+                    "name": "ANTHROPIC_API_KEY",
+                    "state": "present",
+                    "setup": "Set ANTHROPIC_API_KEY in the environment squint is started with."
+                },
+                { "kind": "model", "name": "claude-haiku-5-5", "state": "present" }
+            ] }),
+            "{}",
+            action["name"]
+        );
     }
+}
+
+/// `references` is a `many` slot (table-manners 10.1, 11.2): every tool that takes it declares a
+/// non-empty array of images in, the estimate's `arguments` too, and the slots that take one
+/// image declare an object.
+#[test]
+fn the_references_input_is_a_non_empty_array_of_images() {
+    let mut c = client(&out("many-schema"), &[]);
+    let tools = c.list_tools().unwrap();
+    let mut checks: Vec<(String, serde_json::Value)> = tools
+        .iter()
+        .filter(|t| t.input_schema["properties"].get("candidate").is_some())
+        .map(|t| (t.name.clone(), t.input_schema.clone()))
+        .collect();
+    assert!(checks.len() >= 5, "{tools:?}");
+    let estimate = tools.iter().find(|t| t.name == "estimate").unwrap();
+    checks.push((
+        "estimate".into(),
+        estimate.input_schema["properties"]["arguments"].clone(),
+    ));
+    for (name, schema) in checks {
+        let properties = &schema["properties"];
+        assert_eq!(properties["references"]["type"], "array", "{}", name);
+        assert_eq!(properties["references"]["minItems"], 1, "{}", name);
+        assert_eq!(
+            properties["references"]["items"], properties["candidate"],
+            "{}",
+            name
+        );
+        assert_eq!(properties["candidate"]["type"], "object", "{}", name);
+    }
+}
+
+/// A check with three references takes each in through the `references` slot, once per image, in
+/// the order given (table-manners 11.1). `images.in` is filled when the images are taken in, so
+/// the scripted verdict (written for source fidelity, which ends this run in a provider error) does
+/// not matter here.
+#[test]
+fn three_references_are_taken_in_once_each_in_order() {
+    let mut c = client(&out("many-in"), &[]);
+    let references = [
+        "source-64x48.png",
+        "two-to-one-128x64.png",
+        "candidate-64x48.png",
+    ];
+    let r = c
+        .call(
+            "reference_consistency",
+            json!({
+                "candidate": image("candidate-64x48.png"),
+                "references": references.map(image),
+            }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_ne!(r["status"], "invalid", "{r}");
+    let taken: Vec<(&str, &str, &str)> = r["images"]["in"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|i| {
+            (
+                i["slot"].as_str().unwrap(),
+                i["role"].as_str().unwrap(),
+                i["image"]["file_sha256"].as_str().unwrap(),
+            )
+        })
+        .collect();
+    let digest = |name: &str| {
+        squint_core::image::sha256_hex(
+            &std::fs::read(repo_root().join("fixtures/images").join(name)).unwrap(),
+        )
+    };
+    let want_refs: Vec<String> = references.iter().map(|n| digest(n)).collect();
+    assert_eq!(taken.len(), 4, "{taken:?}");
+    assert_eq!(taken[0].0, "candidate");
+    for (n, (slot, role, sha)) in taken[1..].iter().enumerate() {
+        assert_eq!((*slot, *role), ("references", "reference"), "{n}");
+        assert!(
+            sha.ends_with(&want_refs[n]),
+            "{n}: {sha} is not {}",
+            references[n]
+        );
+    }
+}
+
+/// An empty `references` list is a JSON-RPC error before any run (table-manners 10.1: a `many`
+/// slot takes a non-empty array), and it releases its `client_run_id` for the corrected request.
+#[test]
+fn an_empty_references_list_is_refused_before_any_run_and_releases_its_id() {
+    const CLIENT: &str = "table-manners/client_run_id";
+    let out = out("many-empty");
+    let mut c = client(&out, &[]);
+    let call = |references: serde_json::Value| {
+        json!({
+            "candidate": image("candidate-64x48.png"),
+            "references": references,
+        })
+    };
+    match c.call_with_meta(
+        "reference_consistency",
+        call(json!([])),
+        json!({ CLIENT: "empty-1" }),
+    ) {
+        Err(Failure::Rpc { code, message, .. }) => {
+            assert_eq!(code, -32602);
+            assert!(message.contains("references"), "{message}");
+        }
+        other => panic!("expected a JSON-RPC error, got {other:?}"),
+    }
+    let runs: serde_json::Value =
+        serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+    assert_eq!(runs["runs"], json!([]), "a refusal makes no run");
+    let accepted = c
+        .call_with_meta(
+            "reference_consistency",
+            call(json!([image("source-64x48.png")])),
+            json!({ CLIENT: "empty-1" }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_ne!(accepted["status"], "invalid", "{accepted}");
+    assert_eq!(accepted["run"]["client_run_id"], "empty-1");
+}
+
+/// `max_spend_usd` (table-manners 4.5, task 9.5): above the configured cap a call is `invalid`,
+/// `usage`, spending nothing, never silently lowered; below it, it lowers the cap; at or below
+/// zero the input schema rejects it, a JSON-RPC error with no run.
+#[test]
+fn max_spend_usd_lowers_the_cap_and_above_it_is_refused() {
+    let mut c = client(&out("max-spend"), &["budget.spend_cap_usd=1"]);
+    let pair = || json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") });
+    let mut over = pair();
+    over["max_spend_usd"] = json!(2);
+    let r = c.call("source_fidelity", over).unwrap();
+    assert!(r.is_error);
+    let r = r.structured.unwrap();
+    assert_eq!(r["status"], "invalid", "{r}");
+    assert_eq!(r["error"]["code"], "usage", "{r}");
+    assert_eq!(r["spend"]["usd"], 0.0);
+    let mut lower = pair();
+    lower["max_spend_usd"] = json!(0.5);
+    let r = c
+        .call("source_fidelity", lower)
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_eq!(r["status"], "completed", "{r}");
+    let id = r["run"]["id"].as_str().unwrap();
+    let report: serde_json::Value = serde_json::from_str(
+        &c.read_resource(&format!("squint://run/{id}/report.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(report["cost"]["cap_usd"], 0.5);
+    let mut zero = pair();
+    zero["max_spend_usd"] = json!(0);
+    let r = c.call("source_fidelity", zero);
+    assert!(
+        matches!(
+            r,
+            Err(Failure::Rpc {
+                code: -32602,
+                data: None,
+                ..
+            })
+        ),
+        "{r:?}"
+    );
+}
+
+/// A cap below the envelope ends `error`, `cap`, never retryable, before any provider call.
+#[test]
+fn a_cap_below_the_envelope_is_a_cap_error_before_any_request() {
+    let mut c = client(&out("cap"), &["budget.spend_cap_usd=0.000001"]);
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+        )
+        .unwrap();
+    assert!(r.is_error);
+    let r = r.structured.unwrap();
+    assert_eq!(r["status"], "error", "{r}");
+    assert_eq!(r["error"]["code"], "cap", "{r}");
+    assert_eq!(r["error"]["retryable"], false);
+    assert_eq!(r["spend"]["usd"], 0.0);
+}
+
+/// Task 9.6 (table-manners 3.1): a model the catalog lacks makes the configuration `invalid`, and
+/// a check needs the configuration: it is refused before any run as `-32602` `not_ready` naming
+/// the configuration alone (the key is set, so it is not named), and nothing is written.
+#[test]
+fn a_config_made_invalid_by_an_unknown_model_refuses_a_check_not_ready() {
+    let out = out("unknown-model");
+    let mut command = server(
+        &out,
+        &["provider.profile=anthropic", "provider.model=claude-opus-9"],
+    );
+    command.env("ANTHROPIC_API_KEY", "sk-unknown-model-not-a-key");
+    let mut c = Client::start(&mut command).unwrap();
+    c.roots = vec![format!(
+        "file://{}",
+        repo_root().join("fixtures/images").display()
+    )];
+    let refused = c.call(
+        "source_fidelity",
+        json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+    );
+    let Err(Failure::Rpc {
+        code,
+        message,
+        data,
+    }) = refused
+    else {
+        panic!("expected a JSON-RPC error, got {refused:?}");
+    };
+    assert_eq!(code, -32602);
+    assert!(!message.contains("sk-unknown-model-not-a-key"), "{message}");
+    let data = data.unwrap();
+    assert_eq!(data["reason"], "not_ready", "{data}");
+    assert_eq!(data["run"], serde_json::Value::Null);
+    let requirements = data["requirements"].as_array().unwrap();
+    assert_eq!(requirements.len(), 1, "{data}");
+    assert_eq!(requirements[0]["kind"], "config");
+    assert_eq!(requirements[0]["state"], "invalid");
+    assert!(
+        requirements[0]["setup"]
+            .as_str()
+            .unwrap()
+            .contains("claude-opus-9"),
+        "{data}"
+    );
+    assert!(!out.exists(), "a refusal writes nothing");
 }

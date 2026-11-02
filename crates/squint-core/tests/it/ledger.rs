@@ -120,7 +120,8 @@ fn ledger_envelope_plans_every_allowed_repair() {
 fn ledger_refuses_a_cap_below_the_envelope_before_any_request() {
     let (o, r) = check("cap", "held.json", &["budget.spend_cap_usd=0.01"], None);
     assert_eq!(o.exit_code, 3);
-    assert_eq!(r["runs"][0]["error"]["class"], "budget");
+    // The per-call ledger's refusal is `cap`; the session's, below, is `budget`.
+    assert_eq!(r["runs"][0]["error"]["class"], "cap");
     assert!(
         r["runs"][0]["turns"].as_array().unwrap().is_empty(),
         "nothing was sent"
@@ -174,7 +175,7 @@ fn ledger_counts_a_retry_as_a_charged_attempt() {
 fn ledger_charges_the_final_failed_attempt_at_its_bound() {
     let (o, r) = check("failed-attempt", "bad-request.json", &[], None);
     assert_eq!(o.exit_code, 3);
-    assert_eq!(r["runs"][0]["error"]["class"], "provider");
+    assert_eq!(r["runs"][0]["error"]["class"], "provider_rejected");
     let turn = &r["runs"][0]["turns"][0];
     let bound = turn["bound_usd"].as_f64().unwrap();
     assert!(bound > 0.0);

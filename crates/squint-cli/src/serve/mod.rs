@@ -1,6 +1,6 @@
 //! `squint serve`: the MCP server over stdio (table-manners 5, ADR 0018), on `rmcp` at revision
-//! `2025-11-25` only. Every action in the description is a tool, plus `describe`. Nothing but the
-//! protocol goes to stdout.
+//! `2025-11-25` only. Every action in the description is a tool, plus the reserved `describe` and
+//! `estimate`. Nothing but the protocol goes to stdout.
 
 use std::borrow::Cow;
 use std::path::{Path, PathBuf};
@@ -20,8 +20,10 @@ use serde_json::{Map, Value, json};
 use squint_core::config::Config;
 use squint_core::contract;
 use squint_core::ledger::{CapLedger, Ledger};
+use squint_core::readiness::{self, Answers, Inspection, Needs};
 use squint_core::tool::ToolRegistry;
 use table_manners::Description;
+use table_manners::images::ImageSlot;
 use tokio::sync::Semaphore;
 
 use crate::{EXIT_USAGE, VERSION};
@@ -35,13 +37,15 @@ const HEARTBEAT: std::time::Duration = std::time::Duration::from_secs(5);
 
 #[derive(clap::Args)]
 pub struct ServeArgs {
-    /// Path to the config file; the server checks against it for its whole life.
+    /// Path to the config file; the server checks against it for its whole life. Without it,
+    /// squint looks for ./squint.toml, then $XDG_CONFIG_HOME/squint/squint.toml; with none, the
+    /// server still starts, and refuses every call that needs one `not_ready`.
     #[arg(long)]
-    pub config: PathBuf,
+    pub config: Option<PathBuf>,
     /// Override one config value: `--set serve.session_budget_usd=5` (repeatable).
     #[arg(long = "set", value_name = "PATH=VALUE")]
     pub overrides: Vec<String>,
-    /// Where run directories go; overrides `[output] dir`.
+    /// Where run directories go; overrides `[output] dir`. An unconfigured server writes nothing.
     #[arg(long)]
     pub out: Option<PathBuf>,
     /// Scripted envelopes for the fake `fake_regions` tool, for tests and debugging only.
@@ -79,6 +83,8 @@ fn decode_cursor(cursor: &str) -> Option<(u64, String)> {
 
 /// The request `_meta` key a client's correlation id travels under (table-manners 4.4).
 const CLIENT_RUN_META: &str = "table-manners/client_run_id";
+/// The request `_meta` key a paid call names its estimate's binding under (table-manners 4.5).
+const ESTIMATE_META: &str = "table-manners/estimate";
 /// The notification `_meta` key a run's reference travels under (table-manners 4.3).
 const RUN_META: &str = "table-manners/run";
 
@@ -116,15 +122,30 @@ pub fn run(args: &ServeArgs) -> i32 {
         eprintln!("squint: {e}");
         EXIT_USAGE
     };
-    let config = match Config::load_with_overrides(&args.config, &args.overrides) {
-        Ok(c) => c,
+    // Read once, here (table-manners 4.6); a configuration that is missing or does not load is
+    // a requirement every action reports, not a reason to refuse to start (3.1, 5).
+    #[cfg(feature = "testkit")]
+    let scripted = args.provider_script.is_some();
+    #[cfg(not(feature = "testkit"))]
+    let scripted = false;
+    let described = match crate::describe::described(
+        Config::open(args.config.as_deref(), &args.overrides),
+        scripted,
+    ) {
+        Ok(described) => described,
         Err(e) => return usage(e.to_string()),
     };
+    let config = described.file.config().cloned();
     #[cfg(feature = "testkit")]
     let script = args.tool_script.as_deref();
     #[cfg(not(feature = "testkit"))]
     let script = None;
-    let tools = match crate::tools_for_config(&config, script, &Default::default()) {
+    // An unconfigured server runs nothing, so it starts no tool pack.
+    let tools = match &config {
+        Some(config) => crate::tools_for_config(config, script, &Default::default()),
+        None => ToolRegistry::new(Vec::new(), &[], &[]).map_err(|e| e.to_string()),
+    };
+    let tools = match tools {
         Ok(t) => t,
         Err(e) => return usage(e),
     };
@@ -132,32 +153,38 @@ pub fn run(args: &ServeArgs) -> i32 {
         Ok(c) => c,
         Err(e) => return usage(e.to_string()),
     };
-    #[cfg(feature = "testkit")]
-    let scripted = args.provider_script.is_some();
-    #[cfg(not(feature = "testkit"))]
-    let scripted = false;
-    let executor = crate::executor(&config, scripted);
-    let description = match contract::description(&config, VERSION, &executor) {
-        Ok(d) => d,
-        Err(e) => return usage(e.to_string()),
-    };
     let out_dir = args
         .out
         .clone()
-        .unwrap_or_else(|| config.output.dir.clone());
+        .or_else(|| config.as_ref().map(|c| c.output.dir.clone()));
+    let serve = config.as_ref().map(|c| c.serve.clone()).unwrap_or_default();
+    // How long an estimate's binding is honoured. A testkit build may shorten it, the clock seam
+    // a test expires a binding with, without waiting an hour.
+    #[cfg(feature = "testkit")]
+    let estimate_ttl_ms = std::env::var(ESTIMATE_TTL_ENV)
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .map_or(contract::ESTIMATE_TTL_MS, |s| s * 1000);
+    #[cfg(not(feature = "testkit"))]
+    let estimate_ttl_ms = contract::ESTIMATE_TTL_MS;
     let server = Server {
         inner: Arc::new(Inner {
+            config_identity: config.as_ref().map(contract::config_identity),
+            estimates: Default::default(),
+            estimate_ttl_ms,
             session_id: uuid_v4(),
             session_started_ms: contract::now_ms(),
             claims: Default::default(),
-            session: CapLedger::new(config.serve.session_budget_usd),
-            permits: Arc::new(Semaphore::new(config.serve.concurrency as usize)),
+            session: CapLedger::new(serve.session_budget_usd),
+            permits: Arc::new(Semaphore::new(serve.concurrency as usize)),
             #[cfg(feature = "testkit")]
             provider_script: args.provider_script.clone(),
+            inspection: described.inspection,
+            answers: Default::default(),
+            description: described.description,
             config,
             tools,
             catalog,
-            description,
             out_dir,
         }),
     };
@@ -181,17 +208,32 @@ pub fn run(args: &ServeArgs) -> i32 {
     }
 }
 
+/// The variable a testkit build reads for an estimate's lifetime in seconds (the clock seam).
+#[cfg(feature = "testkit")]
+const ESTIMATE_TTL_ENV: &str = "SQUINT_TESTKIT_ESTIMATE_TTL_S";
+
 #[derive(Clone)]
 struct Server {
     inner: Arc<Inner>,
 }
 
 struct Inner {
-    config: Config,
+    /// None when the server started without a configuration that loads: it then refuses every
+    /// call that makes a run (table-manners 3.1) and writes nothing.
+    config: Option<Config>,
+    /// What the local inspection at start found (table-manners 3.1): with `answers`, every
+    /// action's readiness, recomputed on each `describe`.
+    inspection: Inspection,
+    /// The provider answers this session had, by credential name and model.
+    answers: Answers,
     tools: ToolRegistry,
     catalog: squint_providers::catalog::Catalog,
+    /// The description at start; its readiness is replaced by the current one on each
+    /// `describe`.
     description: Description,
-    out_dir: PathBuf,
+    /// Where runs go: `--out`, else `[output] dir`; none for an unconfigured server without
+    /// `--out`, whose runs list is empty.
+    out_dir: Option<PathBuf>,
     /// This process's session (table-manners 4.6): a random UUID made at start, fixed for the
     /// process (squint never reloads its config), and when it started.
     session_id: String,
@@ -201,6 +243,14 @@ struct Inner {
     claims: std::sync::Mutex<std::collections::HashMap<String, Option<table_manners::RunRef>>>,
     /// The session budget: every decision this process serves reserves against it.
     session: CapLedger,
+    /// The identity of the configuration the server read at start (table-manners 4.5), none
+    /// without one; part of every binding.
+    config_identity: Option<String>,
+    /// Every binding an estimate of this session issued, with when it expires (ms since the
+    /// epoch). Expired ones are dropped as new ones arrive.
+    estimates: std::sync::Mutex<std::collections::HashMap<String, u64>>,
+    /// How long a binding is honoured: an hour, shorter only in a testkit build.
+    estimate_ttl_ms: u64,
     /// Calls run under a permit: one at a time unless `[serve] concurrency` allows more.
     permits: Arc<Semaphore>,
     #[cfg(feature = "testkit")]
@@ -208,7 +258,7 @@ struct Inner {
 }
 
 impl Server {
-    /// The tools this server answers: `describe` and the description's actions it serves.
+    /// The tools this server answers: `describe`, the description's actions and `estimate`.
     fn tools(&self) -> Vec<Tool> {
         let mut tools = vec![Tool::new(
             "describe",
@@ -223,14 +273,62 @@ impl Server {
             tools.push(Tool::new(
                 action.name.clone(),
                 action.purpose.clone(),
-                Arc::new(input_schema(action)),
+                Arc::new(input_schema(
+                    &action.params_schema,
+                    action.images.as_deref().unwrap_or_default(),
+                )),
             ));
         }
+        let actions: Vec<&str> = self
+            .inner
+            .description
+            .actions
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect();
+        // The call's arguments as its action's tool takes them; their definitions sit at the root,
+        // where their references resolve from (squint issue #2).
+        let (params, slots) = contract::estimate_arguments();
+        let mut arguments = input_schema(&params, &slots);
+        let defs = arguments.remove("$defs").unwrap_or_default();
+        arguments.insert(
+            "description".into(),
+            json!("Exactly the arguments the call would send, images included."),
+        );
+        tools.push(Tool::new(
+            "estimate",
+            "The worst case of one exact call of an action, against the per-call cap and the \
+             session budget, bound to its inputs; never a run (table-manners 4.5).",
+            Arc::new(Map::from_iter([
+                ("type".to_string(), json!("object")),
+                (
+                    "properties".to_string(),
+                    json!({
+                        "action": { "enum": actions, "description": "The paid action to price." },
+                        "arguments": arguments,
+                    }),
+                ),
+                ("required".to_string(), json!(["action", "arguments"])),
+                ("additionalProperties".to_string(), json!(false)),
+                ("$defs".to_string(), defs),
+            ])),
+        ));
         tools
     }
 
+    /// The description with every action's readiness as of now: the inspection at start and
+    /// the provider answers since (table-manners 3.1). A local computation, never a call.
+    fn description(&self) -> Description {
+        let readiness = self.inner.inspection.readiness(&self.inner.answers);
+        let mut description = self.inner.description.clone();
+        for action in &mut description.actions {
+            action.readiness = readiness.clone();
+        }
+        description
+    }
+
     fn describe(&self) -> Result<CallToolResult, ErrorData> {
-        let value = serde_json::to_value(&self.inner.description)
+        let value = serde_json::to_value(self.description())
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         let mut result = CallToolResult::success(vec![ContentBlock::text(
             "squint's description document (table-manners)",
@@ -239,72 +337,154 @@ impl Server {
         Ok(result)
     }
 
-    /// `estimate`: the envelope a check of the named use case would reserve, from the catalog's
-    /// prices; a run of its own, with no spend.
+    /// `estimate` (table-manners 4.5): the worst case of one exact call of an action, priced as
+    /// the limits check would reserve it, bound to the call's inputs, the configuration, the tool
+    /// version and this session; never a run, so it writes nothing, takes no permit and claims no
+    /// `client_run_id`. It reads its images, so it answers to the roots a check does. Arguments
+    /// the input schema rejects are plain `-32602`; any other wrong request is `-32602` with the
+    /// `invalid_arguments` refusal. A call that is not ready is not an error: its estimate says so.
     fn estimate(
         &self,
         args: Map<String, Value>,
         roots: Option<Vec<PathBuf>>,
-        association: &contract::Association,
     ) -> Result<CallToolResult, ErrorData> {
-        let use_case = args
-            .get("use_case")
-            .and_then(Value::as_str)
-            .ok_or_else(|| ErrorData::invalid_params("use_case: required", None))?
-            .to_string();
-        let mut job = match contract::job_from_call(&use_case, &args) {
+        if let Some(unknown) = args
+            .keys()
+            .find(|k| !matches!(k.as_str(), "action" | "arguments"))
+        {
+            return Err(ErrorData::invalid_params(
+                format!("estimate: unknown argument {unknown:?}; it takes action and arguments"),
+                None,
+            ));
+        }
+        let action = args.get("action").and_then(Value::as_str).ok_or_else(|| {
+            ErrorData::invalid_params("estimate: action: required, an action's name", None)
+        })?;
+        let arguments = args
+            .get("arguments")
+            .and_then(Value::as_object)
+            .ok_or_else(|| {
+                ErrorData::invalid_params("estimate: arguments: required, an object", None)
+            })?;
+        if !self
+            .inner
+            .description
+            .actions
+            .iter()
+            .any(|a| a.name == action)
+        {
+            return Err(invalid_arguments(
+                table_manners::ErrorCode::Usage,
+                format!("no action {action:?}; call describe for the actions"),
+            ));
+        }
+        let max_spend_usd = match arguments.get("max_spend_usd") {
+            None => None,
+            Some(v) => match v.as_f64() {
+                Some(max) if max > 0.0 => Some(max),
+                _ => {
+                    return Err(ErrorData::invalid_params(
+                        format!("max_spend_usd is {v}; it must be a number above 0"),
+                        None,
+                    ));
+                }
+            },
+        };
+        let mut job = match contract::job_from_call(&action.replace('_', "-"), arguments) {
             Ok(job) => job,
             Err(squint_core::Error::Job(m)) => return Err(ErrorData::invalid_params(m, None)),
-            Err(e) => return self.finished("estimate", &args, association, Some(&e), Map::new()),
+            Err(e) => return Err(refused_estimate(&e)),
         };
-        // The estimate reads its images' dimensions, so it answers to the roots a check does.
-        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &self.inner.config.serve.roots) {
-            return self.finished("estimate", &args, association, Some(&e), Map::new());
-        }
-        let mut config = self.inner.config.clone();
-        if let Some(max) = args.get("max_spend_usd") {
-            let lowered = max
-                .as_f64()
-                .ok_or_else(|| squint_core::Error::Config("max_spend_usd: a number".into()))
-                .and_then(|m| config.lower_spend_cap(m));
-            if let Err(e) = lowered {
-                return Err(ErrorData::invalid_params(e.to_string(), None));
-            }
-        }
-        let Some(pricing) = self.inner.catalog.model(&config.provider.model) else {
-            let e = squint_core::Error::Config(format!(
-                "model {:?} is not in the catalog",
-                config.provider.model
-            ));
-            return self.finished("estimate", &args, association, Some(&e), Map::new());
+        let config = self.inner.config.as_ref();
+        let config_roots = config.map_or(&[][..], |c| c.serve.roots.as_slice());
+        inside_roots(&mut job, roots.as_deref(), config_roots).map_err(|e| refused_estimate(&e))?;
+        let now_ms = contract::now_ms();
+        let context = contract::EstimateContext {
+            binder: contract::Binder {
+                version: VERSION,
+                config_identity: self.inner.config_identity.as_deref(),
+                session_id: Some(&self.inner.session_id),
+            },
+            config,
+            tools: &self.inner.tools,
+            readiness: self.inner.inspection.readiness(&self.inner.answers),
+            pricing: self.pricing(),
+            session: Some(self.session()),
+            now_ms,
+            ttl_ms: self.inner.estimate_ttl_ms,
         };
-        match squint_core::run::envelope(
-            &config,
-            &job,
-            Path::new(JOB_BASE),
-            &self.inner.tools,
-            pricing,
-        ) {
-            Ok(envelope) => {
-                let cap = config.budget.spend_cap_usd;
-                let body = json!({
-                    "use_case": use_case,
-                    "model": config.provider.model,
-                    "envelope_usd": contract::usd(envelope.usd),
-                    "cap_usd": contract::usd(cap),
-                    "fits": envelope.usd <= cap,
-                    "decision_runs": envelope.decision_runs,
-                });
-                self.finished(
-                    "estimate",
-                    &args,
-                    association,
-                    None,
-                    body.as_object().cloned().unwrap_or_default(),
-                )
-            }
-            Err(e) => self.finished("estimate", &args, association, Some(&e), Map::new()),
+        let estimate =
+            contract::estimate(&context, action, &job, Path::new(JOB_BASE), max_spend_usd)
+                .map_err(|e| refused_estimate(&e))?;
+        let expires_ms = now_ms.saturating_add(self.inner.estimate_ttl_ms);
+        if let Ok(mut issued) = self.inner.estimates.lock() {
+            issued.retain(|_, expires| *expires > now_ms);
+            issued.insert(estimate.binding.clone(), expires_ms);
         }
+        let summary = match (estimate.worst_case_usd, estimate.refused) {
+            (None, _) => format!("{action}: cannot be priced until it is ready (call describe)"),
+            (Some(worst), None) => format!("{action}: worst case ${worst:.6}, allowed"),
+            (Some(worst), Some(refused)) => format!(
+                "{action}: worst case ${worst:.6}, refused: {}",
+                serde_json::to_value(refused)
+                    .ok()
+                    .and_then(|v| v.as_str().map(str::to_string))
+                    .unwrap_or_default()
+            ),
+        };
+        let mut result = CallToolResult::success(vec![ContentBlock::text(summary)]);
+        result.structured_content = Some(
+            serde_json::to_value(&estimate)
+                .map_err(|e| ErrorData::internal_error(e.to_string(), None))?,
+        );
+        Ok(result)
+    }
+
+    /// The prices a check of this server would plan with: the scripted provider's in a testkit
+    /// build with a script, else the catalog's for the configured model; none when there is no
+    /// configuration or the catalog lacks the model, so the call cannot be priced.
+    fn pricing(&self) -> Option<&dyn squint_core::ledger::Pricing> {
+        #[cfg(feature = "testkit")]
+        if self.inner.provider_script.is_some() {
+            return Some(&squint_testkit::FAKE_PRICES);
+        }
+        let config = self.inner.config.as_ref()?;
+        self.inner
+            .catalog
+            .model(&config.provider.model)
+            .map(|m| m as &dyn squint_core::ledger::Pricing)
+    }
+
+    /// The configuration and output directory a call that makes a run needs, or its `not_ready`
+    /// refusal (table-manners 3.1): a JSON-RPC error with no run, so nothing is written.
+    fn configured(&self) -> Result<(&Config, &Path), ErrorData> {
+        match (&self.inner.config, &self.inner.out_dir) {
+            (Some(config), Some(out_dir)) => Ok((config, out_dir)),
+            _ => Err(not_ready(vec![self.inner.inspection.config.clone()])),
+        }
+    }
+
+    /// Whether a check may run (table-manners 3.1, task 9.6): of the requirements it needs (the
+    /// configuration; and, since it sends to the provider and offers this server's tools, the
+    /// credential, the model and the segmenter file when a tool runs it), none is `missing` or
+    /// `invalid` now, the session's provider answers included. Otherwise its `not_ready` refusal
+    /// naming only those, before any run. An `estimate` is never gated here: it answers with its
+    /// own readiness refusal (table-manners 4.5).
+    fn ready_for_check(&self) -> Result<(), ErrorData> {
+        let needs = Needs {
+            provider: true,
+            tools: self
+                .inner
+                .tools
+                .manifests()
+                .map(|m| m.name.clone())
+                .collect(),
+        };
+        let unmet = self.inner.inspection.unmet(&self.inner.answers, &needs);
+        if !unmet.is_empty() {
+            return Err(not_ready(unmet));
+        }
+        self.configured().map(|_| ())
     }
 
     /// The association a run of this server carries: its session, the request's `client_run_id`
@@ -318,8 +498,13 @@ impl Server {
     }
 
     /// Claims a request's `client_run_id` for this session (table-manners 4.4): a reused one is
-    /// refused with the earlier request's run (none while it has none).
-    fn claim(&self, client_run_id: &str) -> Result<(), ErrorData> {
+    /// refused with the earlier request's run (none while it has none). The claim lasts while the
+    /// guard does, and past it once the request has a run or was cancelled (see [`Claim`]).
+    fn claim(
+        &self,
+        client_run_id: &str,
+        cancelled: Box<dyn Fn() -> bool + Send + Sync>,
+    ) -> Result<Claim, ErrorData> {
         let mut claims = self
             .inner
             .claims
@@ -329,6 +514,8 @@ impl Server {
             let refusal = table_manners::Refusal {
                 reason: table_manners::RefusalReason::ClientRunIdReused,
                 run: run.clone(),
+                requirements: None,
+                error: None,
             };
             return Err(ErrorData::invalid_params(
                 format!("client_run_id {client_run_id:?} was already used in this session"),
@@ -336,7 +523,11 @@ impl Server {
             ));
         }
         claims.insert(client_run_id.to_string(), None);
-        Ok(())
+        Ok(Claim {
+            inner: self.inner.clone(),
+            id: client_run_id.to_string(),
+            cancelled,
+        })
     }
 
     /// The `squint://session` resource (table-manners 4.6): one observation of the ledger.
@@ -377,19 +568,35 @@ impl Server {
                 return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
             }
         };
-        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &self.inner.config.serve.roots) {
+        let (config, out_dir) = self.configured()?;
+        if let Err(e) = inside_roots(&mut job, roots.as_deref(), &config.serve.roots) {
             return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
         }
-        let mut config = self.inner.config.clone();
-        if let Some(max) = args.get("max_spend_usd") {
-            let lowered = max
-                .as_f64()
-                .ok_or_else(|| squint_core::Error::Config("max_spend_usd: a number".into()))
-                .and_then(|m| config.lower_spend_cap(m));
-            if let Err(e) = lowered {
-                return Err(ErrorData::invalid_params(e.to_string(), None));
-            }
+        let mut config = config.clone();
+        // A non-number or a value at or below zero is the input schema's to reject; one above
+        // the configured cap is the call's mistake, refused as a result before any paid step,
+        // never silently lowered (table-manners 4.5).
+        let max_spend_usd = match args.get("max_spend_usd") {
+            None => None,
+            Some(v) => match v.as_f64() {
+                Some(max) if max > 0.0 => Some(max),
+                _ => {
+                    return Err(ErrorData::invalid_params(
+                        format!("max_spend_usd is {v}; it must be a number above 0"),
+                        None,
+                    ));
+                }
+            },
+        };
+        if let Some(max) = max_spend_usd
+            && let Err(e) = config.call_cap(max)
+        {
+            return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
         }
+        let stale_estimate = hooks
+            .estimate
+            .as_deref()
+            .and_then(|named| self.stale_estimate(named, action, &job, &config, max_spend_usd));
         let opts = crate::ProviderOptions {
             replay: None,
             record: None,
@@ -398,8 +605,10 @@ impl Server {
         };
         let provider = match crate::provider_for(&mut config, &opts) {
             Ok(p) => p,
+            // What `ready_for_check` cannot see (an adapter this build lacks) is the request's
+            // to fix.
             Err(m) => {
-                let e = squint_core::Error::Auth(m);
+                let e = squint_core::Error::Config(m);
                 return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
             }
         };
@@ -410,9 +619,25 @@ impl Server {
         let server = self.clone();
         let association = hooks.association.clone();
         let progress = hooks.progress.clone();
+        // Each settled answer goes into the session's readiness, under the credential this
+        // profile reads and the model it calls.
+        let session = self.inner.clone();
+        let credential = self
+            .inner
+            .inspection
+            .credential
+            .as_ref()
+            .map(|c| c.name.clone());
+        let model = config.provider.model.clone();
         let mut services = squint_core::run::Services::new(provider.as_ref(), &self.inner.tools)
+            .with_answered(Arc::new(move |answer| {
+                session
+                    .answers
+                    .record(credential.as_deref(), &model, answer);
+            }))
             .with_association(hooks.association.clone())
             .with_shared_ledger(Some(&self.inner.session))
+            .with_stale_estimate(stale_estimate)
             .with_cancel(&hooks.cancel)
             .with_allocated(Arc::new(move |dir: &Path| {
                 if let Ok(mut slot) = told.lock() {
@@ -436,7 +661,7 @@ impl Server {
             &job,
             Path::new(JOB_BASE),
             &services,
-            &self.inner.out_dir,
+            out_dir,
             VERSION,
         ));
         let decided = allocated.lock().ok().and_then(|slot| slot.clone());
@@ -448,6 +673,62 @@ impl Server {
                 Err(ErrorData::internal_error(m, None))
             }
             (Err(e), _) => self.finished(action, &args, &hooks.association, Some(&e), Map::new()),
+        }
+    }
+
+    /// Why the estimate a call named no longer binds it (table-manners 4.5), or none when it
+    /// does: the binding is recomputed for the call as it arrived (its images by file digest,
+    /// against the configuration and the session) and must be one this session issued that has
+    /// not expired. An image that cannot be read is left to the decision, which refuses it first.
+    fn stale_estimate(
+        &self,
+        named: &str,
+        action: &str,
+        job: &squint_core::job::Job,
+        config: &Config,
+        max_spend_usd: Option<f64>,
+    ) -> Option<String> {
+        let digests = job
+            .images
+            .iter()
+            .map(|spec| {
+                squint_core::image::file_sha256(
+                    spec,
+                    Path::new(JOB_BASE),
+                    config.images.max_decode_bytes,
+                )
+            })
+            .collect::<squint_core::Result<Vec<_>>>();
+        let digests = match digests {
+            Ok(d) => d,
+            Err(e) => return Some(format!("the call's images could not be read: {e}")),
+        };
+        let binder = contract::Binder {
+            version: VERSION,
+            config_identity: self.inner.config_identity.as_deref(),
+            session_id: Some(&self.inner.session_id),
+        };
+        if binder.binding(action, job, &digests, max_spend_usd) != named {
+            return Some(format!(
+                "the call does not match the estimate {named}: its inputs, the configuration, \
+                 squint's version or the session differ; estimate it again"
+            ));
+        }
+        let expires = self
+            .inner
+            .estimates
+            .lock()
+            .ok()
+            .and_then(|issued| issued.get(named).copied());
+        match expires {
+            None => Some(format!(
+                "this session issued no estimate {named}; estimate the call again"
+            )),
+            Some(expires) if contract::now_ms() >= expires => Some(format!(
+                "the estimate {named} expired at {}; estimate the call again",
+                contract::rfc3339(expires)
+            )),
+            Some(_) => None,
         }
     }
 
@@ -471,13 +752,13 @@ impl Server {
         if !valid {
             return None;
         }
-        let dir = self.inner.out_dir.join(id);
+        let dir = self.inner.out_dir.as_ref()?.join(id);
         match what {
             "run.json" => std::fs::read_to_string(dir.join(contract::RUN_FILE)).ok(),
             "report.json" => std::fs::read_to_string(dir.join("report.json")).ok(),
             // Every run that exists has a journal: a decision's runs' lines in order, and an empty
-            // one for a run with no decision journal (an `estimate`, a call refused before its
-            // first run). A run that does not exist has none.
+            // one for a run with no decision journal (a check refused before its first run). A
+            // run that does not exist has none.
             "journal" if dir.is_dir() => {
                 let mut text = String::new();
                 for n in 1.. {
@@ -499,8 +780,11 @@ impl Server {
     /// names carry the start time, so only the page's runs are opened: a finished one by its
     /// `run.json`, one still going as `running`.
     fn runs(&self, after: Option<&(u64, String)>) -> table_manners::RunsList {
-        let mut all: Vec<(u64, String, PathBuf)> = std::fs::read_dir(&self.inner.out_dir)
-            .into_iter()
+        let mut all: Vec<(u64, String, PathBuf)> = self
+            .inner
+            .out_dir
+            .iter()
+            .flat_map(std::fs::read_dir)
             .flatten()
             .flatten()
             .filter_map(|entry| {
@@ -567,8 +851,8 @@ impl Server {
         }
     }
 
-    /// Writes an action's run directory with its `run.json` and returns the result: `isError`
-    /// for `invalid` and `error`.
+    /// Writes the run directory of a check refused before its decision was allocated, with its
+    /// `run.json`, and returns the result: `isError` for `invalid` and `error`.
     fn finished(
         &self,
         action: &str,
@@ -577,8 +861,9 @@ impl Server {
         error: Option<&squint_core::Error>,
         body: Map<String, Value>,
     ) -> Result<CallToolResult, ErrorData> {
+        let (_, out_dir) = self.configured()?;
         let started = contract::now_ms();
-        let dir = new_run_dir(&self.inner.out_dir, action, started)
+        let dir = new_run_dir(out_dir, action, started)
             .map_err(|e| ErrorData::internal_error(e.to_string(), None))?;
         self.allocated(&dir, association);
         let result = contract::action_result(
@@ -619,14 +904,83 @@ impl Server {
     }
 }
 
+/// An estimate's wrong request (table-manners 4.5): `-32602` with the `invalid_arguments` refusal,
+/// the error object as a result would carry it (`usage` or `input`, never retryable).
+fn invalid_arguments(code: table_manners::ErrorCode, reason: String) -> ErrorData {
+    let refusal = table_manners::Refusal {
+        reason: table_manners::RefusalReason::InvalidArguments,
+        run: None,
+        requirements: None,
+        error: Some(table_manners::ErrorInfo {
+            code,
+            retryable: false,
+            reason: reason.clone(),
+        }),
+    };
+    ErrorData::invalid_params(reason, serde_json::to_value(refusal).ok())
+}
+
+/// An error an estimate met, as the JSON-RPC error it answers with: one the caller must fix
+/// (`invalid`: `usage` or `input`) is the `invalid_arguments` refusal; anything else is squint's
+/// own failure.
+fn refused_estimate(e: &squint_core::Error) -> ErrorData {
+    match contract::status_of(e.class()) {
+        (table_manners::Status::Invalid, Some((code, _))) => invalid_arguments(code, e.to_string()),
+        _ => ErrorData::internal_error(e.to_string(), None),
+    }
+}
+
+/// The refusal of a call that needs requirements that are `missing` or `invalid` (table-manners
+/// 3.1): `-32602` with `{"reason": "not_ready", "run": null, "requirements": [...]}`, before any
+/// run, so it writes nothing, spends nothing and releases its `client_run_id` (4.4).
+fn not_ready(requirements: Vec<table_manners::Requirement>) -> ErrorData {
+    let message = format!(
+        "{}; call describe for every action's readiness",
+        readiness::not_ready_message(&requirements)
+    );
+    let refusal = table_manners::Refusal {
+        reason: table_manners::RefusalReason::NotReady,
+        run: None,
+        requirements: Some(requirements),
+        error: None,
+    };
+    ErrorData::invalid_params(message, serde_json::to_value(refusal).ok())
+}
+
+/// A request's hold on its `client_run_id` (table-manners 4.4, squint's M8 review S3). Dropped
+/// when the request ends: a request that got a run keeps the id (the claim names the run), and so
+/// does one cancelled before allocation (the client retries under a new id); any other request
+/// that ends with no run (a JSON-RPC error: arguments refused, a `not_ready` refusal, a failed
+/// `roots/list`, a server error) releases it, so the corrected request may use it.
+struct Claim {
+    inner: Arc<Inner>,
+    id: String,
+    /// Whether the request was cancelled (its MCP cancellation token).
+    cancelled: Box<dyn Fn() -> bool + Send + Sync>,
+}
+
+impl Drop for Claim {
+    fn drop(&mut self) {
+        if (self.cancelled)() {
+            return;
+        }
+        if let Ok(mut claims) = self.inner.claims.lock()
+            && matches!(claims.get(&self.id), Some(None))
+        {
+            claims.remove(&self.id);
+        }
+    }
+}
+
 /// What a check is given by the call around it: the flag a client's cancellation sets, the
 /// observer that turns journal lines into progress, where the run's reference goes once it is
-/// allocated, and the run's association.
+/// allocated, the run's association, and the estimate binding the call named.
 struct Hooks {
     cancel: Arc<squint_core::run::Cancel>,
     observer: Option<squint_core::run::Observer>,
     progress: Option<tokio::sync::mpsc::UnboundedSender<Progress>>,
     association: contract::Association,
+    estimate: Option<String>,
 }
 
 /// What the progress task hears: the run, once allocated, and each journal line.
@@ -827,9 +1181,9 @@ fn new_run_dir(out_dir: &Path, action: &str, started_ms: u64) -> std::io::Result
     }
 }
 
-/// An action's MCP input schema: its parameters, its image slots as images in (`references` a
-/// list of them), and the locator and image-block choices.
-fn input_schema(action: &table_manners::Action) -> Map<String, Value> {
+/// A tool's MCP input schema: its parameters, its image slots as images in (a `many` slot a
+/// non-empty list of them, table-manners 10.1), and the locator and image-block choices.
+fn input_schema(params_schema: &Value, slots: &[ImageSlot]) -> Map<String, Value> {
     let image_in = json!({
         "type": "object",
         "description": "An image by absolute path or inline bytes, with an optional expected reference (table-manners 10.1).",
@@ -843,17 +1197,17 @@ fn input_schema(action: &table_manners::Action) -> Map<String, Value> {
             "expect": { "type": "object" }
         }
     });
-    let mut properties = action.params_schema["properties"]
+    let mut properties = params_schema["properties"]
         .as_object()
         .cloned()
         .unwrap_or_default();
-    let mut required: Vec<Value> = action.params_schema["required"]
+    let mut required: Vec<Value> = params_schema["required"]
         .as_array()
         .cloned()
         .unwrap_or_default();
-    for slot in action.images.iter().flatten() {
-        let schema = if slot.slot == "references" {
-            json!({ "type": "array", "items": image_in })
+    for slot in slots {
+        let schema = if slot.many {
+            json!({ "type": "array", "items": image_in, "minItems": 1 })
         } else {
             image_in.clone()
         };
@@ -876,7 +1230,7 @@ fn input_schema(action: &table_manners::Action) -> Map<String, Value> {
         ("required".to_string(), Value::Array(required)),
         ("additionalProperties".to_string(), json!(false)),
         // The definitions the parameters refer to, kept at this schema's root (squint issue #2).
-        ("$defs".to_string(), action.params_schema["$defs"].clone()),
+        ("$defs".to_string(), params_schema["$defs"].clone()),
     ])
 }
 
@@ -927,14 +1281,16 @@ impl ServerHandler for Server {
         let args = request.arguments.clone().unwrap_or_default();
         let server = self.clone();
         let name = request.name.to_string();
-        let is_check = name != "estimate"
-            && self
-                .inner
-                .description
-                .actions
-                .iter()
-                .any(|a| a.name == name);
-        let makes_run = is_check || name == "estimate";
+        // Only a check makes a run; `estimate` is a control (table-manners 4.5) that still reads
+        // images, so it answers to roots.
+        let is_check = self
+            .inner
+            .description
+            .actions
+            .iter()
+            .any(|a| a.name == name);
+        let makes_run = is_check;
+        let reads_images = is_check || name == "estimate";
         // The request's correlation id (table-manners 4.4): checked, then claimed for this
         // session before anything waits, so two submissions of one id execute at most once.
         let client_run_id = match context.meta.get(CLIENT_RUN_META) {
@@ -949,15 +1305,38 @@ impl ServerHandler for Server {
                 ));
             }
         };
-        if let (Some(id), true) = (&client_run_id, makes_run) {
-            self.claim(id)?;
-        }
+        // The estimate a paid call names (table-manners 4.5), checked at its limits check.
+        let estimate = match context.meta.get(ESTIMATE_META) {
+            None => None,
+            Some(Value::String(binding)) => Some(binding.clone()),
+            Some(other) => {
+                return Err(ErrorData::invalid_params(
+                    format!("_meta {ESTIMATE_META:?} is {other}; it must be an estimate's binding"),
+                    None,
+                ));
+            }
+        };
+        // Held until this request ends, on every path out of it, `?` included.
+        let _claim = match (&client_run_id, makes_run) {
+            (Some(id), true) => {
+                let ct = context.ct.clone();
+                Some(self.claim(id, Box::new(move || ct.is_cancelled()))?)
+            }
+            _ => None,
+        };
         let association = self.association(&name, client_run_id);
-        // A client that offers roots is asked for them on every check: they may have changed.
+        // A check needs the configuration, the credential, the model and the files its tools
+        // run; one that is `missing` or `invalid` refuses the call here, before roots, the permit
+        // or any directory, releasing its claim (table-manners 3.1).
+        if is_check {
+            self.ready_for_check()?;
+        }
+        // A client that offers roots is asked for them on every call that reads images: they may
+        // have changed.
         // Roots are part of revision 2025-11-25, the only one squint serves; SEP-2577 deprecates
         // them in a later revision, which the contract must answer before squint moves (v0.2).
         #[allow(deprecated)]
-        let roots = if makes_run
+        let roots = if reads_images
             && context
                 .peer
                 .peer_info()
@@ -1024,12 +1403,13 @@ impl ServerHandler for Server {
             observer,
             progress: sender,
             association: association.clone(),
+            estimate,
         };
         let task = tokio::task::spawn_blocking(move || {
             let _permit = permit;
             match name.as_str() {
                 "describe" => server.describe(),
-                "estimate" => server.estimate(args, roots, &association),
+                "estimate" => server.estimate(args, roots),
                 action if is_check => server.check(action, args, roots, hooks),
                 other => Err(ErrorData::invalid_params(
                     format!("no tool {other:?}; call describe for the actions"),

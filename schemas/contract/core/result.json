@@ -61,34 +61,7 @@
           "type": "null"
         },
         {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "code",
-            "retryable",
-            "reason"
-          ],
-          "properties": {
-            "code": {
-              "enum": [
-                "usage",
-                "input",
-                "io",
-                "provider",
-                "budget",
-                "timeout",
-                "tool_process",
-                "internal"
-              ]
-            },
-            "retryable": {
-              "type": "boolean"
-            },
-            "reason": {
-              "type": "string",
-              "minLength": 1
-            }
-          }
+          "$ref": "#/$defs/error_object"
         }
       ]
     },
@@ -270,6 +243,58 @@
         },
         "image": {
           "$ref": "urn:table-manners:images:image-reference"
+        }
+      }
+    },
+    "error_object": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "code",
+        "retryable",
+        "reason"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "usage",
+            "input",
+            "stale_estimate",
+            "io",
+            "provider",
+            "credential",
+            "cap",
+            "budget",
+            "timeout",
+            "tool_process",
+            "internal"
+          ]
+        },
+        "retryable": {
+          "type": "boolean"
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "if": {
+        "properties": {
+          "code": {
+            "enum": [
+              "stale_estimate",
+              "credential",
+              "cap",
+              "budget"
+            ]
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "retryable": {
+            "const": false
+          }
         }
       }
     }

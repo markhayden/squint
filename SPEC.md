@@ -631,6 +631,11 @@ written and fsynced before the event is appended. Artifacts in `artifacts/` by c
 - every image sent to the model, exactly as sent, and every image a tool returned;
 - every structured tool result in full.
 
+Error messages the journal records (`retry`, `attempt_failed`, `error`, `cancelled`), a
+provider's error excerpt (up to 2 KB of its error body) among them, pass the same redaction as
+the bodies, raw and JSON-escaped, so neither `report.json`, `run.json` nor the command line's
+stderr carries an expanded secret.
+
 SIGINT or SIGTERM during a run appends `cancelled` with the state reached and exits 130 or 143
 ("External interface").
 
@@ -653,6 +658,11 @@ time; terminal status.
 The static HTML viewer loads a run directory, shows every image the model saw, every tool result,
 every location overlaid in raw coordinates through the frame registry, and the aggregation
 table. It has no build step and no network access, and declares which `report_version`s it reads.
+It is the run's two renders (table-manners 3.2): `squint report view` serves it on loopback,
+printing only its URL, framed by at most the one origin `--frame-ancestor` names, until its stdin
+closes or SIGTERM or SIGINT arrives (exit 0); `squint report export` writes it as one
+self-contained file outside the run directory (`$XDG_CACHE_HOME/squint/reports/<run id>.html`
+unless `--out`) and prints only that file's absolute path. Neither modifies the run directory.
 
 ## Run state machine
 
@@ -671,7 +681,9 @@ if it is replayable under the adapter's rules; a non-replayable turn is journale
    canonical images, build frames, build the checklist, connect tool packs and freeze their
    manifests, render the system prompt. Any failure is `error: resolve` with a journal, except an
    image that is not the one the job names (a `sha256` pin or an `expect` that does not match),
-   which is `error: input`.
+   which is `error: input`. Then plan the images against the model's per-request limits (see
+   "Image preparation"): a run whose worst case cannot fit `max_per_request` ends here with
+   `error: image_limit`, before any reservation or request.
 2. **Prepare.** Produce prepared images for the model (see "Image preparation") and preflight the
    first request against the catalog's limits. Compute the cache key (see "Cache key"). If
    caching is on, this is not an evaluation, and this is the decision boundary, return the cached
@@ -694,7 +706,9 @@ if it is replayable under the adapter's rules; a non-replayable turn is journale
      **Aggregate**. **Mixed** with other calls: answer every call with a provider-native error
      result, then the repair.
    - **Non-replayable** (truncated or incomplete, a refusal, or text with no call): the repair.
-   - **Provider error** after retries, or a timeout: `error: provider`.
+   - **Provider error** after retries, or a timeout: `error: provider`; a status no retry takes
+     (a 400, 404, 422; a 400 naming no cause after its one retry): `error: provider_rejected`;
+     a 401 or 403: `error: credential`.
 5. **Final turn.** When `tool_turns` or `tool_calls` are exhausted, send one request with the
    same frozen tool definitions, the full checklist, and an appended instruction that only
    `submit_verdict` will be executed and the model must submit now (see "Final turn mechanics").
@@ -740,8 +754,17 @@ refusal and a call-less text, for each form.
 
 Transport-level only: connection errors, timeouts before any byte, HTTP 408, 409, 429 and 5xx.
 Exponential backoff with full jitter from 1 s, capped at 30 s, honouring `retry-after` when
-present, at most `budget.retries` attempts after the first. A 4xx other than those is
-`error: provider` immediately. Each attempt is a billable attempt in the ledger.
+present, at most `budget.retries` attempts after the first. A 401 or 403 is `error: credential`
+immediately, and costs nothing (the provider refused before any work). A 400 whose body names no
+cause is retried once per turn, inside the same budget and the envelope's retry reserve, since
+an identical request may pass (Gemini has answered `INVALID_ARGUMENT` to request shapes that
+served every other item); a second one is final. Each adapter reads its provider's error body:
+an empty body names no cause; Anthropic's envelope names none when `error.message` is empty;
+Gemini's `google.rpc.Status` when it has no `details` and its message is empty or exactly
+`Request contains an invalid argument.`; OpenAI's when `error.message`, `param` and `code` are
+all empty. Any other body, a non-JSON one included, names a cause or may. Every other 4xx, and a
+400 naming its cause, is `error: provider_rejected` immediately, which no identical retry mends.
+Each attempt is a billable attempt in the ledger.
 
 ### Final turn mechanics
 
@@ -781,7 +804,7 @@ pub trait Provider: Send + Sync {
     fn send<'a>(&'a self, req: TurnRequest<'a>) -> SendFuture<'a>;     // one round trip, no retries
     fn pricing(&self) -> Option<&dyn Pricing>;                         // the catalog entry
     fn prep_version(&self) -> &str;                                    // part of the cache key
-    fn prepare_image(&self, id: &str, pixels: &DynamicImage) -> Result<Prepared>;
+    fn prepare_image(&self, id: &str, pixels: &DynamicImage, plan: ImagePlan) -> Result<Prepared>;
     fn recipient(&self) -> Option<Recipient>;                          // profile, host, upstream, model
 }
 ```
@@ -871,9 +894,23 @@ estimate; provider-specific detail controls. Preparation is deterministic and ve
 config's lower `images.max_long_edge`) with Lanczos3, never upscaling; encode JPEG at quality 90,
 or PNG when the image carries an alpha channel; write no metadata; record the source and prepared
 dimensions and the prepared SHA-256. Each provider reports its `prep_version` (the scripted
-provider sends canonical pixels and reports `canonical`), and the cache key carries it. Preflight runs against the whole outgoing provider history on every turn,
+provider sends canonical pixels and reports `canonical`), and the cache key and the input identity
+carry it. Preflight runs against the whole outgoing provider history on every turn,
 counting historical and tool-result images; a request that would exceed any limit is
-`error: image_limit`, never a silent downscale. Tool images are prepared the same way before they
+`error: image_limit`, never a silent downscale.
+
+The history only grows, so resolve plans the images once, before the first request, from the
+worst case: the job's images plus `budget.tool_calls` times the largest enabled tool's
+`returns.max_images` (the count the envelope bounds the later requests with). When the worst case
+exceeds the model's `max_per_request`, the run is refused with `error: image_limit` before any
+reservation or request, and its estimate is that refusal. When it can pass
+`many_image_threshold`, every image, job and tool alike, is prepared from the start with its long
+edge fitted to at most `many_image_max_dimension_px` (and never above the usual target), recorded
+as `prep_version` `<version>+many<edge>` (`1+many2000`; the scripted provider's
+`canonical+many<edge>`), so the cache key and the input identity tell it apart. Otherwise the
+images are prepared exactly as above. Either way no request meets the threshold mid-run after
+money is spent. The ledger keeps bounding every image at the model's maximum token cost, which the
+many-image size does not lower for any shipped model. Tool images are prepared the same way before they
 reach the model; tool manifests bound their count and size so the bound is computable.
 Provider-side processing the documentation does not describe is recorded as unverified in
 `docs/provider-data.md`.
@@ -928,7 +965,8 @@ an ADR: `bedrock` (Messages API with SigV4), `vertex` (Google-managed Claude, mo
 "Secrets only from the environment" holds for the first release. Later schemes extend the sources
 to the provider's standard credential chain and, for OAuth, to a protected local token file; each
 is documented in `docs/provider-data.md`. No scheme is ever substituted for another silently; a
-missing credential is `error: auth`.
+missing credential never reaches a run: a check is refused `not_ready` (on the command line,
+exit 64) naming the variable, and a provider's 401 or 403 during a run is `error: credential`.
 
 ### Model catalog
 
@@ -1236,6 +1274,17 @@ catalog, check controls and image settings against capabilities, refuse credenti
 `env`, expand `${VAR}` from the environment only. The resolved config, redacted, goes into the
 report.
 
+Where it is (`check`, `estimate`, `describe` and `serve`; ADR 0018 amendment): `--config <path>`,
+else `./squint.toml`, else `$XDG_CONFIG_HOME/squint/squint.toml` (`~/.config/squint/squint.toml`
+when that is unset); the first that exists wins, and a given path wins even when it does not.
+None found is not an error for `describe` or `serve` (table-manners 3.1): the description names
+the configuration as a `missing` requirement at the path the lookup would use (the user file),
+or `invalid` when it does not load (a parse error, an unreadable file, an unset `${VAR}` named
+in the setup sentence, rules that do not resolve), and the server starts and refuses every call
+that makes a run `not_ready`. `check` exits 64 naming where squint looked; `estimate` answers
+like `describe`, its estimate refused for readiness with nothing priced. A parse error never
+quotes an expanded value.
+
 ## Evaluation
 
 ### Set manifest
@@ -1405,8 +1454,8 @@ Schemas (the source of truth), test vectors, a fixture per tool and a Rust crate
 The contract has a core every tool follows and profiles a kind of tool adds; squint implements the
 core and the images profile, and lists `images` in its description's `profiles`. squint pins a
 tagged release, keeps a hash-checked copy of its schemas under `schemas/contract/`, and warns in CI
-when a newer tag exists. squint pins v0.1.0. Field names and schemas are the contract's; this
-section says what squint does with them.
+when a newer tag exists. squint conforms to v0.3.0, pinned `=0.3.0` from crates.io (M9). Field names and schemas are the contract's; this section says what squint does
+with them.
 
 - **Image reference**: `file_sha256`, width and height of the caller's file (enforced), projection
   and topology, an optional `pixel_sha256` in the contract's canonical form. squint computes the
@@ -1424,23 +1473,69 @@ section says what squint does with them.
 - **`squint serve`**: an MCP server over stdio at revision `2025-11-25`, under the contract's
   server conventions. Tools: one per use case, as `describe` lists them (`source_fidelity`, …: one
   decision each; images by path or inline bytes in any slot; paths only inside the client's MCP
-  roots narrowed by config; inline bytes bounded), `estimate` (worst-case cost of a check and the
-  effective per-call cap; the session's budget is the `squint://session` resource; on the command
-  line `squint estimate`, priced from the catalog with no credential), and `describe`. squint's own self-description (`rules`, `tools list`, `catalog`)
+  roots narrowed by config; inline bytes bounded), the reserved `estimate` (below), and
+  `describe`. It reads
+  its configuration once, at start, and never reloads it (table-manners 4.6). Without one that
+  loads it still starts, needs no output directory and writes nothing: `describe`, `estimate` and
+  the resources answer, and a check is refused before any run as JSON-RPC `-32602` with
+  `{"reason": "not_ready", "run": null, "requirements": [the config]}`, which releases its
+  `client_run_id`. Any check is refused the same way, before roots, the permit or any directory,
+  when a requirement it needs (`readiness::Inspection::unmet`) is `missing` or `invalid` now,
+  this session's provider answers included, naming only those: the configuration, the
+  credential, the model and, when one of its tools runs it, the segmenter file. An `estimate` is
+  never refused this way: it answers, `refused: "readiness"` when the action is not ready
+  (below). `squint check` makes the same inspection after resolving and
+  exits 64 with the same requirements before any run directory (a dry run needs only the
+  configuration, a replay no credential). squint's own self-description (`rules`, `tools list`, `catalog`)
   stays on the command line and is referenced from the description's `x-squint`. An `invalid` or
   `error` outcome is a result with `isError` and the header; JSON-RPC errors are only for failures
   before a run exists. Each image out carries its reference and the locator the call asked for
   (path, inline, resource URI); image blocks only when asked. Checks are serial by default
   (`[serve] concurrency`); `describe`, `estimate` and resource reads never wait behind one. A
   check waiting for its turn beats like a running one, and cancelling it there leaves no run. Spend: the per-call cap from config, which a call (`max_spend_usd`; on
-  the command line `--max-spend-usd`) may lower and never raise, and a per-session budget
+  the command line `--max-spend-usd`) may lower (`Config::call_cap`; a value above the configured
+  cap is `invalid`, `usage`, before any paid step, exit 64 on the command line, never silently
+  lowered; one at or below zero is rejected by the input schema), and a per-session budget
   (`[serve] session_budget_usd`) across the server's lifetime, a ledger every decision reserves
-  against before its first request. Paths: when the client offers roots, squint asks for them on
-  every check and estimate and refuses (`invalid`, `input`) a path outside them, or outside
+  against before its first request. The limits check, after the decision's directory exists and
+  before its reservation, refuses in this order with zero spend: a call whose named estimate no
+  longer binds it (`stale_estimate`, below), the envelope over the per-call cap (`cap`, as is a
+  retry the envelope can no longer cover), the session unable to hold it (`budget`). Paths: when the client offers roots, squint asks for them on
+  every check and estimate and refuses (`input`) a path outside them, or outside
   `[serve] roots` when the config names any; a client that offers no roots, under a config that
   names none, can send images only inline (closed by default). A refusal says nothing about the
   file, not even whether it exists. A check over `serve` is an ordinary decision: its directory, journal,
   report and `run.json`, with the action's name.
+- **Estimates** (table-manners 4.5): a control, never a run: no directory, journal, runs entry or
+  `run.json`, no permit, no `client_run_id` claimed, no provider call. The `estimate` tool takes
+  `{"action": <an action's name>, "arguments": <exactly the call's arguments, images included>}`
+  and returns the contract's estimate as `structuredContent`: `worst_case_usd`, the envelope the
+  limits check would reserve (`run::envelope`, from the same setup a check makes: the images read
+  and checked, the rules resolved); `cap_usd`, the configured per-call cap lowered by
+  `max_spend_usd`; `allowed`, and when not, `refused`: `readiness` (the action is not `ready`),
+  then `cap`, then `budget` (the session cannot hold it); the action's `readiness`; `session`, the
+  same observation as `squint://session`; `effective.model` (the configured model),
+  `effective.config_identity` (sha256 of the redacted configuration's canonical JSON) and under
+  `x-squint` the decision runs, requests per run and billable attempts; `expires`, one hour on;
+  and `binding`, sha256 over the canonical JSON of the action, the arguments with each image
+  replaced by its file digest (a path and inline bytes of one file bind equal) and its `expect`
+  kept, the tool version, the configuration's identity and the session id (`return_images` and
+  `image_blocks` left out). The server records each binding it issues with its expiry. A call
+  that cannot be priced (no configuration, or a model the catalog lacks) is refused for
+  readiness with `worst_case_usd` and `effective.model` null, and without a configuration
+  `effective.config_identity` null, never a made-up zero. A wrong request is a JSON-RPC error,
+  since there is no run: arguments the input schema rejects are plain `-32602`; any other
+  (`max_spend_usd` above the configured cap, an `expect` that does not match, an unknown action,
+  a path outside the roots) is `-32602` with `{"reason": "invalid_arguments", "run": null,
+  "error": {"code": "usage" | "input", "retryable": false, "reason": …}}`. `squint estimate
+  --json` prints the same document from the command line, priced from the catalog with no
+  credential, with `session_id` and `session` null, so no server accepts its binding; a wrong
+  request there exits 64. A paid call may name an estimate in
+  `_meta["table-manners/estimate"]`: the server recomputes the binding as the call arrives (its
+  images by file digest) and passes the outcome to the decision, which fails `invalid`,
+  `stale_estimate` at the limits check, with zero spend and its run directory, when the binding
+  differs, was never issued by this session, or has expired. A call that names none meets the
+  limits alone.
 - **Progress and cancellation**: `check` is a plain `tools/call`. With a progress token, squint
   sends a notification on every journal line of every run (through an observer the journal calls
   after each write) and a heartbeat after five seconds of silence, well inside the ten the
@@ -1450,9 +1545,12 @@ section says what squint does with them.
   `_meta["table-manners/run"]` (id, resource, session id, client run id). A request may carry
   `_meta["table-manners/client_run_id"]` (`^[A-Za-z0-9._:-]{1,128}$`): claimed for the session
   when the request is accepted, written into the run's directory when it is made, and a reuse is
-  `-32602` with the earlier request's run (null while it has none). A claim is never released, so
-  the server keeps one small entry per id for the session's life, unbounded: fine over stdio with
-  one trusted host, to bound before any networked transport. `notifications/cancelled` stops the
+  `-32602` with the earlier request's run (null while it has none). A request that ends in a
+  JSON-RPC error with no run (arguments refused, a `not_ready` refusal, a failed `roots/list`, a
+  server error) releases its id, so the corrected request may use it; one that got a run, or was cancelled before
+  allocation, keeps it for the session (4.4). The server keeps one small entry per kept id for
+  the session's life, unbounded: fine over stdio with one trusted host, to bound before any
+  networked transport. `notifications/cancelled` stops the
   provider call; `run.json` and the run resource then hold status `cancelled` with spend to date,
   and no result is returned; a call cancelled before its run is allocated makes no run. An identical retry within the cache policy is answered from the
   decision cache and says so.
@@ -1465,11 +1563,12 @@ section says what squint does with them.
   cursor opaque base64url; a run started during a walk is seen by reading page one again),
   `squint://run/<id>/run.json`, `…/report.json` and `…/journal` for every decision the server ran,
   readable after a timeout or a dropped connection; every run has a journal, an empty one when it
-  made no decision (an `estimate`, a call refused before its first run).
+  made no decision (a check refused before its first run).
 - **`run.json`**: written last and atomically (a temporary name, then a rename) into every
   decision directory by `check` on every surface, cache hits and cancelled decisions included: the
   contract's header (status, error code with `retryable` and a reason, run id, tool and version,
-  timestamps and duration, input identity, spend (with `unresolved_usd`: a provider call that
+  timestamps and duration, input identity (a digest of the resolved inputs, the images'
+  `prep_version` included), spend (with `unresolved_usd`: a provider call that
   never left costs nothing, an authentication rejection costs nothing, and one that failed with no
   usage reported, or was cancelled in flight, counts at its bound, unresolved; a successful answer
   that reports no usage counts its bound too, settled, and makes the basis `estimated` rather
@@ -1478,23 +1577,48 @@ section says what squint does with them.
   body (verdict, exit code, whether two runs agreed, the report's path). The result's `action` is
   the use case's as `describe` names it (`source_fidelity`), from the command line as from MCP. A
   failed image is `completed` with verdict `fail`. squint's error classes map to the contract in one table
-  (`contract::status_of`): `resolve` and `auth` are `invalid` with code `usage`; `input` and
-  `image_limit` are `invalid` with code `input`; a provider or model-output failure is a
-  retryable `error` with code `provider`; `tool` is `tool_process`; `budget`, `io` and anything
-  else (`internal`) are not retryable; `cancelled` is its own status.
-- **`squint describe --json --config <file>`**: the contract's description document with
-  `profiles: ["images"]`: one action per use case the config can check (`source_fidelity`, …:
-  the one `[rules]` names, its slots from the merged rules with relative files resolved against
-  the working directory as `check` resolves them; else every shipped use case), named for
+  (`contract::status_of`): `resolve` is `invalid` with code `usage`; `input` and
+  `image_limit` are `invalid` with code `input`; `credential` (a provider's 401 or 403 during the
+  run, never retried, costing nothing) is an `error` with code `credential`, never retryable; a
+  provider or model-output failure is a retryable `error` with code `provider`, except
+  `provider_rejected` (a status the retries never take: a 400, 404, 422, or a 400 naming no
+  cause after its one retry), the same code, not retryable; `tool` is `tool_process`; `cap` (the
+  per-call ledger's refusal) and `budget` (the session's, an evaluation's, or the evidence-item
+  budget) are `error` with their own codes; `stale_estimate` is `invalid` with its own code;
+  none of these, nor `io` and anything else (`internal`), is retryable; `cancelled` is its own
+  status.
+- **`squint describe --json [--config <file>]`**: the contract's description document with
+  `profiles: ["images"]`, with or without a configuration (Config: where it is; it always exits
+  0 on one that is missing or invalid): one action per use case the config can check
+  (`source_fidelity`, …: the one `[rules]` names, its slots from the merged rules with relative
+  files resolved against the working directory as `check` resolves them; else, and with no
+  configuration, every shipped use case), named for
   its rule set's `use_case` with a one-sentence purpose (kept beside the description, since sealed
   sets bind the rule files byte for byte), taking `candidate`, the `source` when the
-  rule set requires one, and `references` (a list; contract v0.1 has no list slot, so squint says
-  so under `x-squint`), with the brief, requirements and a lower spend cap as parameters; an
-  `estimate` action; every disposition and confidence word a finding can carry (`vocabulary`),
-  the renders (`report view`, `report export`), the cost notice and the credential variable the
-  configured profile needs (its name, never its value; a check on the scripted fake, under the
-  `fake` profile or `--provider-script`, declares `may_spend: false` and no credential), the
-  expected duration, the inline limit (the decode bound) and the resources. Every
+  rule set requires one, and `references`, a `many` slot (a non-empty list of images in, which
+  `images.in` lists once per image in the order given), with the brief, requirements and a lower spend cap as parameters
+  (`estimate` is a reserved tool, never an action); every disposition and confidence word a
+  finding can carry (`vocabulary`), the renders (`report view` of kind `server` with a ten-second
+  `ready_timeout_s`, `report export` of kind `document`, each with `command[0]` `squint` and the
+  placeholders `{run.dir}` and `{frame_ancestor}` only as whole arguments), the cost notice (a check on the
+  scripted fake, under the `fake` profile or `--provider-script`, declares `may_spend: false`;
+  with no configuration that loads, a check may spend) and each action's `readiness`
+  (`readiness::Inspection`, the same for every action since they share a provider and tools),
+  by local inspection only, never a network call, a paid step or a run: the configuration
+  (`present` at its path, `missing`, or `invalid`, including a profile or model the catalog
+  lacks), then, when it loaded, the credential variable the configured profile reads, by name,
+  `missing` or `present` by a lookup, never its value, the configured model, `present`, and the
+  segmenter file (`$XDG_CACHE_HOME/squint/models/segmenter-v1/<artifact>` from the record the
+  installed pack ships) when `regions` or `classes` is enabled, `present` when it is there at
+  the recorded size, never hashed so never `valid`. With no configuration only the configuration
+  is listed; the `fake` profile lists no credential or model; a scripted run still lists the
+  configured profile's, since the script stands in for its endpoint; squint emits no `env`
+  requirement. The command describes a fresh session. A server computes `describe` per call
+  from its start-up inspection and the provider answers its session has had (`Services` reports
+  each: a response makes the credential and the model `valid`, a 401 or 403 makes the credential
+  `invalid`, so the next check that needs it is refused `not_ready`); a new server starts from
+  `present` again. Then the expected duration, the inline
+  limit (the decode bound, the default one with no configuration) and the resources. Every
   `params_schema` and MCP `inputSchema` is a schema of its own: the definitions it refers to sit
   at its root. Argument errors on every command exit 64.
 - **Exit codes** across commands: 0 success, 3 error, 64 usage or input, 130 on SIGINT and 143
@@ -1548,14 +1672,15 @@ uv run --frozen --offline --no-sync ruff check . && uv run --frozen --offline --
 squint tools setup --config squint.toml     # provisions bundles and artifacts (network allowed here)
 squint check --config squint.toml --candidate out.png --ref "pip=refs/pip.jpg" --brief "…"
 squint check --config squint.toml --job job.toml
-squint report view ./squint-out/<run-id>
+squint report view ./squint-out/<run-id>    # prints only its URL; Ctrl-C or end of stdin stops it
+squint report export ./squint-out/<run-id>  # one self-contained page in ~/.cache/squint/reports/
 squint report rebuild ./squint-out/<run-id>
 squint report prune --older-than 30d
 squint tools list --config squint.toml      # manifests as the model will see them
-squint describe --json --config squint.toml # the contract's description document (ADR 0018)
-squint estimate --config squint.toml --job job.toml [--max-spend-usd 0.10]   # worst case of one check; nothing sent
-squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check, never raises it
-squint serve --config squint.toml [--out runs/]   # MCP over stdio, protocol 2025-11-25 (table-manners 5)
+squint describe --json [--config squint.toml] # the contract's description document (ADR 0018); works with no config
+squint estimate --json --config squint.toml --job job.toml [--max-spend-usd 0.10]   # the estimate of one check; nothing sent
+squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check; above it, exit 64
+squint serve [--config squint.toml] [--out runs/]   # MCP over stdio, protocol 2025-11-25 (table-manners 5); starts with no config
 squint sets check evalsets/
 squint sets fetch --set reference-consistency/pets-v1
 squint sets seal --set <set> --attest "…"    # writes seal.toml; a blind set's labels move out (--labels-out)
@@ -1605,6 +1730,7 @@ fixtures/
   adapters/<adapter>/           recorded conversations per capability combination
   profiles/<profile>/           recorded conversations per shipped profile, including routing
   images/                       golden images for built-in tools, flat and equirectangular
+  contract/                     table-manners pixel vectors; squint/: squint's conformance fixtures
 evalsets/<use-case>/<set>/      set.toml, labels.toml or labels_sha256, families.toml, seal.toml, items/*/job.toml
 crates/squint-cli/viewer/     static report viewer, embedded in the binary (packaging keeps embedded assets inside their crate)
 docs/
@@ -1699,6 +1825,16 @@ published, obligation ids as above, instance ids `<obligation>@<target>`, checkl
   code, including batch over budget, submission with pending calls, both repair forms and their
   exhaustion, operational error after a valid submission, two-run decisions with and without
   agreement, cancellation, and cache hit, miss and pruned-hit.
+- **Contract conformance** (`cargo test`): the copied table-manners schemas are held to the
+  pinned crate by hash; squint's conformance fixtures (`fixtures/contract/squint/`, CONTRACT.md 7
+  item 7: descriptions with and without a configuration and in each credential state, estimates
+  allowed and refused for each reason and from the command line, a `run.json` per status and per
+  error code a run can end with, the runs page, the session and each refusal) are generated by
+  squint's own code and a running `squint serve`, must equal what squint emits now, and are
+  validated as table-manners validates them (schema by file name, contract `0.3.0`, tool
+  `squint`, amounts to six decimals); `UPDATE_CONTRACT_FIXTURES=1` rewrites them for the copy
+  into table-manners `fixtures/squint/`. `describe` and `estimate` are proved to call no provider
+  and write nothing (`serve_session_cli.rs`).
 - **Isolation** (`cargo test`): instruction-like text in images, filenames, labels, the brief and
   tool results never alters prompt structure, tool selection or control flow; image and frame ids
   never resolve outside the registry; `_squint` from the model is rejected; packs receive only

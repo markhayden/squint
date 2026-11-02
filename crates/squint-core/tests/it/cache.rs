@@ -80,12 +80,12 @@ fn check(out: &Path, cache_dir: &Path, script: &str, extra: &[&str], evaluation:
 fn key_input(config: &Config) -> KeyInput {
     let tools = ToolRegistry::new(vec![], &[], &[]).unwrap();
     let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
-    let setup = run::setup(config, &job, &root(), &tools).unwrap();
+    let setup = run::setup(config, &job, &root(), &tools, None).unwrap();
     KeyInput::gather(
         config,
         &job,
-        &setup.images,
-        &setup.prepared,
+        &setup,
+        setup.image_plan().unwrap(),
         &tools,
         &squint_testkit::ScriptedProvider::from_json("[]").unwrap(),
         "test",
@@ -186,12 +186,12 @@ fn cache_key_changes_with_a_packs_lock_digest() {
                 "regions".to_string(),
                 digest.to_string(),
             )]));
-        let setup = run::setup(&config, &job, &root(), &tools).unwrap();
+        let setup = run::setup(&config, &job, &root(), &tools, None).unwrap();
         KeyInput::gather(
             &config,
             &job,
-            &setup.images,
-            &setup.prepared,
+            &setup,
+            setup.image_plan().unwrap(),
             &tools,
             &squint_testkit::ScriptedProvider::from_json("[]").unwrap(),
             "test",

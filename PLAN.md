@@ -1589,7 +1589,9 @@ renders a host can embed (3.2), claims released when a request gets no run (4.4)
 to their inputs and checked caps (4.5), configuration owned by the session (4.6), list image
 slots (10.1, 11.2), the `not_ready` refusal (3.1) and the `credential`, `cap` and `stale_estimate`
 codes (2.2). The coordinator settled squint's six planning questions in the contract at
-`7f9316c` (branch `v0.3`); the tasks below follow them. The work list is
+`7f9316c` (branch `v0.3`), and three rulings from Wafflery's review at `e503a23` (renders run
+the tool's own executable, a document is one self-contained file, an estimate's wrong request is
+the `invalid_arguments` refusal); the tasks below follow them. The work list is
 MAPPING.md's v0.3 table, squint column; every row is a task below. The branch `m9-v0.3` starts
 from `main` at `m8` or later. Two behaviours go away rather than gain a second shape: an estimate
 is never a run (no run directory, no runs entry, no `run.json`), and `cost.needs_env` is replaced
@@ -1598,10 +1600,11 @@ by per-action `readiness`. squint's own choices the contract leaves open are rec
 
 **Building against the unpublished contract.** Until the owner tags and publishes v0.3.0, squint
 builds against `table-manners = { version = "=0.3.0", path = "../table-manners" }` with
-`../table-manners` a checkout of the contract's `v0.3` branch at `7f9316c` or later (the
+`../table-manners` a checkout of the contract's `v0.3` branch at `e503a23` or later (the
 coordinating session the only writer), as M8 did with `v0.2-contract`. The copied schemas under `schemas/contract/` are refreshed
-from that checkout with `UPDATE_CONTRACT=1 cargo test -p squint-core --test contract_schemas`
-(`SOURCES.toml` records the branch and the commit it was copied from); squint's fixtures are
+from that checkout with `UPDATE_CONTRACT=1 cargo test -p squint-core --test it contract_schemas`
+(`SOURCES.toml` records the branch and the commit it was copied from while the dependency is a
+path, and the copy test holds it to that); squint's fixtures are
 regenerated with `UPDATE_CONTRACT_FIXTURES=1` and handed over as a directory for table-manners
 `fixtures/squint/`. The tag waits on both tools' fixtures. A path dependency never reaches `main`:
 the last task (9.11) moves to `=0.3.0` from crates.io, and the checkpoint requires it.
@@ -1732,8 +1735,13 @@ catalog lacks) is `allowed: false`, `refused: "readiness"`, `worst_case_usd: nul
 `effective.model` null and, without a configuration, `effective.config_identity` null; never a
 made-up zero. The server records each binding it issues with its expiry. An
 estimate writes no directory, journal or runs entry, takes no permit, does not claim a
-`client_run_id`, and still answers to roots like a check (`m7-review` C1). Errors before an
-estimate exists are JSON-RPC errors. `squint estimate --json` prints the same document from the
+`client_run_id`, and still answers to roots like a check (`m7-review` C1). Since an estimate is
+never a run, its failures are JSON-RPC errors (4.5, ruling of `e503a23`): arguments the input
+schema rejects are plain `-32602`; any other wrong request (`max_spend_usd` above the configured
+cap, an `expect` that does not match, an unknown action or use case, a path outside the roots) is
+`-32602` with refusal data `{"reason": "invalid_arguments", "run": null, "error": {"code": "usage"
+| "input", "retryable": false, "reason": …}}`, valid against `refusal.json`. A call that is not
+ready is not an error: it gets an estimate `refused: "readiness"` (9.3). `squint estimate --json` prints the same document from the
 command line with `session_id` and `session` both null; no server accepts its binding. The v0.2
 body's `decision_runs`, `requests` and
 `attempts` move under `effective["x-squint"]`. Every test, doc and fixture that assumes an
@@ -1752,7 +1760,10 @@ argument or `max_spend_usd` changes it and `return_images` or `image_blocks` doe
 gives `allowed: false`, `refused: readiness`; with no config, `refused: readiness` with
 `worst_case_usd`, `effective.model` and `effective.config_identity` null; the command-line estimate
 has null `session_id` and `session`, and its binding is stale on any server;
-a cap below the worst case gives `refused: cap`; a spent session gives `refused: budget`; every
+an estimate whose `expect` does not match, for an unknown action, or with `max_spend_usd` above
+the cap is `-32602` with `invalid_arguments` refusal data (`input`, `usage`, `usage`) that
+validates against `refusal.json`, and one the input schema rejects is `-32602` with no refusal
+data; a cap below the worst case gives `refused: cap`; a spent session gives `refused: budget`; every
 recorded replay still spends within its `worst_case_usd`.
 
 **Verification.** `crates/squint-cli/tests/it/{serve_cli,estimate_cli,serve_session_cli}.rs`,
@@ -1769,7 +1780,8 @@ over the effective cap, and a retry the envelope can no longer cover) are `cap`;
 ledger's are `budget` (ADR 0018 amendment). `max_spend_usd` above the configured cap is
 `invalid`, `usage`, as a result before any paid step, never silently lowered:
 `Config::lower_spend_cap` becomes `Config::call_cap`, which refuses it, on the command line
-(`--max-spend-usd`, exit 64) and over MCP; a non-number or a value at or below zero is refused by
+(`--max-spend-usd`, exit 64) and over MCP (on `estimate` it is the `invalid_arguments` refusal,
+9.4, since an estimate has no result); a non-number or a value at or below zero is refused by
 the input schema as a JSON-RPC error (and releases its claim, 9.7). Every paid action's
 `params_schema` keeps `max_spend_usd` as `{type: number, exclusiveMinimum: 0}`, now pinned by a
 test. `_meta["table-manners/estimate"]` is read on a paid call; the server recomputes the binding
@@ -1864,16 +1876,20 @@ order; an empty list is refused before any run; no `x-squint` key mentions a lis
 
 ### Task 9.9: Renders a host can embed
 
-**Description.** `squint report view`: `kind: "server"`, `ready_timeout_s: 10`, command
+**Description.** Every render's `command[0]` is the tool's own name, `squint` (`tool.name`); the
+host runs the same executable it serves, never another program or another install on `PATH`
+(3.2, ruling of `e503a23`), so no render names a script or a path. `squint report view`: `kind: "server"`, `ready_timeout_s: 10`, command
 `["squint", "report", "view", "{run.dir}", "--port", "0", "--frame-ancestor", "{frame_ancestor}"]`.
 Once listening it prints exactly one stdout line, `http://127.0.0.1:<port>/`, and nothing else
 ever (the human sentence moves to stderr); it serves until stdin reaches EOF or it receives
 SIGTERM (or SIGINT), then exits 0; `--frame-ancestor <origin>` (an `http` or `https` origin, no
 path; anything else exits 64) adds `frame-ancestors <origin>` to every response's
 `Content-Security-Policy`, and with no flag the policy is `frame-ancestors 'none'`; the loopback
-host check stays. `squint report export`: `kind: "document"`; its only stdout is the absolute path
-it wrote (the size moves to stderr); exit 0 means the file exists. A render never modifies the
-run directory (3.2), so export's default output moves out of it, from `<dir>/report.html` to
+host check stays. `squint report export`: `kind: "document"`; it writes ONE self-contained file (images, scripts and styles inline,
+nothing it needs beside it; the host reads that file and nothing next to it) at a path outside
+the run directory, and its only stdout is that file's absolute path (the size moves to stderr);
+exit 0 means the file exists. A render never modifies the run directory (3.2), so export's
+default output moves out of it, from `<dir>/report.html` to
 `$XDG_CACHE_HOME/squint/reports/<run id>.html` (`--out` still chooses); `report view` already
 writes nothing. Placeholders stay whole arguments. `scripts/offline-smoke.sh` and
 its fake in `scripts/test-checks.sh` keep the viewer's stdin open (a pipe from a sleeping writer)
@@ -1883,7 +1899,9 @@ once; `docs/viewer.md` says so.
 **Acceptance.** stdout of `report view` is one URL line and stays one line across requests; EOF on
 stdin and SIGTERM each end it with exit 0 within a second; a response framed for
 `http://127.0.0.1:4801` carries exactly that `frame-ancestors`, none for loopback in general; a
-bad origin exits 64; `report export` stdout is one absolute path that exists outside the run directory; a test
+bad origin exits 64; every render's `command[0]` is `squint`; `report export` stdout is one
+absolute path that exists outside the run directory, and the file it names loads with no other
+file beside it (no relative `src` or `href` in it); a test
 hashes the run directory before and after both renders and finds it unchanged; the offline smoke
 passes on a built binary and fails on the fakes as before.
 
@@ -1962,6 +1980,12 @@ squint's six planning questions, as the contract now answers them and the tasks 
    it does not; listing only `config` when unconfigured is right (9.3).
 6. A server render exits 0 on stdin EOF or SIGTERM (3.2, 9.9).
 
+Settled from Wafflery's review at `e503a23` and followed here: a render's `command[0]` is the
+tool's own name and the host runs the same executable (9.9); a document render writes one
+self-contained file outside the run directory and prints only its path (9.9); an estimate's wrong
+request is `-32602` with the `invalid_arguments` refusal, a schema-invalid one plain `-32602`,
+and a call that is not ready an estimate refused for readiness (9.4, 9.5).
+
 Settled from rascal's questions at the same commit and followed here: the requirement kind `env`
 (squint emits none), a `file` `valid` only after a digest check this session (squint never hashes
 while describing), placeholders only as whole arguments and a render never modifying the run
@@ -1996,8 +2020,9 @@ prepares at the smaller dimension from the first request and completes; one that
 `max_per_request` is refused with zero spend and no request sent; runs that cannot reach the
 threshold prepare exactly as before (recordings replay byte for byte).
 
-**Verification.** `crates/squint-providers/tests/it/{prepare,replay}.rs`,
-`crates/squint-core/tests/it/tool_turns.rs`, `just check`. **Dependencies.** none (sequence against 9.5). **Files.**
+**Verification.** `crates/squint-providers/tests/it/{prepare,many_images}.rs` (the Anthropic
+adapter's own preflight, through `run::check`), `crates/squint-core/tests/it/tool_turns.rs`, the
+recorded conversations replaying unchanged, `just check`. **Dependencies.** none (sequence against 9.5). **Files.**
 `crates/squint-providers/src/prepare.rs`, `crates/squint-core/src/run.rs`. **Size.** S.
 
 ### Task F2: Image arguments say what they take

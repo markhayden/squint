@@ -32,7 +32,11 @@ a "Generated with" line or an assistant's no-reply address): the repository show
 association, in its history or its files.
 
 The `testkit` feature of the `squint` package enables the scripted fake provider and the
-`--provider-script` flag for tests and debugging. Release builds never enable it.
+`--provider-script` flag for tests and debugging, and two observation seams the tests use to
+prove a command makes no provider call: `SQUINT_TESTKIT_PROVIDER_CALLS=<file>` (the scripted
+provider appends a line per request) and `SQUINT_TESTKIT_BASE_URL=<url>` (the configured
+profile's endpoint replaced, so a local listener sees any connection). Release builds never
+enable it.
 
 Toolchain: `rust-toolchain.toml` pins an exact stable version (bumped deliberately, since `just
 check` runs Clippy with `-D warnings`) with `clippy` and `rustfmt`; rustup installs them on first use. `uv` is needed from M1 task 1.14 onward for the Python tool pack.
@@ -61,8 +65,8 @@ breaks the cycle between the two crates.
   smoke. The stage is removed on exit; `REGISTRY_STAGE_DIR` may name it, and must then be new or
   empty.
 - `just smoke <binary>` (`scripts/offline-smoke.sh`) is that smoke on any built binary:
-  `--version`, `tools list`, `rules show`, and a `check` without a credential that must stop with
-  `auth:` and exit 64 before anything leaves the machine.
+  `--version`, `tools list`, `rules show`, and a `check` without a credential that must stop
+  `not ready`, naming `ANTHROPIC_API_KEY`, and exit 64 before anything leaves the machine.
 
 The `package` workflow runs all three on every push. `squint --version` prints the short commit;
 a packaged crate has no repository, so the build script reads the commit `cargo package` records

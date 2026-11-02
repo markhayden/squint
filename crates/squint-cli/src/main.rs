@@ -51,8 +51,9 @@ enum Command {
     Sets(sets::SetsArgs),
     /// Print the table-manners description document: actions, inputs, cost.
     Describe(describe::DescribeArgs),
-    /// Print the worst-case cost of one check and whether the cap covers it; nothing is sent.
-    Estimate(JobArgs),
+    /// Print the estimate of one check (table-manners 4.5): its worst case against the cap,
+    /// bound to its inputs; nothing is sent and nothing is written.
+    Estimate(EstimateArgs),
     /// Serve the contract's actions over MCP on stdio (protocol 2025-11-25).
     Serve(serve::ServeArgs),
     /// Open Wafflery, the shared local workspace, on squint (`wafflery --tool squint`).
@@ -147,12 +148,22 @@ struct CheckArgs {
     record: Option<PathBuf>,
 }
 
+#[derive(clap::Args)]
+struct EstimateArgs {
+    #[command(flatten)]
+    input: JobArgs,
+    /// Print the estimate as JSON (the only form).
+    #[arg(long, required = true)]
+    json: bool,
+}
+
 /// What `check` and `estimate` share: the config and the job.
 #[derive(clap::Args)]
 struct JobArgs {
-    /// Path to the config file.
+    /// Path to the config file; without it, squint looks for ./squint.toml, then
+    /// $XDG_CONFIG_HOME/squint/squint.toml.
     #[arg(long)]
-    config: PathBuf,
+    config: Option<PathBuf>,
     /// Override one config value: `--set budget.tool_turns=2` (repeatable).
     #[arg(long = "set", value_name = "PATH=VALUE")]
     overrides: Vec<String>,
@@ -174,7 +185,7 @@ struct JobArgs {
     /// Shorthand job: the use case, for example `source-fidelity`.
     #[arg(long, requires = "candidate")]
     use_case: Option<String>,
-    /// Lower the configured per-call spend cap for this check; it never raises it.
+    /// Lower the configured per-call spend cap for this check; a value above it is refused.
     #[arg(long, value_name = "USD")]
     max_spend_usd: Option<f64>,
     /// Scripted fake provider responses, for tests and debugging only.
@@ -269,6 +280,12 @@ fn check(args: &CheckArgs) -> i32 {
         eprintln!("squint: {e}");
         return EXIT_USAGE;
     }
+    // What this check needs that is missing or invalid stops it here, before any run directory,
+    // naming the requirements as a server's `not_ready` refusal does (table-manners 3.1).
+    if let Err(message) = ready(args, &config, &tools) {
+        eprintln!("squint: {message}");
+        return EXIT_USAGE;
+    }
     if args.dry_run {
         return match squint_core::run::resolve_rules(&config, &job, Path::new("."), &tools) {
             Ok(p) => {
@@ -351,7 +368,10 @@ fn check(args: &CheckArgs) -> i32 {
                         .unwrap_or_default()
                         .trim_matches('"')
                 ),
-                (None, Some(e)) => eprintln!("error: {}", redacted(e, &config)),
+                (None, Some(e)) => eprintln!(
+                    "error: {}",
+                    squint_core::artifacts::redact(e, &config.secrets)
+                ),
                 (None, None) => eprintln!("error: run ended without a verdict or an error"),
             }
             if o.cache.is_hit() {
@@ -372,13 +392,47 @@ fn check(args: &CheckArgs) -> i32 {
             }
         }
         Err(e) => {
-            eprintln!("squint: {}", redacted(&e.to_string(), &config));
+            eprintln!(
+                "squint: {}",
+                squint_core::artifacts::redact(&e.to_string(), &config.secrets)
+            );
             // A signal that landed before the decision was allocated still exits as signalled.
             match signalled.load(std::sync::atomic::Ordering::SeqCst) {
                 0 => squint_core::run::EXIT_ERROR,
                 code => code,
             }
         }
+    }
+}
+
+/// Whether a command-line check may run (task 9.6): of what it needs, nothing `missing` or
+/// `invalid` by the same local inspection `describe` makes, else the `not_ready` sentence. A dry
+/// run sends nothing and runs no tool, so it needs only the configuration; a replay sends nothing
+/// to the provider, so it needs no credential.
+fn ready(
+    args: &CheckArgs,
+    config: &Config,
+    tools: &squint_core::tool::ToolRegistry,
+) -> Result<(), String> {
+    use squint_core::config::{ConfigFile, ConfigState};
+    use squint_core::readiness::{Answers, Needs, config_requirement, not_ready_message};
+    let needs = Needs {
+        provider: !args.dry_run && args.replay.is_none(),
+        tools: if args.dry_run {
+            Vec::new()
+        } else {
+            tools.manifests().map(|m| m.name.clone()).collect()
+        },
+    };
+    let file = ConfigFile {
+        path: Config::locate(args.input.config.as_deref()).path,
+        state: ConfigState::Loaded(Box::new(config.clone())),
+    };
+    let unmet = inspect(config, config_requirement(&file)).unmet(&Answers::default(), &needs);
+    if unmet.is_empty() {
+        Ok(())
+    } else {
+        Err(not_ready_message(&unmet))
     }
 }
 
@@ -438,33 +492,50 @@ async fn cancel_on_signal(
     cancel.cancel();
 }
 
-/// Error text never carries an expanded secret.
-fn redacted(text: &str, config: &Config) -> String {
-    let mut out = text.to_string();
-    for s in &config.secrets {
-        if !s.is_empty() {
-            out = out.replace(s, "[redacted]");
-        }
-    }
-    out
-}
-
-/// `squint estimate`: the envelope `check` would reserve, priced from the catalog (or, in a
-/// testkit build, the scripted provider); nothing is sent and no credential is read.
-fn estimate(args: &JobArgs) -> i32 {
+/// `squint estimate --json`: the contract's estimate of one check (table-manners 4.5), the same
+/// document the served tool returns, with no session: `session_id` and `session` are null, so no
+/// server accepts its binding. Priced from the catalog (or, in a testkit build, the scripted
+/// provider) with no credential; nothing is sent and nothing is written. Like `describe`, it
+/// works with no configuration: the estimate is then refused for readiness, with nothing priced.
+fn estimate(args: &EstimateArgs) -> i32 {
+    let input = &args.input;
     let usage = |e: String| {
         eprintln!("squint: {e}");
         EXIT_USAGE
     };
-    let config = match load_config(args) {
-        Ok(c) => c,
-        Err(e) => return usage(e),
+    #[cfg(feature = "testkit")]
+    let scripted = input.provider_script.is_some();
+    #[cfg(not(feature = "testkit"))]
+    let scripted = false;
+    let described = match describe::described(
+        Config::open(input.config.as_deref(), &input.overrides),
+        scripted,
+    ) {
+        Ok(d) => d,
+        Err(e) => return usage(e.to_string()),
     };
-    let job = match load_job(args) {
+    let config = described.file.config();
+    let job = match load_job(input) {
         Ok(j) => j,
         Err(e) => return usage(e),
     };
-    let tools = match build_tools(args, &config) {
+    let action = job.use_case.replace('-', "_");
+    if !described
+        .description
+        .actions
+        .iter()
+        .any(|a| a.name == action)
+    {
+        return usage(format!(
+            "no action for the use case {:?}; squint describe --json lists them",
+            job.use_case
+        ));
+    }
+    let tools = match config {
+        Some(config) => build_tools(input, config),
+        None => ToolRegistry::new(Vec::new(), &[], &[]).map_err(|e| e.to_string()),
+    };
+    let tools = match tools {
         Ok(t) => t,
         Err(e) => return usage(e),
     };
@@ -473,57 +544,65 @@ fn estimate(args: &JobArgs) -> i32 {
         Err(e) => return usage(e.to_string()),
     };
     #[cfg(feature = "testkit")]
-    let scripted = match args
-        .provider_script
-        .as_deref()
-        .map(squint_testkit::ScriptedProvider::from_path)
-        .transpose()
-    {
-        Ok(p) => p,
-        Err(e) => return usage(e.to_string()),
-    };
-    #[cfg(feature = "testkit")]
-    let scripted_pricing = scripted.as_ref().and_then(|p| p.pricing());
+    let scripted_pricing: Option<&dyn squint_core::ledger::Pricing> =
+        scripted.then_some(&squint_testkit::FAKE_PRICES as &dyn squint_core::ledger::Pricing);
     #[cfg(not(feature = "testkit"))]
     let scripted_pricing: Option<&dyn squint_core::ledger::Pricing> = None;
-    let pricing: &dyn squint_core::ledger::Pricing = match scripted_pricing {
-        Some(p) => p,
-        None => match catalog.model(&config.provider.model) {
-            Some(model) => model,
-            None => {
-                return usage(format!(
-                    "model {:?} is not in the catalog",
-                    config.provider.model
-                ));
-            }
+    let pricing = scripted_pricing.or_else(|| {
+        config
+            .and_then(|c| catalog.model(&c.provider.model))
+            .map(|m| m as &dyn squint_core::ledger::Pricing)
+    });
+    let identity = config.map(squint_core::contract::config_identity);
+    let context = squint_core::contract::EstimateContext {
+        binder: squint_core::contract::Binder {
+            version: VERSION,
+            config_identity: identity.as_deref(),
+            session_id: None,
         },
+        config,
+        tools: &tools,
+        readiness: described
+            .inspection
+            .readiness(&squint_core::readiness::Answers::default()),
+        pricing,
+        session: None,
+        now_ms: squint_core::contract::now_ms(),
+        ttl_ms: squint_core::contract::ESTIMATE_TTL_MS,
     };
-    match squint_core::run::envelope(&config, &job, Path::new("."), &tools, pricing) {
-        Ok(envelope) => {
-            let cap = config.budget.spend_cap_usd;
-            let out = serde_json::json!({
-                "use_case": job.use_case,
-                "model": config.provider.model,
-                "envelope_usd": envelope.usd,
-                "cap_usd": cap,
-                "fits": envelope.usd <= cap,
-                "decision_runs": envelope.decision_runs,
-                "requests": envelope.requests.len(),
-                "attempts": envelope.attempts,
-            });
-            println!("{}", serde_json::to_string_pretty(&out).unwrap_or_default());
+    match squint_core::contract::estimate(
+        &context,
+        &action,
+        &job,
+        Path::new("."),
+        input.max_spend_usd,
+    ) {
+        Ok(estimate) => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&estimate).unwrap_or_default()
+            );
             0
         }
-        Err(e) => usage(e.to_string()),
+        Err(e) => {
+            eprintln!("squint: {e}");
+            match squint_core::contract::status_of(e.class()).0 {
+                table_manners::Status::Invalid => EXIT_USAGE,
+                _ => squint_core::run::EXIT_ERROR,
+            }
+        }
     }
 }
 
-/// The config with `--set` overrides and a `--max-spend-usd` that lowers the cap.
+/// The config the lookup finds, with `--set` overrides and a `--max-spend-usd` that lowers the
+/// cap (above the configured cap, a usage error); none found is a usage error naming where
+/// squint looked.
 fn load_config(args: &JobArgs) -> Result<Config, String> {
-    let mut config =
-        Config::load_with_overrides(&args.config, &args.overrides).map_err(|e| e.to_string())?;
+    let mut config = Config::open(args.config.as_deref(), &args.overrides)
+        .require()
+        .map_err(|e| e.to_string())?;
     if let Some(max) = args.max_spend_usd {
-        config.lower_spend_cap(max).map_err(|e| e.to_string())?;
+        config.call_cap(max).map_err(|e| e.to_string())?;
     }
     Ok(config)
 }
@@ -576,29 +655,129 @@ fn select_provider(args: &CheckArgs, config: &mut Config) -> Result<Box<dyn Prov
     provider_for(config, &opts)
 }
 
-/// The provider for a config: the catalog's adapter over a live client, a recording or, in a
-/// testkit build, a script. A live credential is added to the config's secrets.
 /// What a check under `config` runs on, for the description's cost (squint issue #2): the
 /// scripted provider (`--provider-script`, or the fake profile, which runs only with one) can
-/// never charge; any catalog profile may, and names its credential variable.
+/// never charge; any catalog profile may.
 fn executor(config: &Config, scripted: bool) -> squint_core::contract::Executor {
     use squint_core::contract::Executor;
-    use squint_providers::catalog::{Catalog, FAKE_PROFILE};
-    if scripted || config.provider.profile == FAKE_PROFILE {
-        return Executor::Free;
+    if scripted || config.provider.profile == squint_providers::catalog::FAKE_PROFILE {
+        Executor::Free
+    } else {
+        Executor::Paid
     }
-    // The variable's name comes from the catalog's profile; its value is never read here.
-    let needs_env = Catalog::shipped()
-        .ok()
-        .and_then(|c| {
-            c.profile(&config.provider.profile)
-                .map(|p| p.auth.env.clone())
-        })
-        .into_iter()
-        .collect();
-    Executor::Paid { needs_env }
 }
 
+/// The local inspection behind every action's readiness (table-manners 3.1, task 9.3), never a
+/// network call: `config` is the loaded configuration's `present` requirement. The profile's
+/// credential variable, set or not by a lookup of its name (never its value; a scripted run
+/// still reports the configured profile's, since the script stands in for its endpoint); the
+/// configured model, which the catalog must have; and the segmenter file when an enabled pack
+/// tool needs it. A profile or model the catalog lacks makes the configuration `invalid`. The
+/// fake profile reads no credential and calls no catalog model.
+fn inspect(
+    config: &Config,
+    mut config_requirement: table_manners::Requirement,
+) -> squint_core::readiness::Inspection {
+    use squint_core::readiness::{Credential, Inspection, invalid_config};
+    use squint_providers::catalog::{Catalog, FAKE_PROFILE};
+    let files = segmenter_files(config);
+    if config.provider.profile == FAKE_PROFILE {
+        return Inspection {
+            files,
+            ..Inspection::config_only(config_requirement)
+        };
+    }
+    let catalog = Catalog::shipped().ok();
+    let profile = catalog
+        .as_ref()
+        .and_then(|c| c.profile(&config.provider.profile));
+    // Set means set to something other than blanks, as the provider's credential lookup reads it.
+    let credential = profile.map(|p| Credential {
+        present: std::env::var_os(&p.auth.env)
+            .is_some_and(|v| !v.to_string_lossy().trim().is_empty()),
+        name: p.auth.env.clone(),
+    });
+    if profile.is_none() {
+        config_requirement = invalid_config(
+            &config_requirement,
+            &format!(
+                "profile {:?} is not in the catalog (squint catalog show)",
+                config.provider.profile
+            ),
+        );
+    }
+    let model = if catalog
+        .as_ref()
+        .is_some_and(|c| c.model(&config.provider.model).is_some())
+    {
+        Some(config.provider.model.clone())
+    } else {
+        config_requirement = invalid_config(
+            &config_requirement,
+            &format!(
+                "model {:?} is not in the catalog (squint catalog show)",
+                config.provider.model
+            ),
+        );
+        None
+    };
+    Inspection {
+        config: config_requirement,
+        credential,
+        model,
+        files,
+    }
+}
+
+/// The segmenter's file when the config enables a pack tool that runs it (`regions`,
+/// `classes`): the artifact the installed pack's record names, under the pack's models
+/// directory, `present` when it is there at the recorded size (never hashed here). A pack run by
+/// `command`, or one not installed, ships no record squint can read, so nothing is listed.
+fn segmenter_files(config: &Config) -> Vec<squint_core::readiness::LocalFile> {
+    use squint_core::readiness::{LocalFile, SEGMENTER, SEGMENTER_TOOLS};
+    use squint_tools::provision::{Installed, data_home, models_dir};
+    if !config
+        .tools
+        .enabled
+        .iter()
+        .any(|t| SEGMENTER_TOOLS.contains(&t.as_str()))
+    {
+        return Vec::new();
+    }
+    config
+        .tools
+        .packs
+        .values()
+        .filter_map(|pack| {
+            let installed = Installed::locate(
+                &data_home(),
+                pack.package.as_deref()?,
+                pack.version.as_deref()?,
+            )
+            .ok()?;
+            let record = installed.model_record(SEGMENTER)?;
+            let path = record.artifact_path(&models_dir(), SEGMENTER);
+            let present =
+                std::fs::metadata(&path).is_ok_and(|m| m.is_file() && m.len() == record.size_bytes);
+            Some(LocalFile {
+                path: path.display().to_string(),
+                present,
+                setup: format!(
+                    "Fetch the segmenter: `{} fetch` (or `squint tools setup` again) puts it here.",
+                    installed.executable.display()
+                ),
+            })
+        })
+        .take(1)
+        .collect()
+}
+
+/// The variable a testkit build reads to replace the configured profile's `base_url`.
+#[cfg(feature = "testkit")]
+const TESTKIT_BASE_URL_ENV: &str = "SQUINT_TESTKIT_BASE_URL";
+
+/// The provider for a config: the catalog's adapter over a live client, a recording or, in a
+/// testkit build, a script. A live credential is added to the config's secrets.
 fn provider_for(
     config: &mut Config,
     opts: &ProviderOptions<'_>,
@@ -612,8 +791,9 @@ fn provider_for(
     use squint_providers::replay::{Player, Recorder};
     #[cfg(feature = "testkit")]
     if let Some(path) = opts.provider_script {
+        let calls = std::env::var_os(squint_testkit::provider::CALLS_LOG_ENV).map(PathBuf::from);
         return squint_testkit::ScriptedProvider::from_path(path)
-            .map(|p| Box::new(p) as Box<dyn Provider>)
+            .map(|p| Box::new(p.with_calls_log(calls)) as Box<dyn Provider>)
             .map_err(|e| e.to_string());
     }
     if config.provider.profile == FAKE_PROFILE {
@@ -626,6 +806,17 @@ fn provider_for(
             config.provider.profile
         )
     })?;
+    // A testkit build may point the profile at a local endpoint, so a test can see whether
+    // anything connected (the proof that describing and estimating make no network call).
+    #[cfg(feature = "testkit")]
+    let redirected = std::env::var(TESTKIT_BASE_URL_ENV).ok().map(|base_url| {
+        squint_providers::catalog::Profile {
+            base_url,
+            ..profile.clone()
+        }
+    });
+    #[cfg(feature = "testkit")]
+    let profile = redirected.as_ref().unwrap_or(profile);
     let model = catalog
         .model(&config.provider.model)
         .ok_or_else(|| format!("model {:?} is not in the catalog", config.provider.model))?;

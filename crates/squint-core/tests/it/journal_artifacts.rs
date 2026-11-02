@@ -9,9 +9,10 @@ use sha2::Digest;
 use squint_core::config::Config;
 use squint_core::job::Job;
 use squint_core::provider::{StopReason, TurnResponse};
+use squint_core::retry::TransportError;
 use squint_core::run::{self, Cancel, Services};
 use squint_core::tool::ToolRegistry;
-use squint_testkit::ScriptedProvider;
+use squint_testkit::{ScriptTurn, ScriptedProvider};
 
 fn root() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
@@ -207,6 +208,88 @@ fn journal_artifacts_hold_no_secret_even_when_the_model_echoes_it() {
         }
     }
     assert!(saw_redaction, "the echoed secret was stored redacted");
+}
+
+/// Every file under `dir`, recursively.
+fn files_under(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            out.extend(files_under(&path));
+        } else {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// F5: a provider's error excerpt that echoes the secret, raw and JSON-escaped, is redacted
+/// before the retry and failure events, the terminal event, `report.json` and `run.json`.
+#[test]
+fn journal_artifacts_hold_no_secret_a_provider_error_excerpt_echoes() {
+    // A quote and a backslash, so the JSON-escaped form differs from the raw one.
+    let secret = "SYNTHETIC-squint\"account\\9c41";
+    let escaped = serde_json::to_string(secret).unwrap();
+    let escaped = escaped.trim_matches('"').to_string();
+    assert_ne!(escaped, secret);
+    let out = tempdir("secret-excerpt");
+    let config = config("secret.toml", &|name| {
+        (name == "SQUINT_TEST_ACCOUNT").then(|| secret.to_string())
+    });
+    let excerpt = |status| {
+        ScriptTurn::Error(TransportError {
+            status: Some(status),
+            retry_after: None,
+            message: format!(
+                "HTTP {status}: {{\"error\":{{\"message\":\"account {escaped} rejected\"}}}} (raw: {secret})"
+            ),
+            sent: true,
+            causeless: false,
+        })
+    };
+    let provider = ScriptedProvider::from_turns(vec![excerpt(503), excerpt(404)]);
+    let tools = ToolRegistry::new(vec![], &[], &[]).unwrap();
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let o = block_on(run::check(
+        &config,
+        &job,
+        &root(),
+        &Services::new(&provider, &tools),
+        &out,
+        "test",
+    ))
+    .unwrap();
+    let events: Vec<String> = journal(&o.dir)
+        .iter()
+        .map(|e| e["event"].as_str().unwrap().to_string())
+        .collect();
+    for event in ["retry", "attempt_failed", "error"] {
+        assert!(events.iter().any(|e| e == event), "{event} in {events:?}");
+    }
+    assert!(
+        o.error.as_deref().is_some_and(|e| e.contains("[redacted]")),
+        "{:?}",
+        o.error
+    );
+    let mut saw_redaction = 0;
+    for f in files_under(&o.dir) {
+        let bytes = std::fs::read(&f).unwrap();
+        for needle in [secret, escaped.as_str()] {
+            assert!(
+                !bytes.windows(needle.len()).any(|w| w == needle.as_bytes()),
+                "secret ({needle}) in {}",
+                f.display()
+            );
+        }
+        if bytes.windows(10).any(|w| w == b"[redacted]") {
+            saw_redaction += 1;
+        }
+    }
+    assert!(
+        saw_redaction >= 3,
+        "the journal, report.json and run.json carry the redacted excerpt"
+    );
 }
 
 #[test]

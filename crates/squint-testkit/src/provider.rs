@@ -1,9 +1,12 @@
 //! A scripted fake provider: answers each turn with the next canned response from a JSON file,
 //! so the run loop can be driven through every state offline. An entry may instead be a
 //! transport error (`{"error": {"status": 429, "retry_after_s": 2}}`, with `"sent": false` for a
-//! connection that never carried the request) to drive the retries, or a stall
+//! connection that never carried the request and `"causeless": true` for a 400 whose body names
+//! no cause) to drive the retries, or a stall
 //! (`{"stall_s": 30}`: the next entry comes only after that long, a call in flight). A response
-//! without `usage` reported zero tokens; `"usage": null` is an answer that reported none.
+//! without `usage` reported zero tokens; `"usage": null` is an answer that reported none. Given a
+//! model's per-request image limits ([`ScriptedProvider::with_image_limits`]), it prices with them
+//! and refuses a request over them the way an adapter's preflight does.
 
 use std::collections::VecDeque;
 use std::path::Path;
@@ -11,9 +14,10 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::Deserialize;
-use squint_core::ledger::{Prices, Pricing};
+use squint_core::image::RequestImageLimits;
+use squint_core::ledger::{Prices, Pricing, RequestShape};
 use squint_core::provider::{
-    Message, Provider, SendFuture, ToolDefinition, TurnRequest, TurnResponse,
+    ContentBlock, Message, Provider, SendFuture, ToolDefinition, TurnRequest, TurnResponse, Usage,
 };
 use squint_core::retry::TransportError;
 
@@ -46,6 +50,8 @@ struct ScriptError {
     message: Option<String>,
     #[serde(default)]
     sent: Option<bool>,
+    #[serde(default)]
+    causeless: bool,
 }
 
 /// The stub catalog entry the scripted provider prices with: cheap enough that the default
@@ -56,6 +62,28 @@ pub const FAKE_PRICES: Prices = Prices {
     per_image: 0.0002,
 };
 
+/// What a scripted provider prices with: [`FAKE_PRICES`], and the image limits of the model it
+/// stands in for, if any.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ScriptedPricing {
+    pub prices: Prices,
+    pub image_limits: Option<RequestImageLimits>,
+}
+
+impl Pricing for ScriptedPricing {
+    fn bound(&self, shape: &RequestShape) -> squint_core::Result<f64> {
+        self.prices.bound(shape)
+    }
+
+    fn cost(&self, usage: &Usage) -> f64 {
+        self.prices.cost(usage)
+    }
+
+    fn image_limits(&self) -> Option<RequestImageLimits> {
+        self.image_limits
+    }
+}
+
 /// Replays a list of scripted turns in order. Exhausting the script is a provider error, which
 /// is what a test wants when the harness asks for more turns than expected.
 pub struct ScriptedProvider {
@@ -64,7 +92,13 @@ pub struct ScriptedProvider {
     pub seen_history_lengths: Mutex<Vec<usize>>,
     /// Every request as sent, for tests that assert the provider history is append-only.
     pub recorded: Mutex<Vec<RecordedRequest>>,
+    /// A file every request appends a line to, so a test in another process can count calls.
+    calls_log: Option<std::path::PathBuf>,
+    pricing: ScriptedPricing,
 }
+
+/// The variable a testkit build reads for [`ScriptedProvider::with_calls_log`]'s file.
+pub const CALLS_LOG_ENV: &str = "SQUINT_TESTKIT_PROVIDER_CALLS";
 
 /// A request as the scripted provider saw it.
 #[derive(Debug, Clone, PartialEq)]
@@ -73,6 +107,8 @@ pub struct RecordedRequest {
     pub history: Vec<Message>,
     pub tools: Vec<ToolDefinition>,
     pub max_output_tokens: u32,
+    /// The prepared size (width, height) of every image the request carried, by content-block id.
+    pub image_sizes: std::collections::BTreeMap<String, (u32, u32)>,
 }
 
 impl ScriptedProvider {
@@ -85,7 +121,26 @@ impl ScriptedProvider {
             turns: Mutex::new(turns.into()),
             seen_history_lengths: Mutex::new(Vec::new()),
             recorded: Mutex::new(Vec::new()),
+            calls_log: None,
+            pricing: ScriptedPricing {
+                prices: FAKE_PRICES,
+                image_limits: None,
+            },
         }
+    }
+
+    /// Stands in for a model with these per-request image limits: resolve plans the images
+    /// against them, and a request over them is refused with `image_limit` before it is answered.
+    pub fn with_image_limits(mut self, limits: RequestImageLimits) -> ScriptedProvider {
+        self.pricing.image_limits = Some(limits);
+        self
+    }
+
+    /// Appends a line to `path` on every request: the call counter a test outside this process
+    /// reads (the proof that describing and estimating call no provider, table-manners 7).
+    pub fn with_calls_log(mut self, path: Option<std::path::PathBuf>) -> ScriptedProvider {
+        self.calls_log = path;
+        self
     }
 
     /// Parses a JSON array of turn responses and transport errors.
@@ -101,6 +156,7 @@ impl ScriptedProvider {
                     retry_after: error.retry_after_s.map(Duration::from_secs),
                     message: error.message.unwrap_or_else(|| "scripted failure".into()),
                     sent: error.sent.unwrap_or(true),
+                    causeless: error.causeless,
                 }),
                 Entry::Stall { stall_s } => ScriptTurn::Stall(Duration::from_secs(stall_s)),
             })
@@ -130,11 +186,21 @@ impl Provider for ScriptedProvider {
     }
 
     fn pricing(&self) -> Option<&dyn Pricing> {
-        Some(&FAKE_PRICES)
+        Some(&self.pricing)
     }
 
     fn send<'a>(&'a self, req: TurnRequest<'a>) -> SendFuture<'a> {
         Box::pin(async move {
+            if let Some(log) = &self.calls_log {
+                use std::io::Write;
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(log)
+                {
+                    let _ = writeln!(file, "call");
+                }
+            }
             if let Ok(mut seen) = self.seen_history_lengths.lock() {
                 seen.push(req.history.len());
             }
@@ -144,7 +210,15 @@ impl Provider for ScriptedProvider {
                     history: req.history.to_vec(),
                     tools: req.tools.to_vec(),
                     max_output_tokens: req.max_output_tokens,
+                    image_sizes: req
+                        .images
+                        .iter()
+                        .map(|(id, p)| (id.clone(), (p.width, p.height)))
+                        .collect(),
                 });
+            }
+            if let Some(limits) = self.pricing.image_limits {
+                over_limits(&limits, &req)?;
             }
             let mut next = self.turns.lock().ok().and_then(|mut t| t.pop_front());
             if let Some(ScriptTurn::Stall(d)) = next {
@@ -163,6 +237,41 @@ impl Provider for ScriptedProvider {
             }
         })
     }
+}
+
+/// The count and many-image checks of an adapter's preflight, over every image the history names.
+fn over_limits(limits: &RequestImageLimits, req: &TurnRequest<'_>) -> squint_core::Result<()> {
+    let mut ids: Vec<&str> = Vec::new();
+    for block in req.history.iter().flat_map(|m| &m.content) {
+        match block {
+            ContentBlock::Image { image_id } => ids.push(image_id),
+            ContentBlock::ToolResult { images, .. } => {
+                ids.extend(images.iter().map(String::as_str))
+            }
+            _ => {}
+        }
+    }
+    let count = ids.len() as u64;
+    if count > u64::from(limits.max_per_request) {
+        return Err(squint_core::Error::ImageLimit(format!(
+            "{count} images in the request exceed the model's limit of {} per request",
+            limits.max_per_request
+        )));
+    }
+    if let Some(many) = limits.many
+        && count > u64::from(many.threshold)
+    {
+        for id in ids {
+            let long = req.images.get(id).map_or(0, |p| p.width.max(p.height));
+            if long > many.max_long_edge {
+                return Err(squint_core::Error::ImageLimit(format!(
+                    "{id}: {long} pixels exceed {}, the limit when a request carries more than {} images ({count} here)",
+                    many.max_long_edge, many.threshold
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

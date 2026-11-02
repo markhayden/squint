@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:table-manners:core:refusal",
-  "title": "Refusal data (CONTRACT.md 4.4)",
+  "title": "Refusal data (CONTRACT.md 3.1, 4.4, 4.5)",
   "description": "The `data` of a JSON-RPC -32602 error the contract names, so a host can tell it from other invalid params.",
   "type": "object",
   "additionalProperties": false,
@@ -12,7 +12,9 @@
   "properties": {
     "reason": {
       "enum": [
-        "client_run_id_reused"
+        "client_run_id_reused",
+        "not_ready",
+        "invalid_arguments"
       ]
     },
     "run": {
@@ -24,7 +26,82 @@
           "$ref": "urn:table-manners:core:run-ref"
         }
       ],
-      "description": "The earlier request's run; null while it has none (queued, or cancelled before allocation)."
+      "description": "client_run_id_reused: the earlier request's run, null while it has none (queued, or cancelled before allocation). not_ready: always null."
+    },
+    "requirements": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "urn:table-manners:core:description#/$defs/requirement"
+      },
+      "description": "not_ready: the requirements this call needs that are missing or invalid."
+    },
+    "error": {
+      "$ref": "urn:table-manners:core:result#/$defs/error_object",
+      "description": "invalid_arguments: what was wrong, as in a result (code usage or input, not retryable)."
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "reason": {
+            "const": "not_ready"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "requirements"
+        ],
+        "properties": {
+          "run": {
+            "type": "null"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "requirements": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "reason": {
+            "const": "invalid_arguments"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "error"
+        ],
+        "properties": {
+          "run": {
+            "type": "null"
+          },
+          "error": {
+            "properties": {
+              "code": {
+                "enum": [
+                  "usage",
+                  "input"
+                ]
+              },
+              "retryable": {
+                "const": false
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "error": false
+        }
+      }
+    }
+  ]
 }
