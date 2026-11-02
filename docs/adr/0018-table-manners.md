@@ -133,6 +133,16 @@ Where the contract leaves the choice to the tool, squint chooses:
   id; an estimate expires after one hour, and a binding the session never issued is stale.
 - **Cap and budget.** Refusals by the per-call ledger, including a retry the decision envelope can
   no longer cover, are `cap`; refusals by the session ledger are `budget`.
+- **Provider failures and `retryable`.** The contract makes `retryable` on a `provider` error the
+  tool's judgement per occurrence. squint's error class `provider_rejected` (a status the retries
+  never take: a 400, 404 or 422, or a 400 naming no cause after its one retry) maps to code
+  `provider` with `retryable: false`, since an identical request would be refused again; a
+  transport failure after the retries ran out (a 5xx, 429 or timeout) and a model-output failure
+  are `provider` with `retryable: true`. A 400 whose body names no cause (each adapter reads its
+  provider's error envelope: an empty body, or an envelope with no message, details or parameter)
+  is retried once per turn inside the same retry budget and envelope reserve, charged like any
+  other retry, because a provider has answered that way to requests an identical resend served
+  (follow-up F3); the second is final. A 401 or 403 is never retried: it is `credential`.
 - **Renders.** With no `--frame-ancestor`, `report view` allows no framing at all
   (`frame-ancestors 'none'`). A render never modifies the run directory, so `report export`
   writes to `$XDG_CACHE_HOME/squint/reports/<run id>.html` unless `--out` says otherwise.

@@ -1,0 +1,9 @@
+{
+  "error": {
+    "code": "usage",
+    "reason": "config: max_spend_usd 5 is above the configured per-call cap of 2; it may lower the cap, never raise it",
+    "retryable": false
+  },
+  "reason": "invalid_arguments",
+  "run": null
+}

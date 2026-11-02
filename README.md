@@ -112,7 +112,10 @@ squint is one tool in a chain an agent drives (generate, check with squint, mask
 external interface as its siblings, defined by the shared contract
 [table-manners](https://github.com/markhayden/table-manners): `squint serve` (MCP over stdio),
 `squint describe --json`, `squint estimate --json`, and a `run.json` in every decision directory (ADR
-0018, milestone M7). `squint playground` opens Wafflery, the shared local workspace, on squint. How an agent or a pipeline uses it: [`docs/agents.md`](docs/agents.md).
+0018, milestones M7 to M9). It conforms to table-manners v0.3.0: it describes itself and serves
+with no configuration, each action saying what it still needs (`readiness`); an estimate is a
+control bound to the exact call, never a run; and its report renders (`report view`, `report
+export`) are ones a host can embed. `squint playground` opens Wafflery, the shared local workspace, on squint. How an agent or a pipeline uses it: [`docs/agents.md`](docs/agents.md).
 
 Plan: [`PLAN.md`](PLAN.md). Decisions: [`docs/adr/`](docs/adr/). Reviews of the spec, the plan and
 each milestone: [`docs/reviews/`](docs/reviews/). Developer setup: [`docs/bootstrap.md`](docs/bootstrap.md).
