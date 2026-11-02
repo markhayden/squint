@@ -255,6 +255,8 @@ pub fn status_of(class: &str) -> (Status, Option<(ErrorCode, bool)>) {
         }
         "tool" => (Status::Error, Some((ErrorCode::ToolProcess, false))),
         "budget" => (Status::Error, Some((ErrorCode::Budget, false))),
+        "cap" => (Status::Error, Some((ErrorCode::Cap, false))),
+        "stale_estimate" => (Status::Invalid, Some((ErrorCode::StaleEstimate, false))),
         "io" => (Status::Error, Some((ErrorCode::Io, false))),
         _ => (Status::Error, Some((ErrorCode::Internal, false))),
     }
@@ -785,7 +787,7 @@ fn params_schema() -> serde_json::Value {
         "max_spend_usd": {
             "type": "number",
             "exclusiveMinimum": 0,
-            "description": "Lowers the configured per-call cap; never raises it."
+            "description": "Lowers the configured per-call cap; a value above it is refused."
         }
     });
     serde_json::json!({
@@ -1094,21 +1096,7 @@ pub fn estimate(
         || crate::config::BudgetConfig::default().spend_cap_usd,
         |c| c.budget.spend_cap_usd,
     );
-    let cap = match max_spend_usd {
-        Some(max) if max.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) => {
-            return Err(crate::Error::Config(format!(
-                "max_spend_usd {max} must be a positive amount"
-            )));
-        }
-        Some(max) if max > configured_cap => {
-            return Err(crate::Error::Config(format!(
-                "max_spend_usd {max} is above the configured per-call cap of {configured_cap}; \
-                 it may lower the cap, never raise it"
-            )));
-        }
-        Some(max) => max,
-        None => configured_cap,
-    };
+    let cap = crate::config::call_cap(configured_cap, max_spend_usd)?;
     let (images, setup) = match ctx.config {
         Some(config) => {
             let setup = crate::run::setup(config, job, job_base, ctx.tools)?;
@@ -1282,6 +1270,8 @@ mod tests {
             | Error::ModelOutput(_) => (Status::Error, Some((ErrorCode::Provider, true))),
             Error::Tool(_) => (Status::Error, Some((ErrorCode::ToolProcess, false))),
             Error::Budget(_) => (Status::Error, Some((ErrorCode::Budget, false))),
+            Error::Cap(_) => (Status::Error, Some((ErrorCode::Cap, false))),
+            Error::StaleEstimate(_) => (Status::Invalid, Some((ErrorCode::StaleEstimate, false))),
             Error::Io(_) | Error::Json(_) => (Status::Error, Some((ErrorCode::Io, false))),
         }
     }
@@ -1310,6 +1300,8 @@ mod tests {
             Error::ModelOutput(s()),
             Error::Tool(s()),
             Error::Budget(s()),
+            Error::Cap(s()),
+            Error::StaleEstimate(s()),
             Error::Io(std::io::Error::other("x")),
             Error::Json(serde_json::from_str::<serde_json::Value>("{").unwrap_err()),
         ];

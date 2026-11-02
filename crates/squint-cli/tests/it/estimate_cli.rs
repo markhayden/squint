@@ -166,7 +166,7 @@ fn estimate_requires_json() {
 }
 
 /// A check whose cap the call lowered below its envelope refuses before any request, and its
-/// `run.json` says `budget`.
+/// `run.json` says `cap`, never retryable (task 9.5).
 #[cfg(feature = "testkit")]
 #[test]
 fn a_check_under_a_lowered_cap_refuses_before_any_request() {
@@ -200,7 +200,8 @@ fn a_check_under_a_lowered_cap_refuses_before_any_request() {
     let run: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(dir.join("run.json")).unwrap()).unwrap();
     assert_eq!(run["status"], "error");
-    assert_eq!(run["error"]["code"], "budget");
+    assert_eq!(run["error"]["code"], "cap");
+    assert_eq!(run["error"]["retryable"], false);
     assert_eq!(run["spend"]["usd"], 0.0);
 }
 

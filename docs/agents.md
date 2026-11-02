@@ -87,9 +87,15 @@ ordinary decision (its directory, journal, report and `run.json`).
   digest and dimensions are verified before anything runs. When the client offers MCP roots, a
   path must sit inside them, and inside `[serve] roots` when the config names any; with no roots
   from either, images go inline (a path is refused).
-- **Spend**: the per-call cap from config, lowered (never raised) by `max_spend_usd`; a session
+- **Spend**: the per-call cap from config, lowered by `max_spend_usd` (a value above the
+  configured cap is `invalid`, `usage`, spending nothing; never silently lowered); a session
   budget (`[serve] session_budget_usd`, default $20) every decision reserves against before its
-  first request. Calls are serial unless `[serve] concurrency` allows more.
+  first request. Over the cap the run ends `error`, `cap`; when the session cannot hold it,
+  `error`, `budget`; neither is retryable unchanged.
+- **Estimates**: send an estimate's `binding` back as `_meta["table-manners/estimate"]` on the
+  paid call. If the call's inputs, the configuration, squint's version or the session differ, or
+  the hour has passed, the run ends `invalid`, `stale_estimate`, with zero spend: estimate again.
+  A call without one is checked against the limits alone; an estimate never reserves. Calls are serial unless `[serve] concurrency` allows more.
 - **Progress**: with a progress token, a notification per journal line and a heartbeat after five
   seconds of silence; `progress` is elapsed seconds and never repeats; from the run's allocation,
   each one carries the run's reference in `_meta["table-manners/run"]`.
@@ -125,7 +131,9 @@ exit code, whether two runs agreed, the report's path). A `fail` verdict is `com
 | `input`, `image_limit` | invalid | `input` | no |
 | `provider`, `submission_invalid`, `no_submission`, `model_output` | error | `provider` | yes |
 | `tool` | error | `tool_process` | no |
+| `cap` | error | `cap` | no |
 | `budget` | error | `budget` | no |
+| `stale_estimate` | invalid | `stale_estimate` | no |
 | `io` | error | `io` | no |
 | `cancelled` | cancelled | | |
 | anything else | error | `internal` | no |

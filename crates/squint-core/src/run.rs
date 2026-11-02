@@ -76,6 +76,10 @@ pub struct Services<'a> {
     /// Told of every settled provider answer (table-manners 3.1): a response is accepted, a 401
     /// or 403 rejected; a server keeps them for its readiness.
     pub answered: Option<Answered>,
+    /// Why the estimate the call named (table-manners 4.5) no longer binds it, as the server
+    /// found when the call arrived: the decision then fails `stale_estimate` at the limits check,
+    /// with zero spend. None when the call named no estimate or its binding holds.
+    pub stale_estimate: Option<String>,
 }
 
 /// See [`Services::allocated`].
@@ -97,7 +101,13 @@ impl<'a> Services<'a> {
             allocated: None,
             association: None,
             answered: None,
+            stale_estimate: None,
         }
+    }
+
+    pub fn with_stale_estimate(mut self, reason: Option<String>) -> Services<'a> {
+        self.stale_estimate = reason;
+        self
     }
 
     pub fn with_answered(mut self, answered: Answered) -> Services<'a> {
@@ -336,7 +346,7 @@ async fn decide(
         return Ok(outcome(dir, report));
     }
 
-    let job_ledger = CapLedger::new(config.budget.spend_cap_usd);
+    let job_ledger = CapLedger::per_call(config.budget.spend_cap_usd);
     let envelope = match (&setup, provider.pricing()) {
         (Ok(s), Some(pricing)) => Some(ledger::plan(
             config,
@@ -777,6 +787,11 @@ async fn drive(
             "the provider cannot bound request costs".into(),
         ));
     };
+    // The limits check (table-manners 4.5): an estimate the call named that no longer binds it,
+    // then the per-call cap, then the session budget; zero spend whichever refuses.
+    if let Some(reason) = &services.stale_estimate {
+        return Err(Error::StaleEstimate(reason.clone()));
+    }
     if money.account.is_none() {
         money.job_ledger.reserve(envelope.usd)?;
         if let Some(shared) = money.shared
@@ -1324,7 +1339,7 @@ async fn send_turn(
             charged_usd: charge,
         }))?;
         if !account.covers(bound_usd) {
-            return Err(Error::Budget(format!(
+            return Err(Error::Cap(format!(
                 "turn {turn}: the envelope cannot cover another attempt (${:.4} unallocated, bound ${bound_usd:.4}) after {} failed attempt(s); the retry reserve is spent",
                 account.unallocated(),
                 a.attempt
@@ -1375,7 +1390,7 @@ async fn send_turn(
                 Error::Cancelled(_) => !sleeper.sleeping(),
                 Error::Transport(t) => t.unresolved(),
                 // A retry the envelope refused was never sent; the attempt before it is charged.
-                Error::Budget(_) => false,
+                Error::Cap(_) => false,
                 _ => true,
             };
             let charge = if unresolved {

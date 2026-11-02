@@ -1455,9 +1455,14 @@ with them.
   (path, inline, resource URI); image blocks only when asked. Checks are serial by default
   (`[serve] concurrency`); `describe`, `estimate` and resource reads never wait behind one. A
   check waiting for its turn beats like a running one, and cancelling it there leaves no run. Spend: the per-call cap from config, which a call (`max_spend_usd`; on
-  the command line `--max-spend-usd`) may lower and never raise, and a per-session budget
+  the command line `--max-spend-usd`) may lower (`Config::call_cap`; a value above the configured
+  cap is `invalid`, `usage`, before any paid step, exit 64 on the command line, never silently
+  lowered; one at or below zero is rejected by the input schema), and a per-session budget
   (`[serve] session_budget_usd`) across the server's lifetime, a ledger every decision reserves
-  against before its first request. Paths: when the client offers roots, squint asks for them on
+  against before its first request. The limits check, after the decision's directory exists and
+  before its reservation, refuses in this order with zero spend: a call whose named estimate no
+  longer binds it (`stale_estimate`, below), the envelope over the per-call cap (`cap`, as is a
+  retry the envelope can no longer cover), the session unable to hold it (`budget`). Paths: when the client offers roots, squint asks for them on
   every check and estimate and refuses (`input`) a path outside them, or outside
   `[serve] roots` when the config names any; a client that offers no roots, under a config that
   names none, can send images only inline (closed by default). A refusal says nothing about the
@@ -1487,7 +1492,12 @@ with them.
   "error": {"code": "usage" | "input", "retryable": false, "reason": …}}`. `squint estimate
   --json` prints the same document from the command line, priced from the catalog with no
   credential, with `session_id` and `session` null, so no server accepts its binding; a wrong
-  request there exits 64.
+  request there exits 64. A paid call may name an estimate in
+  `_meta["table-manners/estimate"]`: the server recomputes the binding as the call arrives (its
+  images by file digest) and passes the outcome to the decision, which fails `invalid`,
+  `stale_estimate` at the limits check, with zero spend and its run directory, when the binding
+  differs, was never issued by this session, or has expired. A call that names none meets the
+  limits alone.
 - **Progress and cancellation**: `check` is a plain `tools/call`. With a progress token, squint
   sends a notification on every journal line of every run (through an observer the journal calls
   after each write) and a heartbeat after five seconds of silence, well inside the ten the
@@ -1530,8 +1540,10 @@ with them.
   failed image is `completed` with verdict `fail`. squint's error classes map to the contract in one table
   (`contract::status_of`): `resolve` and `auth` are `invalid` with code `usage`; `input` and
   `image_limit` are `invalid` with code `input`; a provider or model-output failure is a
-  retryable `error` with code `provider`; `tool` is `tool_process`; `budget`, `io` and anything
-  else (`internal`) are not retryable; `cancelled` is its own status.
+  retryable `error` with code `provider`; `tool` is `tool_process`; `cap` (the per-call
+  ledger's refusal) and `budget` (the session's, an evaluation's, or the evidence-item budget) are
+  `error` with their own codes; `stale_estimate` is `invalid` with its own code; none of these,
+  nor `io` and anything else (`internal`), is retryable; `cancelled` is its own status.
 - **`squint describe --json [--config <file>]`**: the contract's description document with
   `profiles: ["images"]`, with or without a configuration (Config: where it is; it always exits
   0 on one that is missing or invalid): one action per use case the config can check
@@ -1623,7 +1635,7 @@ squint report prune --older-than 30d
 squint tools list --config squint.toml      # manifests as the model will see them
 squint describe --json [--config squint.toml] # the contract's description document (ADR 0018); works with no config
 squint estimate --json --config squint.toml --job job.toml [--max-spend-usd 0.10]   # the estimate of one check; nothing sent
-squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check, never raises it
+squint check --config squint.toml --job job.toml --max-spend-usd 0.10        # lowers the cap for this check; above it, exit 64
 squint serve [--config squint.toml] [--out runs/]   # MCP over stdio, protocol 2025-11-25 (table-manners 5); starts with no config
 squint sets check evalsets/
 squint sets fetch --set reference-consistency/pets-v1

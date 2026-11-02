@@ -118,7 +118,7 @@ fn a_decision_over_the_per_decision_cap_is_named_and_the_run_refuses_it() {
     assert!(
         s.decisions
             .iter()
-            .all(|d| d.error_class.as_deref() == Some("budget")),
+            .all(|d| d.error_class.as_deref() == Some("cap")),
         "{s:?}"
     );
     // The same matrix with the cap raised: nothing is flagged.

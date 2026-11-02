@@ -185,7 +185,7 @@ struct JobArgs {
     /// Shorthand job: the use case, for example `source-fidelity`.
     #[arg(long, requires = "candidate")]
     use_case: Option<String>,
-    /// Lower the configured per-call spend cap for this check; it never raises it.
+    /// Lower the configured per-call spend cap for this check; a value above it is refused.
     #[arg(long, value_name = "USD")]
     max_spend_usd: Option<f64>,
     /// Scripted fake provider responses, for tests and debugging only.
@@ -563,13 +563,14 @@ fn estimate(args: &EstimateArgs) -> i32 {
 }
 
 /// The config the lookup finds, with `--set` overrides and a `--max-spend-usd` that lowers the
-/// cap; none found is a usage error naming where squint looked.
+/// cap (above the configured cap, a usage error); none found is a usage error naming where
+/// squint looked.
 fn load_config(args: &JobArgs) -> Result<Config, String> {
     let mut config = Config::open(args.config.as_deref(), &args.overrides)
         .require()
         .map_err(|e| e.to_string())?;
     if let Some(max) = args.max_spend_usd {
-        config.lower_spend_cap(max).map_err(|e| e.to_string())?;
+        config.call_cap(max).map_err(|e| e.to_string())?;
     }
     Ok(config)
 }

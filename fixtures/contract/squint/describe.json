@@ -55,7 +55,7 @@
             "type": "string"
           },
           "max_spend_usd": {
-            "description": "Lowers the configured per-call cap; never raises it.",
+            "description": "Lowers the configured per-call cap; a value above it is refused.",
             "exclusiveMinimum": 0,
             "type": "number"
           },
@@ -257,7 +257,7 @@
             "type": "string"
           },
           "max_spend_usd": {
-            "description": "Lowers the configured per-call cap; never raises it.",
+            "description": "Lowers the configured per-call cap; a value above it is refused.",
             "exclusiveMinimum": 0,
             "type": "number"
           },
@@ -459,7 +459,7 @@
             "type": "string"
           },
           "max_spend_usd": {
-            "description": "Lowers the configured per-call cap; never raises it.",
+            "description": "Lowers the configured per-call cap; a value above it is refused.",
             "exclusiveMinimum": 0,
             "type": "number"
           },
@@ -661,7 +661,7 @@
             "type": "string"
           },
           "max_spend_usd": {
-            "description": "Lowers the configured per-call cap; never raises it.",
+            "description": "Lowers the configured per-call cap; a value above it is refused.",
             "exclusiveMinimum": 0,
             "type": "number"
           },
@@ -863,7 +863,7 @@
             "type": "string"
           },
           "max_spend_usd": {
-            "description": "Lowers the configured per-call cap; never raises it.",
+            "description": "Lowers the configured per-call cap; a value above it is refused.",
             "exclusiveMinimum": 0,
             "type": "number"
           },

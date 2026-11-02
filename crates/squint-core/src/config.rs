@@ -455,15 +455,27 @@ fn redact_text(text: &str, secrets: &[String]) -> String {
         })
 }
 
+/// A call's effective per-call cap (table-manners 4.5): the configured cap, lowered by the call's
+/// `max_spend_usd` when it names one. A value at or below zero is no cap, and one above the
+/// configured cap is refused rather than silently lowered (a usage error).
+pub fn call_cap(configured_usd: f64, max_usd: Option<f64>) -> Result<f64> {
+    match max_usd {
+        None => Ok(configured_usd),
+        Some(max) if max.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) => Err(
+            Error::Config(format!("max_spend_usd {max} must be a positive amount")),
+        ),
+        Some(max) if max > configured_usd => Err(Error::Config(format!(
+            "max_spend_usd {max} is above the configured per-call cap of {configured_usd}; it \
+             may lower the cap, never raise it"
+        ))),
+        Some(max) => Ok(max),
+    }
+}
+
 impl Config {
-    /// Lowers the per-call spend cap to `max_usd` when that is lower; a call never raises it.
-    pub fn lower_spend_cap(&mut self, max_usd: f64) -> Result<()> {
-        if max_usd.partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
-            return Err(Error::Config(format!(
-                "max_spend_usd {max_usd} must be a positive amount"
-            )));
-        }
-        self.budget.spend_cap_usd = self.budget.spend_cap_usd.min(max_usd);
+    /// Sets the per-call cap to the call's `max_spend_usd` ([`call_cap`]): lower, or refused.
+    pub fn call_cap(&mut self, max_usd: f64) -> Result<()> {
+        self.budget.spend_cap_usd = call_cap(self.budget.spend_cap_usd, Some(max_usd))?;
         Ok(())
     }
 
@@ -792,19 +804,27 @@ mod tests {
 
     /// A call may lower the configured cap and never raise it; a cap must stay positive
     /// (table-manners 4.5).
+    /// `max_spend_usd` lowers the cap; above the configured cap it is refused, never silently
+    /// lowered (table-manners 4.5), and so is one at or below zero.
     #[test]
-    fn a_spend_cap_is_lowered_never_raised() {
+    fn a_spend_cap_is_lowered_and_never_raised() {
         let text = crate::fixture("config/minimal.toml");
         let mut config = Config::parse(&text, &[], &no_env).expect("parses");
         let configured = config.budget.spend_cap_usd;
-        config.lower_spend_cap(configured * 10.0).unwrap();
+        assert!(matches!(
+            config.call_cap(configured * 10.0),
+            Err(Error::Config(m)) if m.contains("above the configured")
+        ));
         assert_eq!(config.budget.spend_cap_usd, configured);
-        config.lower_spend_cap(0.01).unwrap();
+        config.call_cap(configured).unwrap();
+        assert_eq!(config.budget.spend_cap_usd, configured);
+        config.call_cap(0.01).unwrap();
         assert_eq!(config.budget.spend_cap_usd, 0.01);
         for bad in [0.0, -1.0, f64::NAN] {
-            assert!(matches!(config.lower_spend_cap(bad), Err(Error::Config(_))));
+            assert!(matches!(config.call_cap(bad), Err(Error::Config(_))));
         }
         assert_eq!(config.budget.spend_cap_usd, 0.01);
+        assert_eq!(call_cap(2.0, None).unwrap(), 2.0);
     }
 
     #[test]

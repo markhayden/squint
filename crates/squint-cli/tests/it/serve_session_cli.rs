@@ -395,3 +395,114 @@ fn describing_and_estimating_call_no_provider() {
         }
     }
 }
+
+const ESTIMATE: &str = "table-manners/estimate";
+
+/// The binding of this server's estimate of a `source_fidelity` call with these arguments.
+fn binding(c: &mut Client, arguments: serde_json::Value) -> String {
+    let e = c
+        .call(
+            "estimate",
+            json!({ "action": "source_fidelity", "arguments": arguments }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    valid("urn:table-manners:core:estimate", &e);
+    e["binding"].as_str().unwrap().to_string()
+}
+
+/// A check that names `binding`, ended `invalid` with `stale_estimate`: zero spend, never
+/// retryable, and a run directory with its `run.json`. Returns the reason.
+fn stale(c: &mut Client, arguments: serde_json::Value, binding: &str) -> String {
+    let r = c
+        .call_with_meta("source_fidelity", arguments, json!({ ESTIMATE: binding }))
+        .unwrap();
+    assert!(r.is_error, "{r:?}");
+    let r = r.structured.unwrap();
+    valid("urn:table-manners:core:result", &r);
+    assert_eq!(r["status"], "invalid", "{r}");
+    assert_eq!(r["error"]["code"], "stale_estimate", "{r}");
+    assert_eq!(r["error"]["retryable"], false);
+    assert_eq!(r["spend"]["usd"], 0.0);
+    assert!(
+        Path::new(r["run"]["dir"].as_str().unwrap())
+            .join("run.json")
+            .is_file()
+    );
+    r["error"]["reason"].as_str().unwrap().to_string()
+}
+
+/// A paid call that names an estimate is checked against it at the limits check (table-manners
+/// 4.5, task 9.5): a matching binding runs; a changed image, a changed argument, another
+/// session's binding (a second server) and a command-line estimate's are stale.
+#[test]
+fn a_call_runs_on_its_estimate_and_is_stale_on_any_other() {
+    let mut c = client(&out("bound"), "held.json");
+    let bound = binding(&mut c, pair());
+    let ran = c
+        .call_with_meta("source_fidelity", pair(), json!({ ESTIMATE: &bound }))
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_eq!(ran["status"], "completed", "{ran}");
+
+    let mut other_image = pair();
+    other_image["candidate"] =
+        json!({ "path": repo_root().join("fixtures/images/exif-rotated-64x48.png") });
+    stale(&mut c, other_image, &bound);
+    let mut briefed = pair();
+    briefed["brief"] = json!("keep the sky");
+    stale(&mut c, briefed, &bound);
+
+    let mut second = client(&out("bound-second"), "held.json");
+    stale(&mut second, pair(), &bound);
+
+    let cli = Command::new(env!("CARGO_BIN_EXE_squint"))
+        .current_dir(repo_root())
+        .args([
+            "estimate",
+            "--json",
+            "--config",
+            "fixtures/config/minimal.toml",
+            "--provider-script",
+            "fixtures/scripts/held.json",
+            "--use-case",
+            "source-fidelity",
+            "--candidate",
+            "fixtures/images/candidate-64x48.png",
+            "--source",
+            "fixtures/images/source-64x48.png",
+        ])
+        .output()
+        .unwrap();
+    assert_eq!(cli.status.code(), Some(0));
+    let cli: serde_json::Value = serde_json::from_slice(&cli.stdout).unwrap();
+    stale(&mut c, pair(), cli["binding"].as_str().unwrap());
+}
+
+/// A binding past its `expires` is stale (the testkit clock seam makes estimates expire at once).
+#[test]
+fn an_expired_estimate_is_stale() {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_squint"));
+    command
+        .current_dir(repo_root())
+        .args([
+            "serve",
+            "--config",
+            "fixtures/config/minimal.toml",
+            "--provider-script",
+            "fixtures/scripts/held.json",
+            "--out",
+        ])
+        .arg(out("expired"))
+        .env("SQUINT_TESTKIT_ESTIMATE_TTL_S", "0");
+    let mut c = Client::start(&mut command).unwrap();
+    c.roots = vec![format!(
+        "file://{}",
+        repo_root().join("fixtures/images").display()
+    )];
+    let bound = binding(&mut c, pair());
+    let reason = stale(&mut c, pair(), &bound);
+    assert!(reason.contains("expired"), "{reason}");
+}

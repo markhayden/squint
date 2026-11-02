@@ -508,3 +508,67 @@ fn an_empty_references_list_is_refused_before_any_run_and_releases_its_id() {
     assert_ne!(accepted["status"], "invalid", "{accepted}");
     assert_eq!(accepted["run"]["client_run_id"], "empty-1");
 }
+
+/// `max_spend_usd` (table-manners 4.5, task 9.5): above the configured cap a call is `invalid`,
+/// `usage`, spending nothing, never silently lowered; below it, it lowers the cap; at or below
+/// zero the input schema rejects it, a JSON-RPC error with no run.
+#[test]
+fn max_spend_usd_lowers_the_cap_and_above_it_is_refused() {
+    let mut c = client(&out("max-spend"), &["budget.spend_cap_usd=1"]);
+    let pair = || json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") });
+    let mut over = pair();
+    over["max_spend_usd"] = json!(2);
+    let r = c.call("source_fidelity", over).unwrap();
+    assert!(r.is_error);
+    let r = r.structured.unwrap();
+    assert_eq!(r["status"], "invalid", "{r}");
+    assert_eq!(r["error"]["code"], "usage", "{r}");
+    assert_eq!(r["spend"]["usd"], 0.0);
+    let mut lower = pair();
+    lower["max_spend_usd"] = json!(0.5);
+    let r = c
+        .call("source_fidelity", lower)
+        .unwrap()
+        .structured
+        .unwrap();
+    assert_eq!(r["status"], "completed", "{r}");
+    let id = r["run"]["id"].as_str().unwrap();
+    let report: serde_json::Value = serde_json::from_str(
+        &c.read_resource(&format!("squint://run/{id}/report.json"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(report["cost"]["cap_usd"], 0.5);
+    let mut zero = pair();
+    zero["max_spend_usd"] = json!(0);
+    let r = c.call("source_fidelity", zero);
+    assert!(
+        matches!(
+            r,
+            Err(Failure::Rpc {
+                code: -32602,
+                data: None,
+                ..
+            })
+        ),
+        "{r:?}"
+    );
+}
+
+/// A cap below the envelope ends `error`, `cap`, never retryable, before any provider call.
+#[test]
+fn a_cap_below_the_envelope_is_a_cap_error_before_any_request() {
+    let mut c = client(&out("cap"), &["budget.spend_cap_usd=0.000001"]);
+    let r = c
+        .call(
+            "source_fidelity",
+            json!({ "candidate": image("candidate-64x48.png"), "source": image("source-64x48.png") }),
+        )
+        .unwrap();
+    assert!(r.is_error);
+    let r = r.structured.unwrap();
+    assert_eq!(r["status"], "error", "{r}");
+    assert_eq!(r["error"]["code"], "cap", "{r}");
+    assert_eq!(r["error"]["retryable"], false);
+    assert_eq!(r["spend"]["usd"], 0.0);
+}

@@ -171,15 +171,20 @@ fn one_action_per_shipped_use_case_and_no_estimate() {
     let item = &sf.params_schema["properties"]["requirements"]["items"];
     assert_eq!(item["required"], serde_json::json!(["id", "kind"]));
     assert!(item["properties"]["kind"].is_object());
-    // A paid action lets a host pass its cap: a number above zero (table-manners 4.5).
-    assert_eq!(
-        sf.params_schema["properties"]["max_spend_usd"],
-        serde_json::json!({
-            "type": "number",
-            "exclusiveMinimum": 0,
-            "description": "Lowers the configured per-call cap; never raises it."
-        })
-    );
+    // Every paid action lets a host pass its cap: a number above zero (table-manners 4.5).
+    for action in &d.actions {
+        assert!(action.cost.may_spend, "{}", action.name);
+        assert_eq!(
+            action.params_schema["properties"]["max_spend_usd"],
+            serde_json::json!({
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "description": "Lowers the configured per-call cap; a value above it is refused."
+            }),
+            "{}",
+            action.name
+        );
+    }
 }
 
 /// `references` is a `many` slot on every action and the other slots take one image, so `many`

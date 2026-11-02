@@ -70,9 +70,18 @@ pub enum Error {
     /// A tool crashed, timed out, returned a malformed envelope or breached its bounds.
     #[error("tool: {0}")]
     Tool(String),
-    /// A budget (evidence items, spend, turns) would be exceeded.
+    /// A budget would be exceeded: the session's (or an evaluation's) shared spend, or the
+    /// decision's evidence items.
     #[error("budget: {0}")]
     Budget(String),
+    /// The decision's worst case is over its effective per-call cap, or a retry the envelope can
+    /// no longer cover (table-manners `cap`).
+    #[error("cap: {0}")]
+    Cap(String),
+    /// The call named an estimate (table-manners 4.5) whose binding this session did not issue
+    /// for it, or that has expired (table-manners `stale_estimate`).
+    #[error("stale_estimate: {0}")]
+    StaleEstimate(String),
     /// The run was cancelled (SIGINT, SIGTERM); the journal ends in `cancelled`.
     #[error("cancelled: {0}")]
     Cancelled(String),
@@ -92,6 +101,8 @@ impl Error {
             Error::Provider(_) | Error::Transport(_) => "provider",
             Error::Tool(_) => "tool",
             Error::Budget(_) => "budget",
+            Error::Cap(_) => "cap",
+            Error::StaleEstimate(_) => "stale_estimate",
             Error::Input(_) => "input",
             Error::Cancelled(_) => "cancelled",
             Error::ImageLimit(_) => "image_limit",

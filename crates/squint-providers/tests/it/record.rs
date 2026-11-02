@@ -562,10 +562,9 @@ fn record(v: &Vendor) {
             && let Ok(text) = std::fs::read_to_string(dir.join("expected.json"))
             && let Ok(prior) = serde_json::from_str::<Expected>(&text)
             && (prior.terminal == "verdict"
-                || !prior
-                    .error
-                    .as_deref()
-                    .is_some_and(|e| e.starts_with("budget:") || e.starts_with("config:")))
+                || !prior.error.as_deref().is_some_and(|e| {
+                    e.starts_with("budget:") || e.starts_with("cap:") || e.starts_with("config:")
+                }))
         {
             eprintln!("keeping  {:<26} (recorded)", case.name);
             continue;

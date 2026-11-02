@@ -179,6 +179,74 @@ fn an_exhausted_provider_is_a_retryable_provider_error() {
     assert!(!e.reason.is_empty());
 }
 
+/// The limits check (table-manners 4.5, task 9.5): a cap below the envelope is `cap`, never
+/// retryable, with nothing sent; a session ledger that cannot hold it is `budget`.
+#[test]
+fn a_cap_below_the_envelope_is_cap_and_a_full_session_is_budget() {
+    let (o, r) = run(
+        "cap",
+        "held.json",
+        "pair.toml",
+        &["budget.spend_cap_usd=0.000001"],
+        None,
+    );
+    assert_eq!(o.exit_code, 3);
+    assert_eq!(r.status, Status::Error);
+    let e = r.error.unwrap();
+    assert_eq!((e.code, e.retryable), (ErrorCode::Cap, false));
+    assert_eq!(r.spend.usd, 0.0);
+
+    let out = tempdir("session-budget");
+    let provider = ScriptedProvider::from_path(&root().join("fixtures/scripts/held.json")).unwrap();
+    let tools = tools();
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let session = squint_core::ledger::CapLedger::new(0.000001);
+    let services = run::Services::new(&provider, &tools).with_shared_ledger(Some(&session));
+    let o = block_on(run::check(
+        &config(&[]),
+        &job,
+        &root(),
+        &services,
+        &out,
+        "test",
+    ))
+    .unwrap();
+    let r = read(&o.dir);
+    let e = r.error.unwrap();
+    assert_eq!((e.code, e.retryable), (ErrorCode::Budget, false));
+    assert_eq!(r.spend.usd, 0.0);
+    assert_eq!(provider.remaining(), 1, "nothing was sent");
+}
+
+/// A call whose estimate no longer binds it fails `stale_estimate` at the limits check: after
+/// its directory exists, before the reservation, with zero spend and nothing sent.
+#[test]
+fn a_stale_estimate_is_invalid_with_zero_spend() {
+    let out = tempdir("stale");
+    let provider = ScriptedProvider::from_path(&root().join("fixtures/scripts/held.json")).unwrap();
+    let tools = tools();
+    let job = Job::load(&root().join("fixtures/jobs/pair.toml")).unwrap();
+    let services = run::Services::new(&provider, &tools)
+        .with_stale_estimate(Some("the estimate expired".into()));
+    let o = block_on(run::check(
+        &config(&[]),
+        &job,
+        &root(),
+        &services,
+        &out,
+        "test",
+    ))
+    .unwrap();
+    assert_eq!(o.exit_code, 64);
+    let r = read(&o.dir);
+    assert_eq!(r.status, Status::Invalid);
+    let e = r.error.unwrap();
+    assert_eq!((e.code, e.retryable), (ErrorCode::StaleEstimate, false));
+    assert!(e.reason.contains("expired"), "{}", e.reason);
+    assert_eq!(r.spend.usd, 0.0);
+    assert_eq!(provider.remaining(), 1, "nothing was sent");
+}
+
 #[test]
 fn a_job_that_does_not_resolve_is_invalid_usage_and_exits_64() {
     let (o, r) = run("resolve", "held.json", "oversized.toml", &[], None);

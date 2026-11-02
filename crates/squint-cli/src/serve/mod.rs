@@ -83,6 +83,8 @@ fn decode_cursor(cursor: &str) -> Option<(u64, String)> {
 
 /// The request `_meta` key a client's correlation id travels under (table-manners 4.4).
 const CLIENT_RUN_META: &str = "table-manners/client_run_id";
+/// The request `_meta` key a paid call names its estimate's binding under (table-manners 4.5).
+const ESTIMATE_META: &str = "table-manners/estimate";
 /// The notification `_meta` key a run's reference travels under (table-manners 4.3).
 const RUN_META: &str = "table-manners/run";
 
@@ -548,15 +550,30 @@ impl Server {
             return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
         }
         let mut config = config.clone();
-        if let Some(max) = args.get("max_spend_usd") {
-            let lowered = max
-                .as_f64()
-                .ok_or_else(|| squint_core::Error::Config("max_spend_usd: a number".into()))
-                .and_then(|m| config.lower_spend_cap(m));
-            if let Err(e) = lowered {
-                return Err(ErrorData::invalid_params(e.to_string(), None));
-            }
+        // A non-number or a value at or below zero is the input schema's to reject; one above
+        // the configured cap is the call's mistake, refused as a result before any paid step,
+        // never silently lowered (table-manners 4.5).
+        let max_spend_usd = match args.get("max_spend_usd") {
+            None => None,
+            Some(v) => match v.as_f64() {
+                Some(max) if max > 0.0 => Some(max),
+                _ => {
+                    return Err(ErrorData::invalid_params(
+                        format!("max_spend_usd is {v}; it must be a number above 0"),
+                        None,
+                    ));
+                }
+            },
+        };
+        if let Some(max) = max_spend_usd
+            && let Err(e) = config.call_cap(max)
+        {
+            return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
         }
+        let stale_estimate = hooks
+            .estimate
+            .as_deref()
+            .and_then(|named| self.stale_estimate(named, action, &job, &config, max_spend_usd));
         let opts = crate::ProviderOptions {
             replay: None,
             record: None,
@@ -595,6 +612,7 @@ impl Server {
             }))
             .with_association(hooks.association.clone())
             .with_shared_ledger(Some(&self.inner.session))
+            .with_stale_estimate(stale_estimate)
             .with_cancel(&hooks.cancel)
             .with_allocated(Arc::new(move |dir: &Path| {
                 if let Ok(mut slot) = told.lock() {
@@ -630,6 +648,62 @@ impl Server {
                 Err(ErrorData::internal_error(m, None))
             }
             (Err(e), _) => self.finished(action, &args, &hooks.association, Some(&e), Map::new()),
+        }
+    }
+
+    /// Why the estimate a call named no longer binds it (table-manners 4.5), or none when it
+    /// does: the binding is recomputed for the call as it arrived (its images by file digest,
+    /// against the configuration and the session) and must be one this session issued that has
+    /// not expired. An image that cannot be read is left to the decision, which refuses it first.
+    fn stale_estimate(
+        &self,
+        named: &str,
+        action: &str,
+        job: &squint_core::job::Job,
+        config: &Config,
+        max_spend_usd: Option<f64>,
+    ) -> Option<String> {
+        let digests = job
+            .images
+            .iter()
+            .map(|spec| {
+                squint_core::image::file_sha256(
+                    spec,
+                    Path::new(JOB_BASE),
+                    config.images.max_decode_bytes,
+                )
+            })
+            .collect::<squint_core::Result<Vec<_>>>();
+        let digests = match digests {
+            Ok(d) => d,
+            Err(e) => return Some(format!("the call's images could not be read: {e}")),
+        };
+        let binder = contract::Binder {
+            version: VERSION,
+            config_identity: self.inner.config_identity.as_deref(),
+            session_id: Some(&self.inner.session_id),
+        };
+        if binder.binding(action, job, &digests, max_spend_usd) != named {
+            return Some(format!(
+                "the call does not match the estimate {named}: its inputs, the configuration, \
+                 squint's version or the session differ; estimate it again"
+            ));
+        }
+        let expires = self
+            .inner
+            .estimates
+            .lock()
+            .ok()
+            .and_then(|issued| issued.get(named).copied());
+        match expires {
+            None => Some(format!(
+                "this session issued no estimate {named}; estimate the call again"
+            )),
+            Some(expires) if contract::now_ms() >= expires => Some(format!(
+                "the estimate {named} expired at {}; estimate the call again",
+                contract::rfc3339(expires)
+            )),
+            Some(_) => None,
         }
     }
 
@@ -893,12 +967,13 @@ impl Drop for Claim {
 
 /// What a check is given by the call around it: the flag a client's cancellation sets, the
 /// observer that turns journal lines into progress, where the run's reference goes once it is
-/// allocated, and the run's association.
+/// allocated, the run's association, and the estimate binding the call named.
 struct Hooks {
     cancel: Arc<squint_core::run::Cancel>,
     observer: Option<squint_core::run::Observer>,
     progress: Option<tokio::sync::mpsc::UnboundedSender<Progress>>,
     association: contract::Association,
+    estimate: Option<String>,
 }
 
 /// What the progress task hears: the run, once allocated, and each journal line.
@@ -1223,6 +1298,17 @@ impl ServerHandler for Server {
                 ));
             }
         };
+        // The estimate a paid call names (table-manners 4.5), checked at its limits check.
+        let estimate = match context.meta.get(ESTIMATE_META) {
+            None => None,
+            Some(Value::String(binding)) => Some(binding.clone()),
+            Some(other) => {
+                return Err(ErrorData::invalid_params(
+                    format!("_meta {ESTIMATE_META:?} is {other}; it must be an estimate's binding"),
+                    None,
+                ));
+            }
+        };
         // Held until this request ends, on every path out of it, `?` included.
         let _claim = match (&client_run_id, makes_run) {
             (Some(id), true) => {
@@ -1309,6 +1395,7 @@ impl ServerHandler for Server {
             observer,
             progress: sender,
             association: association.clone(),
+            estimate,
         };
         let task = tokio::task::spawn_blocking(move || {
             let _permit = permit;

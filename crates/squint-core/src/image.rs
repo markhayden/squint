@@ -250,6 +250,21 @@ pub fn load(spec: &ImageSpec, base: &Path, bounds: &DecodeBounds) -> Result<Cano
     })
 }
 
+/// The image's file digest (table-manners 8.1) without decoding it: the bytes read as [`load`]
+/// reads them, bounded by `max_bytes`, so it equals the loaded image's `sha256`. What a server
+/// recomputes a call's estimate binding from.
+pub fn file_sha256(spec: &ImageSpec, base: &Path, max_bytes: u64) -> Result<String> {
+    let bytes = read_bytes(spec, base, max_bytes)?;
+    if bytes.len() as u64 > max_bytes {
+        return Err(Error::ImageLimit(format!(
+            "{}: {} bytes exceeds the decode bound of {max_bytes} bytes",
+            spec.id,
+            bytes.len()
+        )));
+    }
+    Ok(hex(&Sha256::digest(&bytes)))
+}
+
 /// The image's bytes: a path is read only when it is a regular file, and never past `max_bytes`
 /// (one byte more, so the caller sees it is over), so a FIFO, a device or a huge file cannot hang
 /// or exhaust the process; inline data longer than the bound could decode to is refused undecoded.
