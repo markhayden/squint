@@ -27,6 +27,12 @@ use crate::obligations::{MergeInput, RulesFile, SHIPPED_BASES, shipped};
 use crate::report::{Report, RootLocation};
 use crate::submission::FindingDisposition;
 
+/// The tool version every contract document squint writes carries (`tool.version` of a
+/// description, result, estimate, session and runs page, and a location's `source.version`):
+/// the plain crate version, the product a host shows. The build's commit stays on `squint
+/// --version`, the MCP server info, a report's `harness_version` and an estimate's binding.
+pub const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
+
 /// The contract's reference for a loaded image (table-manners 8): the file's digest and its
 /// dimensions as stored, the projection, and the topology that follows from it (squint's
 /// panoramas wrap; its flat images are bounded).
@@ -127,7 +133,7 @@ pub fn location(
         reason: (kind == ContractKind::Absent).then(|| words.label.to_string()),
         source: Some(Source {
             tool: "squint".into(),
-            version: env!("CARGO_PKG_VERSION").into(),
+            version: TOOL_VERSION.into(),
             run: Some(run_id.to_string()),
             item: Some(item.to_string()),
         }),
@@ -374,7 +380,7 @@ pub fn run_result(
         contract: CONTRACT_VERSION.into(),
         tool: Tool {
             name: "squint".into(),
-            version: report.harness_version.clone(),
+            version: TOOL_VERSION.into(),
         },
         // The use case's action, as `describe` names it, whether the check came over MCP or not.
         action: report.use_case.replace('-', "_"),
@@ -563,7 +569,6 @@ pub enum Executor {
 /// action carries `readiness` ([`crate::readiness`]).
 pub fn description(
     config: Option<&Config>,
-    version: &str,
     executor: Executor,
     readiness: &Readiness,
 ) -> crate::Result<Description> {
@@ -657,7 +662,7 @@ pub fn description(
         profiles: vec![Profile::Images],
         tool: DescribedTool {
             name: "squint".into(),
-            version: version.into(),
+            version: TOOL_VERSION.into(),
             purpose: "Checks an image against what was asked of it.".into(),
         },
         actions,
@@ -1032,6 +1037,9 @@ pub fn config_identity(config: &Config) -> String {
 /// What an estimate's binding covers beside the call (table-manners 4.5): the tool version, the
 /// configuration's identity (none without one) and the session (none from the command line).
 pub struct Binder<'a> {
+    /// The build's version, commit included (squint-cli's `VERSION`), so an estimate never binds
+    /// a call to a different build of the same crate version; the estimate's `tool.version` is
+    /// [`TOOL_VERSION`] all the same.
     pub version: &'a str,
     pub config_identity: Option<&'a str>,
     pub session_id: Option<&'a str>,
@@ -1186,7 +1194,7 @@ pub fn estimate(
         contract: CONTRACT_VERSION.into(),
         tool: Tool {
             name: "squint".into(),
-            version: ctx.binder.version.into(),
+            version: TOOL_VERSION.into(),
         },
         action: action.into(),
         binding: ctx
@@ -1334,7 +1342,6 @@ pub fn invocation(
 #[allow(clippy::too_many_arguments)]
 pub fn action_result(
     dir: &Path,
-    version: &str,
     action: &str,
     association: &Association,
     started_ms: u64,
@@ -1366,7 +1373,7 @@ pub fn action_result(
         contract: CONTRACT_VERSION.into(),
         tool: Tool {
             name: "squint".into(),
-            version: version.into(),
+            version: TOOL_VERSION.into(),
         },
         action: action.into(),
         run: Run {

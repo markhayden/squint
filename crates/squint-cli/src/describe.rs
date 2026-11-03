@@ -9,8 +9,6 @@ use squint_core::contract::{self, Executor};
 use squint_core::readiness::{self, Answers, Inspection};
 use table_manners::Description;
 
-use crate::VERSION;
-
 #[derive(clap::Args)]
 pub struct DescribeArgs {
     /// Path to the config file; without it, squint looks for ./squint.toml, then
@@ -59,7 +57,6 @@ pub(crate) fn described(file: ConfigFile, scripted: bool) -> squint_core::Result
             let inspection = crate::inspect(config, readiness::config_requirement(&file));
             match contract::description(
                 Some(config),
-                VERSION,
                 crate::executor(config, scripted),
                 &inspection.readiness(&fresh),
             ) {
@@ -83,8 +80,7 @@ pub(crate) fn described(file: ConfigFile, scripted: bool) -> squint_core::Result
     };
     // No configuration chosen yet: a check may spend once one is.
     let inspection = Inspection::config_only(readiness::config_requirement(&file));
-    let description =
-        contract::description(None, VERSION, Executor::Paid, &inspection.readiness(&fresh))?;
+    let description = contract::description(None, Executor::Paid, &inspection.readiness(&fresh))?;
     Ok(Described {
         file,
         description,

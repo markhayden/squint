@@ -2,7 +2,8 @@
 //! `squint://session` resource read without waiting on a running check, its reservation moving
 //! with the check, and every run the server makes carrying the session's id. Task 9.3: readiness
 //! from the session's provider answers, and the proof that describing and estimating call no
-//! provider. Task 10.2: `allowed_dirs`, canonical, `[]` with no `--allow-dir`.
+//! provider. Task 10.2: `allowed_dirs`, canonical, `[]` with no `--allow-dir`. Every document's
+//! `tool.version` is the plain crate version.
 #![cfg(feature = "testkit")]
 #![allow(clippy::unwrap_used)]
 
@@ -127,6 +128,49 @@ fn every_run_a_server_makes_carries_its_session() {
     valid("urn:table-manners:core:estimate", &estimated);
     assert_eq!(estimated["session_id"], id);
     assert_eq!(estimated["session"]["id"], id);
+}
+
+/// Every contract document a server writes names the same tool version, the plain crate version
+/// a host shows; the build's commit stays in the report's `harness_version` (and `--version`).
+#[test]
+fn every_document_names_the_plain_crate_version() {
+    let plain = env!("CARGO_PKG_VERSION");
+    let mut c = client(&out("tool-version"), "held.json");
+    let described = c.call("describe", json!({})).unwrap().structured.unwrap();
+    assert_eq!(described["tool"]["version"], plain, "{described}");
+    let session = session(&mut c);
+    let estimated = c
+        .call(
+            "estimate",
+            json!({ "action": "source_fidelity", "arguments": pair() }),
+        )
+        .unwrap()
+        .structured
+        .unwrap();
+    let checked = c
+        .call("source_fidelity", pair())
+        .unwrap()
+        .structured
+        .unwrap();
+    let runs: serde_json::Value =
+        serde_json::from_str(&c.read_resource("squint://runs").unwrap()).unwrap();
+    for (name, doc) in [
+        ("session", &session),
+        ("estimate", &estimated),
+        ("result", &checked),
+        ("runs", &runs),
+    ] {
+        assert_eq!(doc["tool"]["version"], plain, "{name}: {doc}");
+    }
+    let report: serde_json::Value = serde_json::from_str(
+        &std::fs::read_to_string(checked["body"]["report"].as_str().unwrap()).unwrap(),
+    )
+    .unwrap();
+    let harness = report["harness_version"].as_str().unwrap();
+    assert!(
+        harness.starts_with(&format!("{plain} (")) && harness.ends_with(')'),
+        "{harness}"
+    );
 }
 
 #[test]

@@ -300,7 +300,6 @@ pub async fn check(
                     }
                     Err(_) => crate::contract::action_result(
                         &dir,
-                        harness_version,
                         &job.use_case.replace('-', "_"),
                         services.association.as_ref().unwrap_or(&Default::default()),
                         started_ms,
