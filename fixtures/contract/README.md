@@ -59,16 +59,16 @@ emits something else; after a deliberate change, regenerate with `UPDATE_CONTRAC
 the bundle are made from `run-completed.json`) and copy the directory to table-manners
 `fixtures/squint/`, removing files squint no longer produces.
 `every_fixture_validates_as_table_manners_reads_it` (in `contract_fixtures.rs`) checks the
-directory the way table-manners' `tests/fixtures.rs` does at its `v0.4` branch, with the crate's
+directory the way table-manners' `tests/fixtures.rs` does at its `v0.4.0` tag, with the crate's
 embedded schemas: the schema and the type by file name (`describe*.json`, `estimate-*.json`,
 `run-*.json`, `runs*.json`, `session.json` and `session-*.json`, `refusal-*.json`), every
 `bundle-*/` directory a manifest valid against `invocation-bundle.json` whose listed members are
-beside it with the `file_sha256` it states; contract `0.4.0` and tool `squint` wherever a document
-names them, a bundle's steps included; amounts to at most six decimals; in every result, a
-bundled step's included, an invocation of the result's action with no locator. Beside those it
-holds squint's own v0.4 promises: every action of kind `task` with no `group`, no
-`artifact_types`, `ports` or `artifacts`, `invocation` on every result and null only on an
-`invalid` one, requirement names that are never paths (no `/` or `\`), nothing in a bundle
+beside it with the `file_sha256` it states, and nothing else beside it; contract `0.4.0` and tool
+`squint` wherever a document names them, a bundle's steps included; amounts to at most six
+decimals; in every result, a bundled step's included, an invocation of the result's action with no
+locator. Beside those it holds squint's own v0.4 promises: every action of kind `task` with no
+`group`, no `artifact_types`, `ports` or `artifacts`, `invocation` on every result and null only
+on an `invalid` one, requirement names that are never paths (no `/` or `\`), nothing in a bundle
 directory the manifest does not list, and no operations-profile file. squint's proof that
 `describe` and `estimate` make no provider call and write nothing (7 item 7) is
 `describing_and_estimating_call_no_provider` in `crates/squint-cli/tests/it/serve_session_cli.rs`.

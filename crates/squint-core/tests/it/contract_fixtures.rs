@@ -316,7 +316,7 @@ fn the_conformance_fixtures_are_what_squint_emits() {
     );
 }
 
-/// The fixtures as table-manners' `tests/fixtures.rs` reads them (its `v0.4` branch), so the copy
+/// The fixtures as table-manners' `tests/fixtures.rs` reads them (its `v0.4.0` tag), so the copy
 /// into its `fixtures/squint/` passes there first time. Each file by its name: `describe*.json` a
 /// description, `estimate-*.json` an estimate, `run-*.json` a result, `runs*.json` a runs page,
 /// `session.json` and `session-*.json` a session, `refusal-*.json` refusal data; each validated
