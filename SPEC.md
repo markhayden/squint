@@ -1489,6 +1489,12 @@ no operations profile, so it emits none of that profile's fields (`artifact_type
 it serves neither reserved `export` nor `import` (a call of either is an unknown tool). Field
 names and schemas are the contract's; this section says what squint does with them.
 
+- **Tool version**: every contract document squint writes (the description, a result, an
+  estimate, the session, a runs page) carries `tool.version` as the plain crate version
+  (`contract::TOOL_VERSION`, e.g. `0.1.0`), and so does a location's `source.version`: the
+  product a host shows. The build's commit stays where a build is identified: `squint --version`,
+  the MCP server info, a report's `harness_version` (and so the cache key and an eval's records)
+  and an estimate's binding.
 - **Image reference**: `file_sha256`, width and height of the caller's file (enforced), projection
   and topology, an optional `pixel_sha256` in the contract's canonical form. squint computes the
   reference for every image it is given and verifies one the caller supplies; a mismatch is
@@ -1614,7 +1620,7 @@ names and schemas are the contract's; this section says what squint does with th
   (`contract::effective`, the function the run's invocation uses too); `expires`, one hour on;
   and `binding`, sha256 over the canonical JSON of the action, the arguments with each image
   replaced by its file digest (a path and inline bytes of one file bind equal) and its `expect`
-  kept, the tool version, the configuration's identity and the session id (`return_images` and
+  kept, the build's version (crate version and commit), the configuration's identity and the session id (`return_images` and
   `image_blocks` left out). The server records each binding it issues with its expiry. A call
   that cannot be priced (no configuration, or a model the catalog lacks) is refused for
   readiness with `worst_case_usd` and `effective.model` null, and without a configuration

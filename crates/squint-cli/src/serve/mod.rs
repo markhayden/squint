@@ -563,7 +563,7 @@ impl Server {
             contract: table_manners::CONTRACT_VERSION.into(),
             tool: table_manners::Tool {
                 name: "squint".into(),
-                version: VERSION.into(),
+                version: contract::TOOL_VERSION.into(),
             },
             id: self.inner.session_id.clone(),
             started: contract::rfc3339(self.inner.session_started_ms),
@@ -881,7 +881,7 @@ impl Server {
             contract: table_manners::CONTRACT_VERSION.into(),
             tool: table_manners::Tool {
                 name: "squint".into(),
-                version: VERSION.into(),
+                version: contract::TOOL_VERSION.into(),
             },
             runs,
             next_cursor,
@@ -925,7 +925,6 @@ pub(crate) fn refused_run(
     allocated(&dir);
     let result = contract::action_result(
         &dir,
-        VERSION,
         action,
         association,
         started,

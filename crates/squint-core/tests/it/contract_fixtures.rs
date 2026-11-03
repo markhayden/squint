@@ -84,6 +84,7 @@ fn fix(result: &mut Value, case: &str) {
     result["started"] = "2026-01-01T00:00:00.000Z".into();
     result["finished"] = "2026-01-01T00:00:00.000Z".into();
     result["duration_ms"] = 0.into();
+    result["tool"]["version"] = "0.0.0".into();
     result["run"]["id"] = case.into();
     result["run"]["resource"] = format!("squint://run/{case}/run.json").into();
     result["run"]["dir"] = format!("/runs/{case}").into();
@@ -148,16 +149,13 @@ fn describe(
     inspection: &Inspection,
     answers: &Answers,
 ) -> Value {
-    serde_json::to_value(
-        squint_core::contract::description(
-            config,
-            "0.0.0",
-            executor,
-            &inspection.readiness(answers),
-        )
-        .unwrap(),
+    let mut doc = serde_json::to_value(
+        squint_core::contract::description(config, executor, &inspection.readiness(answers))
+            .unwrap(),
     )
-    .unwrap()
+    .unwrap();
+    doc["tool"]["version"] = "0.0.0".into();
+    doc
 }
 
 /// With no configuration anywhere on the lookup: every shipped use case, the default limits,

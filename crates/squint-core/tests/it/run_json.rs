@@ -116,8 +116,11 @@ fn a_pass_is_completed_with_the_header_and_squints_body() {
     assert_eq!(r.contract, table_manners::CONTRACT_VERSION);
     assert_eq!(
         (r.tool.name.as_str(), r.tool.version.as_str()),
-        ("squint", "test")
+        ("squint", squint_core::contract::TOOL_VERSION)
     );
+    // The harness version the check was given ("test" here, the build's commit in the binary)
+    // stays in the report; the result carries the plain crate version.
+    assert_eq!(r.tool.version, env!("CARGO_PKG_VERSION"));
     // The action is the use case's, as `describe` names it, on every surface.
     assert_eq!(r.action, "source_fidelity");
     let id = o.dir.file_name().unwrap().to_str().unwrap();

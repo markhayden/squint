@@ -55,7 +55,7 @@ fn described_with(
 ) -> (Description, serde_json::Value) {
     let text = std::fs::read_to_string(root().join("fixtures/config/minimal.toml")).unwrap();
     let config = Config::parse(&text, &[], &|_| None).unwrap();
-    let d = contract::description(Some(&config), "0.9.0", executor, readiness).unwrap();
+    let d = contract::description(Some(&config), executor, readiness).unwrap();
     let doc = serde_json::to_value(&d).unwrap();
     valid(&doc);
     (d, doc)
@@ -122,8 +122,11 @@ fn the_description_is_the_contracts_with_the_images_profile() {
     assert_eq!(d.profiles, [Profile::Images]);
     assert_eq!(
         (d.tool.name.as_str(), d.tool.version.as_str()),
-        ("squint", "0.9.0")
+        ("squint", env!("CARGO_PKG_VERSION"))
     );
+    // The plain crate version, never the build's commit beside it.
+    assert_eq!(d.tool.version, contract::TOOL_VERSION);
+    assert!(!d.tool.version.contains('('), "{}", d.tool.version);
     assert_eq!(d.progress_interval_s, 10);
     assert!(d.resources.contains(&"squint://runs".to_string()));
     assert!(
@@ -387,7 +390,6 @@ fn a_config_with_rules_describes_only_its_use_case() {
     let mine = root().join("fixtures/rules/mine.toml");
     let d = contract::description(
         Some(&with_rules(mine.to_str().unwrap())),
-        "0.9.0",
         contract::Executor::Free,
         &Inspection::config_only(present_config()).readiness(&Answers::default()),
     )
@@ -399,7 +401,6 @@ fn a_config_with_rules_describes_only_its_use_case() {
     assert!(
         contract::description(
             Some(&with_rules(missing.to_str().unwrap())),
-            "0.9.0",
             contract::Executor::Free,
             &Inspection::config_only(present_config()).readiness(&Answers::default())
         )
@@ -449,7 +450,6 @@ fn an_unconfigured_description_needs_only_the_configuration() {
     assert!(config.setup.as_deref().unwrap().contains("--config"));
     let d = contract::description(
         None,
-        "0.9.0",
         contract::Executor::Paid,
         &Inspection::config_only(config.clone()).readiness(&Answers::default()),
     )
