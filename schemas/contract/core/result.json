@@ -126,6 +126,9 @@
         "off"
       ]
     },
+    "verdict": {
+      "$ref": "#/$defs/verdict"
+    },
     "images": {
       "type": "object",
       "additionalProperties": false,
@@ -417,6 +420,45 @@
               "$ref": "urn:table-manners:operations:artifact#/$defs/preview"
             }
           ]
+        }
+      }
+    },
+    "verdict": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "value",
+        "where"
+      ],
+      "description": "What an action declaring `answers: verdict` judged (2.4). Absent when the run was not judged; its summary says why.",
+      "properties": {
+        "value": {
+          "enum": [
+            "pass",
+            "fail",
+            "unsure"
+          ]
+        },
+        "where": {
+          "type": "array",
+          "items": {
+            "$ref": "urn:table-manners:images:location"
+          },
+          "description": "The places tied to a failed or unsure requirement of the call, in the judged image's frame; empty on a pass."
+        }
+      },
+      "if": {
+        "properties": {
+          "value": {
+            "const": "pass"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "where": {
+            "maxItems": 0
+          }
         }
       }
     }

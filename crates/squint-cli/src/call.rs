@@ -118,7 +118,7 @@ impl Step {
 /// Replays the bundle at `path` (table-manners 4.8, 4.9). The bundle path follows the path rule
 /// with the directories `--allow-dir` gives (5.2), and the reader checks it whole (every member
 /// listed and present, every input hashing to its `file_sha256`, every step a squint call at
-/// 0.4.0 whose inputs are its invocation's images, nothing left out or unportable). A bundle
+/// 0.5.0 whose inputs are its invocation's images, nothing left out or unportable). A bundle
 /// refused there is refused before any step: nothing runs and no run is written (no action is
 /// known to write one under), the reason on stderr, exit 64. The input members are then copied
 /// into `$XDG_CACHE_HOME/squint/bundles/<sha256 of invocation.json>/inputs/`, a directory only

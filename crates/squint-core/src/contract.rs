@@ -13,9 +13,9 @@ use table_manners::images::{
     Projection as ContractProjection, Source, Topology,
 };
 use table_manners::{
-    Action, ActionKind, CONTRACT_VERSION, Cache, Cost, DescribedTool, Description, Duration,
-    ErrorCode, ErrorInfo, Profile, Readiness, Render, RenderKind, Run, RunResult, Spend,
-    SpendBasis, Status, Tool, Vocabulary,
+    Action, ActionKind, Answers, CONTRACT_VERSION, Cache, Cost, DescribedTool, Description,
+    Duration, ErrorCode, ErrorInfo, Profile, Readiness, Render, RenderKind, Run, RunResult, Spend,
+    SpendBasis, Status, Tool, Verdict, VerdictValue, Vocabulary,
 };
 
 use crate::aggregate::Confidence;
@@ -275,6 +275,97 @@ pub fn status_of(class: &str) -> (Status, Option<(ErrorCode, bool)>) {
     }
 }
 
+/// The contract's verdict (table-manners 2.4) from a decision's verdict. On a fail or unsure,
+/// `where` holds every located place tied to the job's own requirements (`RQ<n>`, the caller's
+/// `requirements`) that the deciding run judged violated or could not tell, on the candidate:
+/// first the checklist items (`chk:ob:RQ<n>@candidate`, where a must-not's violation is
+/// recorded), then the findings that name such a requirement. A finding about a built-in rule is
+/// the body's, not `where`'s. A pass has none.
+fn contract_verdict(
+    report: &Report,
+    value: crate::aggregate::Verdict,
+    images: &[CanonicalImage],
+    id: &str,
+) -> Verdict {
+    use crate::aggregate::{Disposition as Item, Verdict as V};
+    use crate::submission::FindingDisposition as D;
+    let value = match value {
+        V::Pass => VerdictValue::Pass,
+        V::Fail => VerdictValue::Fail,
+        V::Unsure => VerdictValue::Unsure,
+    };
+    let Some(run) = report.runs.iter().find(|r| r.verdict.is_some()) else {
+        return Verdict {
+            value,
+            places: Vec::new(),
+        };
+    };
+    if value == VerdictValue::Pass {
+        return Verdict {
+            value,
+            places: Vec::new(),
+        };
+    }
+    let place = |root: Option<&RootLocation>,
+                 reason: &str,
+                 disposition: String,
+                 confidence: String,
+                 ids: String| {
+        let root = root?;
+        if root.image != "candidate" {
+            return None;
+        }
+        let image = images.iter().find(|i| i.id == root.image)?;
+        location(
+            image,
+            root,
+            &FindingWords {
+                label: reason,
+                disposition: &disposition,
+                confidence: &confidence,
+            },
+            id,
+            &ids,
+        )
+    };
+    let requirement = |obligation: &str| obligation.starts_with("RQ");
+    let items = run
+        .items
+        .iter()
+        .filter(|i| matches!(i.disposition, Item::Violation | Item::CantTell))
+        .filter_map(|i| {
+            let obligation = i.id.strip_prefix("chk:ob:")?.split('@').next()?;
+            requirement(obligation).then_some((i, obligation))
+        })
+        .filter_map(|(i, obligation)| {
+            place(
+                i.root.as_ref(),
+                &i.reason,
+                word(&i.disposition),
+                word(&i.confidence),
+                obligation.to_string(),
+            )
+        });
+    let findings = run
+        .findings
+        .iter()
+        .filter(|f| matches!(f.disposition, D::Violation | D::CantTell))
+        .filter(|f| f.obligation_ids.iter().any(|o| requirement(o)))
+        .filter_map(|f| {
+            place(
+                f.root.as_ref(),
+                &f.reason,
+                word(&f.disposition),
+                word(&f.confidence),
+                f.obligation_ids.join(","),
+            )
+        });
+    Verdict {
+        value,
+        places: items.chain(findings).collect(),
+    }
+}
+
 /// The exit code of an `invalid` request, whatever the error policy says: it is a bad request,
 /// not a judgement (table-manners 6).
 pub const EXIT_INVALID: i32 = 64;
@@ -350,6 +441,9 @@ pub fn run_result(
                 .collect()
         })
         .unwrap_or_default();
+    let verdict = report
+        .verdict
+        .map(|value| contract_verdict(report, value, images, &id));
     let mut notes: Vec<String> = images.iter().flat_map(|i| i.warnings.clone()).collect();
     notes.extend(invoked.and_then(|i| i.note.clone()));
     for run in &report.runs {
@@ -417,6 +511,7 @@ pub fn run_result(
             },
         },
         cache,
+        verdict,
         images: Some(Images {
             taken: images
                 .iter()
@@ -590,6 +685,8 @@ pub fn description(
                 kind: ActionKind::Task,
                 group: None,
                 purpose: purpose(base).into(),
+                // A completed check carries the contract's verdict (table-manners 2.4).
+                answers: Some(Answers::Verdict),
                 params_schema: params_schema(),
                 images: Some(images),
                 locations: Some(Vec::new()),
@@ -1399,6 +1496,7 @@ pub fn action_result(
             basis: SpendBasis::Measured,
         },
         cache: Cache::Off,
+        verdict: None,
         images: Some(Images {
             taken: Vec::new(),
             out: Vec::new(),

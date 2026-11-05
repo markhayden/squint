@@ -12,7 +12,7 @@
 //!
 //! The manifest is checked as soon as it is read, before any other member: against the
 //! contract's `invocation-bundle.json`, then against what squint replays (every step contract
-//! `0.4.0` and tool `squint`; no `artifacts`, `unportable` or `reference_only` entry, since squint
+//! `0.5.0` and tool `squint`; no `artifacts`, `unportable` or `reference_only` entry, since squint
 //! takes no native inputs and `squint call` has no way to supply a left-out one; each step's
 //! `inputs` exactly the image arguments of its `invocation`, by slot). Every later member must be
 //! listed by it, and every listed member present, its bytes hashing to the `file_sha256` of the

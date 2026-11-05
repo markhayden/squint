@@ -42,6 +42,7 @@ mod summary_cli;
 mod tool_turns_cli;
 mod tools_cli;
 mod usage_cli;
+mod verdict_cli;
 mod viewer_geometry;
 mod viewer_serve;
 mod viewer_timeline;

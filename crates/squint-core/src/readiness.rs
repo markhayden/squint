@@ -125,6 +125,8 @@ pub fn config_requirement(file: &ConfigFile) -> Requirement {
         name: file.path.display().to_string(),
         state,
         setup,
+        optional: false,
+        needed_for: None,
     }
 }
 
@@ -174,6 +176,8 @@ impl Inspection {
                 name: credential.name.clone(),
                 state,
                 setup: Some(setup),
+                optional: false,
+                needed_for: None,
             });
         }
         if let Some(model) = &self.model {
@@ -185,6 +189,8 @@ impl Inspection {
                     _ => RequirementState::Present,
                 },
                 setup: None,
+                optional: false,
+                needed_for: None,
             });
         }
         for file in &self.files {
@@ -197,6 +203,8 @@ impl Inspection {
                     RequirementState::Missing
                 },
                 setup: Some(file.setup.clone()),
+                optional: false,
+                needed_for: None,
             });
         }
         let blocked = requirements.iter().any(|r| {
@@ -331,6 +339,8 @@ mod tests {
             name: "/etc/squint.toml".into(),
             state: RequirementState::Present,
             setup: None,
+            optional: false,
+            needed_for: None,
         }
     }
 

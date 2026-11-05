@@ -334,6 +334,12 @@
           "type": "string",
           "minLength": 1
         },
+        "answers": {
+          "enum": [
+            "verdict"
+          ],
+          "description": "What a completed result of this action answers beside its outputs (2.4): `verdict`, a pass, fail or unsure about the images it judged."
+        },
         "images": {
           "type": "array",
           "items": {
@@ -648,7 +654,7 @@
         "state",
         "requirements"
       ],
-      "description": "Whether the action can run here, now, and what stands in the way (CONTRACT.md 3.1). Never a credential value.",
+      "description": "Whether the action can run here, now, and what stands in the way (CONTRACT.md 3.1). An optional requirement never makes it needs_setup. Never a credential value.",
       "properties": {
         "state": {
           "enum": [
@@ -677,16 +683,30 @@
             "properties": {
               "requirements": {
                 "items": {
-                  "properties": {
-                    "state": {
-                      "not": {
-                        "enum": [
-                          "missing",
-                          "invalid"
-                        ]
+                  "anyOf": [
+                    {
+                      "properties": {
+                        "optional": {
+                          "const": true
+                        }
+                      },
+                      "required": [
+                        "optional"
+                      ]
+                    },
+                    {
+                      "properties": {
+                        "state": {
+                          "not": {
+                            "enum": [
+                              "missing",
+                              "invalid"
+                            ]
+                          }
+                        }
                       }
                     }
-                  }
+                  ]
                 }
               }
             }
@@ -710,6 +730,9 @@
                         "missing",
                         "invalid"
                       ]
+                    },
+                    "optional": {
+                      "const": false
                     }
                   },
                   "required": [
@@ -775,8 +798,54 @@
           "type": "string",
           "minLength": 1,
           "description": "A sentence a person can act on."
+        },
+        "optional": {
+          "type": "boolean",
+          "description": "True when a missing or invalid state never blocks the action: it limits an optional part of the action, which `for` names (3.1). Default false."
+        },
+        "for": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120,
+          "description": "What an optional requirement is needed for, in a few words a person reads (\"checking the result\")."
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "optional": {
+                "const": true
+              }
+            },
+            "required": [
+              "optional"
+            ]
+          },
+          "then": {
+            "required": [
+              "for"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "for"
+            ]
+          },
+          "then": {
+            "required": [
+              "optional"
+            ],
+            "properties": {
+              "optional": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
     }
   }
 }

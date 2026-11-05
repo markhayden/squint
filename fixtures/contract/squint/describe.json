@@ -1,6 +1,7 @@
 {
   "actions": [
     {
+      "answers": "verdict",
       "cost": {
         "basis": "measured",
         "may_spend": true
@@ -209,6 +210,7 @@
       "title": "Source fidelity"
     },
     {
+      "answers": "verdict",
       "cost": {
         "basis": "measured",
         "may_spend": true
@@ -412,6 +414,7 @@
       "title": "Reference consistency"
     },
     {
+      "answers": "verdict",
       "cost": {
         "basis": "measured",
         "may_spend": true
@@ -615,6 +618,7 @@
       "title": "Reality checks"
     },
     {
+      "answers": "verdict",
       "cost": {
         "basis": "measured",
         "may_spend": true
@@ -818,6 +822,7 @@
       "title": "Brief compliance"
     },
     {
+      "answers": "verdict",
       "cost": {
         "basis": "measured",
         "may_spend": true
@@ -1021,7 +1026,7 @@
       "title": "Product fidelity"
     }
   ],
-  "contract": "0.4.0",
+  "contract": "0.5.0",
   "limits": {
     "inline_bytes": 67108864
   },
