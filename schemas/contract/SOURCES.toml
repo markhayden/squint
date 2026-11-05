@@ -1,6 +1,9 @@
 # The table-manners schemas squint conforms to, copied from the crate pinned in Cargo.toml.
 # Regenerate after a version bump: UPDATE_CONTRACT=1 cargo test -p squint-core --test it contract_schemas
 tag = "v0.4.0"
+# Copied from an unpublished checkout by path; the registry's release replaces it.
+branch = "v0.5"
+commit = "5af75b7177810c84e14fec685880578e4dbc1af0"
 
 [[file]]
 path = "images/image-reference.json"
@@ -20,17 +23,17 @@ sha256 = "f3928ed613bf1851a8c7e3e3b13a0ca175a673d8cd67be2678eb31619efbd78d"
 [[file]]
 path = "images/image-out.json"
 id = "urn:table-manners:images:image-out"
-sha256 = "e1548d853a8724dc1009e7619c68b715e8ba48af8d87a485e37311298af7efd5"
+sha256 = "b1f5a7a4c2593ba5f5a98c33849d9cda0d165ad62259ed867c6c21c436eeeb1c"
 
 [[file]]
 path = "core/result.json"
 id = "urn:table-manners:core:result"
-sha256 = "6e6d6338279582ca2a4ce958350505bdb38506bd8da8e25c52b58dd0dd1767e4"
+sha256 = "3aee665c0a9047f2e43b99f1525d47d97fe67847f080ebcc8285d2c10b1a6c19"
 
 [[file]]
 path = "core/description.json"
 id = "urn:table-manners:core:description"
-sha256 = "606b4b2fb65557c2451f45e27647bc1ccc976e4efbfb82bd414dff9915b1d596"
+sha256 = "8dcf42e00476442110892e51b730a3cf7531e37e90ce896b3e2de14b4b67d558"
 
 [[file]]
 path = "core/runs.json"

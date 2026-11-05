@@ -178,6 +178,10 @@
         "tool": {
           "name": "squint",
           "version": "0.0.0"
+        },
+        "verdict": {
+          "value": "pass",
+          "where": []
         }
       },
       "tool": {

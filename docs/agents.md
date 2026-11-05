@@ -178,8 +178,14 @@ MCP alike, cache hits and cancellations included: the contract's header (status,
 `retryable`, timestamps, input identity, spend (`unresolved_usd` is the part no provider
 answer settled, counted at its worst case: show it as "at most"; `basis` is `estimated` when an
 answer reported no usage and counts its worst case), cache, the images taken in with their
-roles, every finding as a contract location on the file as stored) and squint's body (verdict,
-exit code, whether two runs agreed, the report's path). A `fail` verdict is `completed`.
+roles, every finding as a contract location on the file as stored), the contract's `verdict`
+(table-manners 2.4: `value`, and in `where` the located places tied to the call's own
+`requirements` that were violated or could not be told, on the candidate; a finding about a
+built-in rule is in `locations.found` but never in `where`; empty on a pass) and squint's body
+(verdict, exit code, whether two runs agreed, the report's path). A `fail` verdict is
+`completed`. Every check action's description says `"answers": "verdict"`, so a tool that asks
+squint whether something is still visible (rascal's remove with a checker) reads `verdict`
+without knowing squint's body.
 
 Every result carries `invocation` (table-manners 4.8): what the call resolved to, so it can be run
 again elsewhere. `arguments` hold each image as `{"expect": <image reference>}` with no path or

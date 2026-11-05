@@ -1,6 +1,7 @@
 {
   "actions": [
     {
+      "answers": "verdict",
       "cost": {
         "may_spend": false
       },
@@ -197,6 +198,7 @@
       "title": "Source fidelity"
     },
     {
+      "answers": "verdict",
       "cost": {
         "may_spend": false
       },
@@ -388,6 +390,7 @@
       "title": "Reference consistency"
     },
     {
+      "answers": "verdict",
       "cost": {
         "may_spend": false
       },
@@ -579,6 +582,7 @@
       "title": "Reality checks"
     },
     {
+      "answers": "verdict",
       "cost": {
         "may_spend": false
       },
@@ -770,6 +774,7 @@
       "title": "Brief compliance"
     },
     {
+      "answers": "verdict",
       "cost": {
         "may_spend": false
       },

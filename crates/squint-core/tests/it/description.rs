@@ -39,6 +39,8 @@ fn present_config() -> Requirement {
         name: "squint.toml".into(),
         state: RequirementState::Present,
         setup: None,
+        optional: false,
+        needed_for: None,
     }
 }
 

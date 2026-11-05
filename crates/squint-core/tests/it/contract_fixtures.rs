@@ -140,6 +140,8 @@ fn present_config() -> table_manners::Requirement {
         name: "squint.toml".into(),
         state: table_manners::RequirementState::Present,
         setup: None,
+        optional: false,
+        needed_for: None,
     }
 }
 

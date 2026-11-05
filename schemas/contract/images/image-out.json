@@ -13,6 +13,12 @@
       "type": "string",
       "pattern": "^[a-z0-9][a-z0-9_-]*$"
     },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80,
+      "description": "Optional plain words a host shows in place of the role (\"Try 2 · result\") (10.2)."
+    },
     "image": {
       "$ref": "urn:table-manners:images:image-reference"
     },
