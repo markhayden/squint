@@ -3,7 +3,7 @@
   "allowed": false,
   "binding": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
   "cap_usd": 2.0,
-  "contract": "0.4.0",
+  "contract": "0.5.0",
   "effective": {
     "config_identity": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
     "model": "fake-model",
@@ -33,7 +33,7 @@
       "/allowed"
     ],
     "budget_usd": 1e-6,
-    "contract": "0.4.0",
+    "contract": "0.5.0",
     "id": "00000000-0000-4000-8000-000000000001",
     "remaining_usd": 1e-6,
     "reserved_usd": 0.0,

@@ -601,7 +601,7 @@ fn a_step_squint_does_not_replay_is_refused_naming_it() {
     let cases: Vec<(Edit, &str)> = vec![
         (
             Box::new(|m| m["steps"][0]["contract"] = json!("0.3.0")),
-            "steps[0] is contract 0.3.0; squint replays 0.4.0",
+            "steps[0] is contract 0.3.0; squint replays 0.5.0",
         ),
         (
             Box::new(|m| m["steps"][0]["tool"]["name"] = json!("rascal")),

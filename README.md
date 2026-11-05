@@ -154,7 +154,7 @@ external interface as its siblings, defined by the shared contract
 `squint describe --json`, `squint estimate --json`, `squint call <action> --arguments <file>` (any
 action from exactly its MCP arguments; `--bundle <path>` replays an invocation bundle), and a
 `run.json` in every decision directory (ADR 0018, milestones M7 to M10). It conforms to
-table-manners v0.4.0, core and images profile (pinned `=0.4.0` from crates.io): it describes
+table-manners v0.5.0, core and images profile (pinned `=0.5.0`; by path until the release is published): it describes
 itself and serves with no configuration, each action a `task` saying what it still needs (`readiness`); an estimate is a control bound to the exact call,
 never a run; every result records the call it resolved to (`invocation`), so it can be run again
 elsewhere or replayed from a bundle with the original files gone; image paths are read only inside

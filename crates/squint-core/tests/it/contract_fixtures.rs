@@ -99,6 +99,17 @@ fn fix(result: &mut Value, case: &str) {
         location["source"]["run"] = case.into();
         location["source"]["version"] = "0.0.0".into();
     }
+    // The verdict's places name the run that judged them, as a found location does (2.4).
+    for location in result
+        .get_mut("verdict")
+        .and_then(|v| v.get_mut("where"))
+        .and_then(Value::as_array_mut)
+        .into_iter()
+        .flatten()
+    {
+        location["source"]["run"] = case.into();
+        location["source"]["version"] = "0.0.0".into();
+    }
     if let Some(error) = result.get_mut("error").filter(|e| !e.is_null()) {
         let reason = error["reason"].as_str().unwrap_or_default().to_string();
         error["reason"] = reason
@@ -238,6 +249,18 @@ fn the_conformance_fixtures_are_what_squint_emits() {
         "run-fail.json",
         &run_case("fail", "finding-violation.json", "pair.toml", &[], false),
     );
+    // A fail whose verdict has a place: the call's own must-not requirement judged violated on
+    // the candidate, located (table-manners v0.5, 2.4).
+    check(
+        "run-fail-must-not.json",
+        &run_case(
+            "fail-must-not",
+            "intent-must-not-violation.json",
+            "pair-must-not.toml",
+            &[],
+            false,
+        ),
+    );
     check(
         "run-invalid.json",
         &run_case("invalid", "held.json", "expect-mismatch.toml", &[], false),
@@ -295,6 +318,7 @@ fn the_conformance_fixtures_are_what_squint_emits() {
             "run-completed.json",
             "run-credential.json",
             "run-error.json",
+            "run-fail-must-not.json",
             "run-fail.json",
             "run-invalid.json",
             "run-path-dotdot.json",
@@ -316,14 +340,14 @@ fn the_conformance_fixtures_are_what_squint_emits() {
     );
 }
 
-/// The fixtures as table-manners' `tests/fixtures.rs` reads them (its `v0.4.0` tag), so the copy
+/// The fixtures as table-manners' `tests/fixtures.rs` reads them (its `v0.5.0` tag), so the copy
 /// into its `fixtures/squint/` passes there first time. Each file by its name: `describe*.json` a
 /// description, `estimate-*.json` an estimate, `run-*.json` a result, `runs*.json` a runs page,
 /// `session.json` and `session-*.json` a session, `refusal-*.json` refusal data; each validated
 /// with the crate's embedded schemas and read into the crate's type; every `bundle-*/` directory
 /// an invocation bundle whose `invocation.json` is a manifest and whose every listed member is
 /// beside it with the digest the manifest states; any other file or directory fails. Every
-/// contract version in a document (a bundle's steps and results too) is `0.4.0`, every tool
+/// contract version in a document (a bundle's steps and results too) is `0.5.0`, every tool
 /// `squint`, every amount (`usd` or a key ending `_usd`) at most six decimals. Beside the schemas,
 /// the rules they cannot say, as table-manners checks them: in a result and in each bundled step,
 /// `invocation.action` is the result's action and no image in the invocation has a locator (4.8).
@@ -387,13 +411,13 @@ fn every_fixture_validates_as_table_manners_reads_it() {
             _ => {}
         }
     }
-    /// Every `contract` in the document is 0.4.0 and every `tool.name` squint.
+    /// Every `contract` in the document is 0.5.0 and every `tool.name` squint.
     fn ours(name: &str, v: &Value) {
         match v {
             Value::Object(map) => {
                 for (k, value) in map {
                     match k.as_str() {
-                        "contract" => assert_eq!(value, "0.4.0", "{name}"),
+                        "contract" => assert_eq!(value, "0.5.0", "{name}"),
                         "tool" if value.get("name").is_some() => {
                             assert_eq!(value["name"], "squint", "{name}");
                         }
@@ -520,7 +544,7 @@ fn every_fixture_validates_as_table_manners_reads_it() {
         b.steps.len()
     }
 
-    assert_eq!(table_manners::CONTRACT_VERSION, "0.4.0");
+    assert_eq!(table_manners::CONTRACT_VERSION, "0.5.0");
     let mut seen = 0;
     let mut results = 0;
     for entry in std::fs::read_dir(dir()).unwrap() {

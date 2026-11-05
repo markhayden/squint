@@ -1,0 +1,159 @@
+{
+  "action": "source_fidelity",
+  "body": {
+    "agree": null,
+    "exit_code": 1,
+    "report": "/runs/fail-must-not/report.json",
+    "verdict": "fail"
+  },
+  "cache": "off",
+  "contract": "0.5.0",
+  "duration_ms": 0,
+  "error": null,
+  "finished": "2026-01-01T00:00:00.000Z",
+  "images": {
+    "in": [
+      {
+        "image": {
+          "file_sha256": "7fb7b6859319d2977ef89ed044dcda94c94401358f4ac71b60ef2613de300556",
+          "height": 48,
+          "pixel_sha256": "9e75f7d58acb79c39101feb3715c44dda1e29e165a5106903093e1b5c2be9b0a",
+          "projection": "flat",
+          "topology": "bounded",
+          "width": 64
+        },
+        "role": "candidate",
+        "slot": "candidate"
+      },
+      {
+        "image": {
+          "file_sha256": "8c12b7425ca2c5cbc9cfa733fbab6f2bd267a379baaec01e0fecb2d2ab6b154f",
+          "height": 48,
+          "pixel_sha256": "10528ff682d842b99ab3028c02deeeccc6e0f8e4c63abb5a45814a7a7fd8cd77",
+          "projection": "flat",
+          "topology": "bounded",
+          "width": 64
+        },
+        "role": "source",
+        "slot": "source"
+      }
+    ],
+    "out": []
+  },
+  "input_identity": "sha256:effbf996eae3f899162f85ec2b9f233088b7ab0a6d8f6ad5d8f8ccc31f69d507",
+  "invocation": {
+    "action": "source_fidelity",
+    "arguments": {
+      "brief": "Restyle the scene; keep the structure.",
+      "candidate": {
+        "expect": {
+          "file_sha256": "7fb7b6859319d2977ef89ed044dcda94c94401358f4ac71b60ef2613de300556",
+          "height": 48,
+          "pixel_sha256": "9e75f7d58acb79c39101feb3715c44dda1e29e165a5106903093e1b5c2be9b0a",
+          "projection": "flat",
+          "topology": "bounded",
+          "width": 64
+        }
+      },
+      "requirements": [
+        {
+          "condition": null,
+          "disabled": false,
+          "evidence": null,
+          "evidence_kinds": null,
+          "hidden_ok": false,
+          "id": "RQ1",
+          "kind": "must_not",
+          "matters": null,
+          "scope": null,
+          "text": "a white patch is added",
+          "waives": []
+        }
+      ],
+      "source": {
+        "expect": {
+          "file_sha256": "8c12b7425ca2c5cbc9cfa733fbab6f2bd267a379baaec01e0fecb2d2ab6b154f",
+          "height": 48,
+          "pixel_sha256": "10528ff682d842b99ab3028c02deeeccc6e0f8e4c63abb5a45814a7a7fd8cd77",
+          "projection": "flat",
+          "topology": "bounded",
+          "width": 64
+        }
+      }
+    },
+    "effective": {
+      "config_identity": "sha256:cc7cc1b0471547e15d7b7ee428057be31ef83bd77489bcf8bf3cbe759d0b102f",
+      "model": "fake-model",
+      "x-squint": {
+        "attempts": 9,
+        "decision_runs": 1,
+        "requests": 6,
+        "rules": {
+          "base:source-fidelity": 1
+        }
+      }
+    },
+    "requirements": [
+      "fake-tool.toml"
+    ]
+  },
+  "locations": {
+    "found": [],
+    "used": []
+  },
+  "notes": [],
+  "run": {
+    "client_run_id": null,
+    "dir": "/runs/fail-must-not",
+    "id": "fail-must-not",
+    "resource": "squint://run/fail-must-not/run.json",
+    "session_id": null
+  },
+  "spend": {
+    "basis": "measured",
+    "unresolved_usd": 0.0,
+    "usd": 0.0
+  },
+  "started": "2026-01-01T00:00:00.000Z",
+  "status": "completed",
+  "tool": {
+    "name": "squint",
+    "version": "0.0.0"
+  },
+  "verdict": {
+    "value": "fail",
+    "where": [
+      {
+        "confidence": "confident",
+        "disposition": "violation",
+        "image": {
+          "file_sha256": "7fb7b6859319d2977ef89ed044dcda94c94401358f4ac71b60ef2613de300556",
+          "height": 48,
+          "pixel_sha256": "9e75f7d58acb79c39101feb3715c44dda1e29e165a5106903093e1b5c2be9b0a",
+          "projection": "flat",
+          "topology": "bounded",
+          "width": 64
+        },
+        "kind": "bbox",
+        "label": "A white patch has been added on the left of the frame.",
+        "parts": [
+          {
+            "bbox": [
+              0.1,
+              0.2,
+              0.3,
+              0.4
+            ]
+          }
+        ],
+        "source": {
+          "item": "RQ1",
+          "run": "fail-must-not",
+          "tool": "squint",
+          "version": "0.0.0"
+        },
+        "straddles_wrap": false
+      }
+    ]
+  }
+}
