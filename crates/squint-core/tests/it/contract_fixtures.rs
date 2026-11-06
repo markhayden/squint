@@ -58,6 +58,7 @@ fn run_case(case: &str, script: &str, job: &str, overrides: &[&str], cancelled: 
         config_identity: None,
         max_spend_usd: None,
         requirements: vec!["fake-tool.toml".into()],
+        choices: Default::default(),
     });
     if cancelled {
         // Cancelled once the decision is allocated and reserved, before its first request.

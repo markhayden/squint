@@ -365,6 +365,7 @@ pub fn run(plan: &Plan, factories: &dyn Factories, cancel: Option<&Cancel>) -> R
                             config_identity: None,
                             max_spend_usd: None,
                             requirements: factories.requirements(&config, &tools),
+                            choices: Default::default(),
                         });
                     services.evaluation = true;
                     services.cancel = cancel;

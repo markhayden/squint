@@ -412,7 +412,12 @@ impl Server {
             Err(squint_core::Error::Job(m)) => return Err(ErrorData::invalid_params(m, None)),
             Err(e) => return Err(refused_estimate(&e)),
         };
-        let config = self.inner.config.as_ref();
+        let choices = contract::CallChoices::from_call(arguments)
+            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        let (call_config, call_tools) = self
+            .for_call(action, &choices)
+            .map_err(|e| ErrorData::invalid_params(e.to_string(), None))?;
+        let config = call_config.as_ref();
         inside_allowed(&mut job, &self.inner.allowed_dirs).map_err(|e| refused_estimate(&e))?;
         let now_ms = contract::now_ms();
         let context = contract::EstimateContext {
@@ -422,16 +427,22 @@ impl Server {
                 session_id: Some(&self.inner.session_id),
             },
             config,
-            tools: &self.inner.tools,
+            tools: &call_tools,
             readiness: self.inner.inspection.readiness(&self.inner.answers),
             pricing: self.pricing(),
             session: Some(self.session()),
             now_ms,
             ttl_ms: self.inner.estimate_ttl_ms,
         };
-        let estimate =
-            contract::estimate(&context, action, &job, Path::new(JOB_BASE), max_spend_usd)
-                .map_err(|e| refused_estimate(&e))?;
+        let estimate = contract::estimate(
+            &context,
+            action,
+            &job,
+            Path::new(JOB_BASE),
+            max_spend_usd,
+            &choices,
+        )
+        .map_err(|e| refused_estimate(&e))?;
         let expires_ms = now_ms.saturating_add(self.inner.estimate_ttl_ms);
         if let Ok(mut issued) = self.inner.estimates.lock() {
             issued.retain(|_, expires| *expires > now_ms);
@@ -602,7 +613,17 @@ impl Server {
         if let Err(e) = inside_allowed(&mut job, &self.inner.allowed_dirs) {
             return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
         }
-        let mut config = config.clone();
+        // The call's own profile and tool set, on this call's copy of the configuration and a
+        // narrowing of the session's running tools (table-manners: the arguments are the call's).
+        let choices = match contract::CallChoices::from_call(&args) {
+            Ok(c) => c,
+            Err(e) => return Err(ErrorData::invalid_params(e.to_string(), None)),
+        };
+        let (call_config, call_tools) = match self.for_call(action, &choices) {
+            Ok(c) => c,
+            Err(e) => return Err(ErrorData::invalid_params(e.to_string(), None)),
+        };
+        let mut config = call_config.unwrap_or_else(|| config.clone());
         // A non-number or a value at or below zero is the input schema's to reject; one above
         // the configured cap is the call's mistake, refused as a result before any paid step,
         // never silently lowered (table-manners 4.5).
@@ -623,10 +644,9 @@ impl Server {
         {
             return self.finished(action, &args, &hooks.association, Some(&e), Map::new());
         }
-        let stale_estimate = hooks
-            .estimate
-            .as_deref()
-            .and_then(|named| self.stale_estimate(named, action, &job, &config, max_spend_usd));
+        let stale_estimate = hooks.estimate.as_deref().and_then(|named| {
+            self.stale_estimate(named, action, &job, &config, max_spend_usd, &choices)
+        });
         let opts = crate::ProviderOptions {
             replay: None,
             record: None,
@@ -659,7 +679,7 @@ impl Server {
             .as_ref()
             .map(|c| c.name.clone());
         let model = config.provider.model.clone();
-        let mut services = squint_core::run::Services::new(provider.as_ref(), &self.inner.tools)
+        let mut services = squint_core::run::Services::new(provider.as_ref(), &call_tools)
             .with_answered(Arc::new(move |answer| {
                 session
                     .answers
@@ -674,6 +694,7 @@ impl Server {
                 config_identity: self.inner.config_identity.clone(),
                 max_spend_usd,
                 requirements: self.inner.inspection.used(&self.check_needs()),
+                choices: choices.clone(),
             })
             .with_cancel(&hooks.cancel)
             .with_allocated(Arc::new(move |dir: &Path| {
@@ -713,6 +734,34 @@ impl Server {
         }
     }
 
+    /// One call's configuration and tools: the session's configuration with the call's
+    /// `profile` and `tools` applied ([`contract::CallChoices::apply`]), and the session's
+    /// running tools narrowed to that configuration's (no pack starts again). No configuration
+    /// leaves the configuration out and keeps every tool.
+    fn for_call(
+        &self,
+        action: &str,
+        choices: &contract::CallChoices,
+    ) -> squint_core::Result<(Option<Config>, squint_core::tool::ToolRegistry)> {
+        let all: Vec<String> = self
+            .inner
+            .tools
+            .manifests()
+            .map(|m| m.name.clone())
+            .collect();
+        let Some(session) = self.inner.config.as_ref() else {
+            return Ok((None, self.inner.tools.narrowed(&all)?));
+        };
+        let mut config = session.clone();
+        choices.apply(&action.replace('_', "-"), &mut config)?;
+        let enabled: Vec<String> = all
+            .into_iter()
+            .filter(|n| config.tools.enabled.contains(n))
+            .collect();
+        let tools = self.inner.tools.narrowed(&enabled)?;
+        Ok((Some(config), tools))
+    }
+
     /// Why the estimate a call named no longer binds it (table-manners 4.5), or none when it
     /// does: the binding is recomputed for the call as it arrived (its images by file digest,
     /// against the configuration and the session) and must be one this session issued that has
@@ -724,6 +773,7 @@ impl Server {
         job: &squint_core::job::Job,
         config: &Config,
         max_spend_usd: Option<f64>,
+        choices: &contract::CallChoices,
     ) -> Option<String> {
         let digests = job
             .images
@@ -745,7 +795,7 @@ impl Server {
             config_identity: self.inner.config_identity.as_deref(),
             session_id: Some(&self.inner.session_id),
         };
-        if binder.binding(action, job, &digests, max_spend_usd) != named {
+        if binder.binding(action, job, &digests, max_spend_usd, choices) != named {
             return Some(format!(
                 "the call does not match the estimate {named}: its inputs, the configuration, \
                  squint's version or the session differ; estimate it again"

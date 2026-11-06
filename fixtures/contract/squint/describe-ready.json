@@ -60,6 +60,14 @@
             "exclusiveMinimum": 0,
             "type": "number"
           },
+          "profile": {
+            "description": "The rules profile for this check, replacing the configured one; `none` is the base rules alone. `architecture`: permanent structure (walls, floors, pools, roads) must keep its shape; furniture, decoration and plants may change.",
+            "enum": [
+              "none",
+              "architecture"
+            ],
+            "type": "string"
+          },
           "requirements": {
             "description": "Job requirements, as `[[job.requirements]]` in a job file; ids `RQ<n>`.",
             "items": {

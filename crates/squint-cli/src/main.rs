@@ -392,6 +392,7 @@ fn check(args: &CheckArgs) -> i32 {
             config_identity: Some(config_identity),
             max_spend_usd: args.input.max_spend_usd,
             requirements,
+            choices: Default::default(),
         });
     let outcome = runtime.block_on(squint_core::run::check(
         &config, &job, job_base, &services, &out_dir, VERSION,
@@ -663,6 +664,7 @@ fn estimate(args: &EstimateArgs) -> i32 {
         &job,
         Path::new("."),
         input.max_spend_usd,
+        &Default::default(),
     ) {
         Ok(estimate) => {
             println!(

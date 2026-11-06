@@ -882,7 +882,14 @@ fn the_estimate_reflects_the_image_plan() {
         now_ms: 0,
         ttl_ms: 1,
     };
-    let err =
-        squint_core::contract::estimate(&ctx, "source_fidelity", &job, &root(), None).unwrap_err();
+    let err = squint_core::contract::estimate(
+        &ctx,
+        "source_fidelity",
+        &job,
+        &root(),
+        None,
+        &Default::default(),
+    )
+    .unwrap_err();
     assert_eq!(err.class(), "image_limit");
 }
