@@ -6,7 +6,7 @@ id = "brief-compliance/stills-v1"
 use_case = "brief-compliance"
 split = "dev"
 licence = "CC-BY-4.0"
-images_repo = "github.com/markhayden/squint-evalsets"
+images_repo = "github.com/markhayden/wafflery-evalsets"
 rules = { base = "brief-compliance", version = 1 }
 
 [[family]]

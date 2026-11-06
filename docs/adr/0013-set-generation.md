@@ -55,8 +55,9 @@ defect.
    item in the manifest's construction notes and in the evalsets repository README. The weights
    licence (Apache 2.0 for klein) and the vendors' terms above permit this for all three; the
    OpenAI clause is confirmed by the owner from the terms page.
-5. **Where things live.** Images in the public `squint-evalsets` repository, cloned beside the
-   harness at `../squint-evalsets`; manifests, jobs and confirmed labels in this repository under
+5. **Where things live.** Images in the public `wafflery-evalsets` repository (named
+   `squint-evalsets` until 2026-11-05, when it was renamed to hold rascal's sets too), cloned
+   beside the harness at `../wafflery-evalsets`; manifests, jobs and confirmed labels in this repository under
    `evalsets/`; construction records, drafts, contact sheets and blind labels in owner storage.
 
 ## Dry run (2026-10-27)

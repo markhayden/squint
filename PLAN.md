@@ -881,7 +881,7 @@ owner attestation text; `sets verify-seal`.
 models, plant defects by construction, write `job.toml`, draft labels and regions from the
 construction record only, write the owner's worksheet (`labels-draft.toml` plus contact sheet) to
 owner storage outside the repository, record generator and licence per item. ADR 0013 names
-generators, licence and the review procedure. Create the `squint-evalsets` repository.
+generators, licence and the review procedure. Create the `wafflery-evalsets` repository.
 `docs/evalsets.md` documents the procedure.
 
 **Acceptance.** A two-item dry run yields a valid set directory and an external worksheet; ADR

@@ -11,7 +11,7 @@ the same sets rerun with and without tools, and honest blind gates.
 ## Decision
 
 A set is a directory with `set.toml` under `evalsets/<use-case>/<set>/`; every image is verified
-by SHA-256 before a run. Public images live in a separate `squint-evalsets` repository fetched
+by SHA-256 before a run. Public images live in a separate `wafflery-evalsets` repository fetched
 by hash; private sets are referenced by path. Blind labels are committed as a hash before any
 model output exists. Evaluation runs never read the cache. First sets are public, generated with
 image models with defects planted by construction and labelled by hand: 20 items per use case,
