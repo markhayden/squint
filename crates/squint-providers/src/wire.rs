@@ -14,6 +14,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use squint_core::provider::ToolDefinition;
+use squint_core::run::SUBMIT;
 use squint_core::{Error, Result};
 
 use crate::catalog::Capabilities;
@@ -328,24 +329,39 @@ pub fn check_tool_set(
     caps: &Capabilities,
     defs: &[ToolDefinition],
 ) -> Result<Vec<WireTool>> {
+    // Anthropic compiles every strict schema in a request into one grammar and refuses the request
+    // when that grammar is too large ("The compiled grammar is too large…"), a limit its guide does
+    // not state as a number. `submit_verdict` alone already fills most of it, so on Anthropic only
+    // `submit_verdict` is strict: the inspection tools go as their canonical schemas, and their
+    // arguments stay enforced by canonical validation, an invalid call answered as `invalid_args`.
+    let non_strict = Capabilities {
+        strict_tools: false,
+        ..caps.clone()
+    };
     let tools: Vec<WireTool> = defs
         .iter()
-        .map(|d| transform_tool(adapter, caps, d))
+        .map(|d| match adapter {
+            Adapter::AnthropicMessages if d.name != SUBMIT => {
+                transform_tool(adapter, &non_strict, d)
+            }
+            _ => transform_tool(adapter, caps, d),
+        })
         .collect::<Result<_>>()?;
     let fail = |what: String| Error::Config(format!("wire ({}): {what}", adapter.id()));
     match adapter {
         Adapter::AnthropicMessages if caps.strict_tools => {
             // Limits read from the structured-outputs guide: 20 strict tools, 24 optional
             // parameters and 16 union-typed parameters across every strict schema in a request.
-            if tools.len() > 20 {
+            let strict: Vec<&WireTool> = tools.iter().filter(|t| t.wire.strict).collect();
+            if strict.len() > 20 {
                 return Err(fail(format!(
                     "{} tools exceed the 20 strict tools a request may carry",
-                    tools.len()
+                    strict.len()
                 )));
             }
             let mut optional = 0usize;
             let mut unions = 0usize;
-            for t in &tools {
+            for t in strict {
                 let s = expanded(&t.wire.schema);
                 let c = Counts::of(&s);
                 optional += c.optional;
