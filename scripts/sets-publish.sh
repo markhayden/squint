@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 set_id="${1:?usage: sets-publish.sh <use-case>/<set> \"<attestation>\"}"
 attest="${2:?attestation text}"
 owner="${SQUINT_OWNER_DIR:-$HOME/squint-owner}"
-clone="${SQUINT_EVALSETS_DIR:-$(cd .. && pwd)/squint-evalsets}"
+clone="${SQUINT_EVALSETS_DIR:-$(cd .. && pwd)/wafflery-evalsets}"
 build="$owner/build/evalsets/$set_id"
 draft="$owner/$set_id/labels-draft.toml"
 [ -d "$build" ] || { echo "no built set at $build" >&2; exit 1; }
@@ -37,7 +37,7 @@ line = f'images_rev = "{sys.argv[2]}"\n'
 if "images_rev" in s:
     s = "\n".join(line.rstrip("\n") if l.startswith("images_rev") else l for l in s.splitlines()) + "\n"
 else:
-    s = s.replace('images_repo = "github.com/markhayden/squint-evalsets"\n', 'images_repo = "github.com/markhayden/squint-evalsets"\n' + line)
+    s = s.replace('images_repo = "github.com/markhayden/wafflery-evalsets"\n', 'images_repo = "github.com/markhayden/wafflery-evalsets"\n' + line)
 p.write_text(s)
 PY
 if grep -q '^split = "blind"' "evalsets/$set_id/set.toml"; then

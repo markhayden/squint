@@ -467,7 +467,7 @@ async fn fetch_downloads_over_http_by_set_id_and_path() {
 #[test]
 fn github_image_urls_name_the_pinned_revision() {
     let url = sets::image_url(
-        "github.com/markhayden/squint-evalsets",
+        "github.com/markhayden/wafflery-evalsets",
         Some("0123abcd"),
         "reference-consistency/pets-v1",
         Path::new("items/pip-bridge-02/candidate.png"),
@@ -475,10 +475,10 @@ fn github_image_urls_name_the_pinned_revision() {
     .unwrap();
     assert_eq!(
         url,
-        "https://raw.githubusercontent.com/markhayden/squint-evalsets/0123abcd/reference-consistency/pets-v1/items/pip-bridge-02/candidate.png"
+        "https://raw.githubusercontent.com/markhayden/wafflery-evalsets/0123abcd/reference-consistency/pets-v1/items/pip-bridge-02/candidate.png"
     );
     let err = sets::image_url(
-        "github.com/markhayden/squint-evalsets",
+        "github.com/markhayden/wafflery-evalsets",
         None,
         "x/y",
         Path::new("a.png"),

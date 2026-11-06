@@ -5,7 +5,7 @@ id = "reality-checks/adversarial-v1"
 use_case = "reality-checks"
 split = "dev"
 licence = "CC-BY-4.0"
-images_repo = "github.com/markhayden/squint-evalsets"
+images_repo = "github.com/markhayden/wafflery-evalsets"
 rules = { base = "reality-checks", version = 1 }
 
 [[family]]

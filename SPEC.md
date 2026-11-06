@@ -107,7 +107,7 @@ environment variable.
 | 4 | Config | TOML, one file per job type. `--set path=value` overrides single values. Secrets only from the environment. | Rust-native, comments, the prototype already used it. |
 | 5 | Rules | Numbered plain-language obligations in TOML with id, kind, `matters`, `hidden_ok`, scope and, for exemptions, what they waive. Base sets ship in the binary; consumer files override by id, disable, or append. | Findings cite ids so code can aggregate by kind. |
 | 6 | Verdict schema | Checklist plus findings. Every checklist item gets a disposition; the verdict is computed in code from code-owned obligation instances. | Silence cannot hide a missing disposition. |
-| 7 | Evaluation sets | Manifest in repo, images elsewhere by SHA-256. Public images in a `squint-evalsets` repository; private sets by path. Blind labels sealed and held by the owner. | Review before publishing; honest gates. |
+| 7 | Evaluation sets | Manifest in repo, images elsewhere by SHA-256. Public images in a `wafflery-evalsets` repository; private sets by path. Blind labels sealed and held by the owner. | Review before publishing; honest gates. |
 | 8 | Model access | Native wire adapters (Anthropic Messages, Gemini generateContent, OpenAI Responses) over direct HTTPS with recorded fixtures; endpoint profiles as data; a pinned model catalog as data. | Gateways and clouds become profiles, not adapters. |
 | 9 | Layout and milestones | Monorepo. Skeleton, adapters, public sets, baseline, zoom, first ML tool. | The method needs a baseline before any tool. |
 
@@ -1328,7 +1328,7 @@ id = "reference-consistency/pets-v1"
 use_case = "reference-consistency"
 split = "dev"                       # dev | heldout | blind
 licence = "CC-BY-4.0"
-images_repo = "github.com/markhayden/squint-evalsets"
+images_repo = "github.com/markhayden/wafflery-evalsets"
 labels = "labels.toml"              # absent for blind until unsealed; labels_sha256 present instead
 labels_sha256 = "…"
 families = "families.toml"          # subject or scene family per item, for split separation

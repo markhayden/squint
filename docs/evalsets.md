@@ -130,7 +130,7 @@ images, the family's source stored once under `families/`) and, to owner storage
 construction record (generator, model, prompt, seed, every edit instruction, hashes, dates), the
 draft labels and a contact sheet per family. `promote` publishes the confirmed labels as
 `labels.toml` and removes struck items from the set; a draft still unreviewed is refused. The
-owner then pushes the images to the `squint-evalsets` repository and commits the manifest,
+owner then pushes the images to the `wafflery-evalsets` repository and commits the manifest,
 jobs and labels here. `just sets-check` lints and tests the toolkit and runs the offline dry run
 through `squint sets check`; the live dry run of 2026-10-27 is recorded in ADR 0013.
 

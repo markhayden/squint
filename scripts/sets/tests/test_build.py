@@ -14,7 +14,7 @@ id = "source-fidelity/houses-v1"
 use_case = "source-fidelity"
 split = "dev"
 licence = "CC-BY-4.0"
-images_repo = "github.com/markhayden/squint-evalsets"
+images_repo = "github.com/markhayden/wafflery-evalsets"
 rules = { base = "source-fidelity", version = 1 }
 
 [[family]]
