@@ -13,6 +13,7 @@ mod rules;
 mod serve;
 mod sets;
 mod summary;
+mod tools_call;
 mod viewer;
 
 use std::path::{Path, PathBuf};
@@ -81,6 +82,9 @@ struct ToolsArgs {
 enum ToolsCommand {
     /// Print the manifests of the enabled tools as the model will see them.
     List(ToolsListArgs),
+    /// Run one tool on a source and a candidate with no model: its prerequisites first, every
+    /// frame and region (mapped onto the original image) written under one directory.
+    Call(Box<tools_call::ToolsCallArgs>),
     /// Install a tool pack's provisioning bundle: verify digests, unpack, `uv sync --frozen`,
     /// then the pack's `fetch` of its model artifacts.
     Setup(ToolsSetupArgs),
@@ -262,6 +266,9 @@ fn main() {
         Some(Command::Tools(ToolsArgs {
             command: ToolsCommand::Setup(args),
         })) => tools_setup(&args),
+        Some(Command::Tools(ToolsArgs {
+            command: ToolsCommand::Call(args),
+        })) => tools_call::run(&args),
         Some(Command::Report(args)) => report::run(&args),
         Some(Command::Eval(args)) => eval::run(&args),
         Some(Command::Catalog(args)) => catalog::run(&args),

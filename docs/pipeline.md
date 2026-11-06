@@ -83,7 +83,7 @@ a labelled item for the evaluation sets, so production traffic feeds the gates.
 |---|---|---|
 | The reverse handoff: rascal's mask into squint as the region where change was intended | The second check reports the repair itself as a violation, so the loop cannot close | ADR 0018, its own milestone |
 | A spend limit across processes | Each worker keeps its own per-call cap and session budget; nothing bounds a day's spend across fifty workers | table-manners: the per-period budget is later work; until then the orchestrator keeps the ledger |
-| Single tool calls from the CLI | A tool cannot be tested, debugged or used as a cheap screen without a model run | This page, below |
+| ~~Single tool calls from the CLI~~ | Done: `squint tools call` (branch `feat/tools-call`) | This page, below |
 | Tools that see outlines and bands | `regions` finds a reshaped corner but not a moved coping band or a widened outline as one finding | This page, below |
 | Live recordings with the non-strict tools (branch `fix/strict-submit-only`) | The Anthropic replay test fails until re-recorded | That branch |
 
