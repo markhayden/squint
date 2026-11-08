@@ -144,3 +144,67 @@ def test_a_separate_structure_a_tenth_the_size_of_the_largest_is_kept():
     m = rect(300, 400, 0, 100, 300, 250) | rect(300, 400, 330, 120, 345, 220)
     kept = outline.despeckled(m)
     assert kept[150, 335]
+
+
+def _scores(layout: dict[str, tuple[int, int, int, int]], base: str = "sky") -> np.ndarray:
+    """Segmenter-shaped scores over a 64x64 square: `base` everywhere, each named class winning
+    inside its box (x0, y0, x1, y1), later boxes on top."""
+    from squint_tools import segmenter
+
+    names = segmenter.class_names()
+    s = np.zeros((len(names), 64, 64), np.float32)
+    s[names.index(base)] = 1.0
+    for n, (name, (x0, y0, x1, y1)) in enumerate(layout.items(), 2):
+        s[names.index(name), y0:y1, x0:x1] = float(n)
+    return s
+
+
+def _scan(before, after):
+    from squint_tools import segmenter
+
+    whole = segmenter.Placement(0, 0, segmenter.SIDE, segmenter.SIDE)
+    names = segmenter.class_names()
+    return outline.scan((before, whole), (after, whole), (256, 256), 1.0, names)
+
+
+def test_the_scan_reports_a_removed_tower_once_on_the_tower():
+    before = _scores(
+        {"grass": (0, 48, 64, 64), "building": (8, 16, 56, 48), "tower": (24, 0, 32, 16)}
+    )
+    after = _scores({"grass": (0, 48, 64, 64), "building": (8, 16, 56, 48)})
+    _, pieces = _scan(before, after)
+    strong = [p for p in pieces if p["score"] >= 0.5]
+    assert [(p["class"], p["kind"]) for p in strong] == [("tower", "removed")]
+    assert strong[0]["other"] == "sky" and not strong[0]["relabel"]
+
+
+def test_a_relabelling_scores_low():
+    # The same shape read as house instead of building: the light changed, not the shape.
+    before = _scores({"grass": (0, 48, 64, 64), "building": (8, 16, 56, 48)})
+    after = _scores({"grass": (0, 48, 64, 64), "house": (8, 16, 56, 48)})
+    _, pieces = _scan(before, after)
+    assert pieces and all(p["relabel"] for p in pieces)
+    assert all(p["score"] < 0.5 for p in pieces)
+
+
+def test_a_new_sign_over_a_shed_is_one_piece_on_the_sign():
+    before = _scores({"grass": (0, 48, 64, 64), "hovel": (8, 16, 56, 48)})
+    after = _scores(
+        {"grass": (0, 48, 64, 64), "hovel": (8, 16, 56, 48), "signboard": (20, 24, 36, 36)}
+    )
+    _, pieces = _scan(before, after)
+    strong = [(p["class"], p["kind"]) for p in pieces if p["score"] >= 0.5]
+    assert strong == [("signboard", "added")]
+
+
+def test_an_unchanged_scene_has_no_pieces():
+    s = _scores({"grass": (0, 48, 64, 64), "building": (8, 16, 56, 48), "tree": (56, 20, 64, 48)})
+    compared, pieces = _scan(s, s.copy())
+    assert {c for c, _ in compared} == {"grass", "building", "tree", "sky"} and pieces == []
+
+
+def test_related_classes():
+    assert outline.related("building", "house") and outline.related("road", "sidewalk")
+    assert not outline.related("building", "sky") and not outline.related("boat", "car")
+    names = set(__import__("squint_tools.segmenter", fromlist=["x"]).class_names())
+    assert all(c in names for g in outline.GROUPS for c in g) and outline.STUFF <= names

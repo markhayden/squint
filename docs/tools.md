@@ -234,6 +234,18 @@ the rules do. The two tools share one loaded segmenter per server process. Its t
 named fixtures (small synthetic pairs under `tests/fixtures/classes/`) to the exact class lists
 recorded beside them.
 
+**`outline`** (`outline.py`) compares the shape of one class between an aligned pair (or two raw
+frames of one framing when align cannot register a restyle): IoU, area change, how far the
+boundary moved, and the added and removed pieces, each scored, with an overlay. The class is the
+one the call names, else the first of `hints.outline.classes` the frames show. With `class: "all"`,
+or when nothing named is in the frames, it compares every class either frame shows and reports
+the strongest pieces of all of them: a piece the other image reads as a related class (house for
+building, road for pavement) is a relabelling and scores low; a background, movable or thin class
+(sky, a chair, a railing) counts only when much of it appeared or went; and one change seen from
+both sides (a removed tower and the sky behind it) is one piece, on the thing. The all-classes
+scan sees every change, permitted ones included (chairs added, a new sign); which of them breaks
+a requirement is the rules' and the judge's call.
+
 `scripts/build-bundle.sh` (`just bundle`) builds the wheel and assembles
 `tools/python/dist/bundle-<version>/`: the wheel, a provisioning project whose `pyproject.toml`
 pins `squint-tools==<version>` by path to that wheel, its `uv.lock`, `MODEL.md`, and
