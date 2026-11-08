@@ -190,7 +190,8 @@ def judge_change_map(result: dict, truth, out: Path):
     if env["status"] != "ok" or not env["images"]:
         return row
     frame = env["images"][0]["frame"].replace(":", "_")
-    m = np.asarray(Image.open(out / "frames" / f"{frame}.png").convert("L")) > 127
+    # Marked: over one unit of the three the map saturates at, the cutoff changed_fraction uses.
+    m = np.asarray(Image.open(out / "frames" / f"{frame}.png").convert("L")) > 85
     if truth:
         h, w = m.shape
         x0, y0, x1, y1 = (

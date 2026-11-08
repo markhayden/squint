@@ -263,28 +263,31 @@ fn flat(img: &RgbImage, tgt: &RgbImage, options: &Options) -> Result<Outcome> {
     Ok(match a.status {
         align::Status::Registered => {
             let h = a.homography;
-            // The motion at the image centre and the rotation and scale of the linear part.
             let (cx, cy) = (f64::from(img.width()) / 2.0, f64::from(img.height()) / 2.0);
-            let (px, py) = align::apply(&h, cx, cy);
-            let (tx, ty) = (px - cx, py - cy);
-            let rotation = h[3].atan2(h[0]).to_degrees();
-            let scale = (h[0] * h[4] - h[1] * h[3]).abs().sqrt();
+            let m = Motion::of(&h, cx, cy);
             let side = tgt.width().max(tgt.height()).min(MAX_SIDE);
             let warped = warp_flat(img, tgt, &h, side)?;
+            // A keystone is named as such: below a quarter of a percent it is resampling noise.
+            let keystone = if m.perspective >= 0.0025 {
+                format!(", perspective {:.1}%", m.perspective * 100.0)
+            } else {
+                String::new()
+            };
             Outcome::Registered {
                 quality: a.quality,
                 kind: "homography".into(),
                 params: normalise_homography(&h, img, tgt),
                 measurements: vec![
-                    measurement("translation_px", (tx * tx + ty * ty).sqrt(), "px"),
-                    measurement("rotation_deg", rotation, "deg"),
-                    measurement("scale", scale, "ratio"),
+                    measurement("translation_px", m.shift, "px"),
+                    measurement("rotation_deg", m.rotation, "deg"),
+                    measurement("scale", m.scale, "ratio"),
+                    measurement("perspective", m.perspective, "ratio"),
                 ],
                 text: format!(
-                    "shift {:.1} px, rotation {:.2}°, scale {:.3}; {}",
-                    (tx * tx + ty * ty).sqrt(),
-                    rotation,
-                    scale,
+                    "shift {:.1} px, rotation {:.2}°, scale {:.3}{keystone}; {}",
+                    m.shift,
+                    m.rotation,
+                    m.scale,
                     text_quality(&a.quality)
                 ),
                 warped,
@@ -301,6 +304,47 @@ fn flat(img: &RgbImage, tgt: &RgbImage, options: &Options) -> Result<Outcome> {
             },
         },
     })
+}
+
+/// A pixel homography read as camera motion at the image centre `(cx, cy)`: the shift of the
+/// centre, the rotation and scale of the local linear map there (the Jacobian, so a projective
+/// term does not leak into them), and `perspective`, the largest relative change of the
+/// projective depth from the centre to a corner (0 for an affine map; a keystone of k gives k).
+struct Motion {
+    shift: f64,
+    rotation: f64,
+    scale: f64,
+    perspective: f64,
+}
+
+impl Motion {
+    fn of(h: &[f64; 9], cx: f64, cy: f64) -> Motion {
+        let depth = |x: f64, y: f64| h[6] * x + h[7] * y + h[8];
+        let w = depth(cx, cy);
+        let (px, py) = align::apply(h, cx, cy);
+        // d(p)/d(x, y) = (A - p · gᵀ) / w, with A the top-left 2×2 and g = (h6, h7).
+        let j = [
+            (h[0] - px * h[6]) / w,
+            (h[1] - px * h[7]) / w,
+            (h[3] - py * h[6]) / w,
+            (h[4] - py * h[7]) / w,
+        ];
+        let perspective = [
+            (0.0, 0.0),
+            (2.0 * cx, 0.0),
+            (0.0, 2.0 * cy),
+            (2.0 * cx, 2.0 * cy),
+        ]
+        .iter()
+        .map(|&(x, y)| (depth(x, y) / w - 1.0).abs())
+        .fold(0.0, f64::max);
+        Motion {
+            shift: (px - cx).hypot(py - cy),
+            rotation: (j[2] - j[1]).atan2(j[0] + j[3]).to_degrees(),
+            scale: (j[0] * j[3] - j[1] * j[2]).abs().sqrt(),
+            perspective,
+        }
+    }
 }
 
 /// `img` resampled into `tgt`'s grid (at `side` on the longer edge) through the inverse of `h`
@@ -393,4 +437,46 @@ fn warp_sphere(img: &RgbImage, tgt: &RgbImage, r: &[f64; 9], side: u32) -> RgbIm
         *p = image::Rgb(raster::sample(img, e[0] * iw, e[1] * ih, true));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Motion;
+
+    /// `m` conjugated about the centre `(cx, cy)`: T(c) · m · T(-c).
+    fn about(m: [f64; 9], cx: f64, cy: f64) -> [f64; 9] {
+        let t = [1.0, 0.0, cx, 0.0, 1.0, cy, 0.0, 0.0, 1.0];
+        let u = [1.0, 0.0, -cx, 0.0, 1.0, -cy, 0.0, 0.0, 1.0];
+        crate::align::matmul(&t, &crate::align::matmul(&m, &u))
+    }
+
+    #[test]
+    fn a_keystone_reads_as_perspective_not_rotation_or_scale() {
+        let (w, h) = (512.0, 384.0);
+        let k = 0.06;
+        let m = about(
+            [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 2.0 * k / w, 0.0, 1.0],
+            w / 2.0,
+            h / 2.0,
+        );
+        let r = Motion::of(&m, w / 2.0, h / 2.0);
+        assert!(
+            r.shift < 1e-9 && r.rotation.abs() < 1e-9,
+            "{} {}",
+            r.shift,
+            r.rotation
+        );
+        assert!((r.scale - 1.0).abs() < 1e-9 && (r.perspective - k).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_similarity_reads_as_its_rotation_and_scale_with_no_perspective() {
+        let (w, h) = (512.0, 384.0);
+        let (deg, s) = (5.0f64, 0.9);
+        let (c, n) = (s * deg.to_radians().cos(), s * deg.to_radians().sin());
+        let m = about([c, -n, 8.0, n, c, 4.0, 0.0, 0.0, 1.0], w / 2.0, h / 2.0);
+        let r = Motion::of(&m, w / 2.0, h / 2.0);
+        assert!((r.rotation - deg).abs() < 1e-9 && (r.scale - s).abs() < 1e-9);
+        assert!((r.shift - 80f64.sqrt()).abs() < 1e-9 && r.perspective < 1e-12);
+    }
 }

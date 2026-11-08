@@ -64,8 +64,10 @@ tool of the same name takes the built-in's place (packs are registered first). S
 - `align` (`image`, `against`): registers one image onto another of the same projection with the
   estimators of ADR 0014 (a homography for flat pairs, a rotation for panoramas). A registered
   pair returns the transform `t1` with its quality, the measurements (`ncc`, `inlier_fraction`,
-  `overlap`, `texture`, and `translation_px`, `rotation_deg`, `scale` or `yaw_deg`, `pitch_deg`,
-  `roll_deg`) and the aligned frame `aligned:<image>:t1`: the image warped losslessly into
+  `overlap`, `texture`, and `translation_px`, `rotation_deg`, `scale`, `perspective` or `yaw_deg`,
+  `pitch_deg`, `roll_deg`; for a flat pair the shift, rotation and scale are of the local linear
+  map at the image centre, so a keystone reads as `perspective`, the largest relative change of the
+  projective depth from the centre to a corner, and not as a rotation) and the aligned frame `aligned:<image>:t1`: the image warped losslessly into
   `against`'s grid, capped at 1024 px, whose coordinates are `against`'s and whose pixels are the
   image's. A location on it maps back to the image's raw frame through the inverse transform
   (`frames::aligned`): a box becomes the polygon of its corners under a homography, its footprint
@@ -81,8 +83,10 @@ tool of the same name takes the built-in's place (packs are registered first). S
 - `change_map` (`frame`, `against`): a grey map in `frame`'s grid of the absolute difference of
   the two frames' locally contrast-normalised luminances, saturating at three units, returned as
   `crop:<call>:0` over the whole frame with `changed_fraction`, the share of pixels differing by
-  more than one unit. Bright where structure changed, dark under a uniform tone or colour change.
-  Requires `align`.
+  more than one unit. Bright where structure changed, dark under a uniform tone or colour change,
+  and dark too under a local change of colour alone (a repainted wall), which `regions` sees. The
+  flat inside of a changed object can stay dark while its edges light, so `changed_fraction` is a
+  floor on the changed area, not its size. Requires `align`.
 
 The alignment estimators behind `align` are in place (`squint_tools::align`, ADR 0014): `align_flat` returns
 the homography from source to candidate pixel coordinates and `align_sphere` the rotation between

@@ -1,11 +1,11 @@
 # The built-in change map tool (SPEC "Transports", task 4.3c).
 [tool]
 name = "change_map"
-version = "1.0.0"
+version = "1.1.0"
 purpose = "Shows where two frames in one grid differ in structure: a grey map, bright where the locally normalised luminance disagrees, dark where it agrees."
 when_to_use = "After align, over the aligned candidate and the source, to see at a glance where the picture changed before looking closer with view."
 when_not_to_use = "Between frames that are not in one grid; everything would light up."
-output_guidance = "The map is a pointer, not a verdict: bright areas are where to look, and a uniform tone or colour change leaves the map dark. Inspect bright areas with view before deciding."
+output_guidance = "The map is a pointer, not a verdict: bright areas are where to look, and a uniform tone or colour change leaves the map dark, and so does a local change of colour alone (a repainted wall or recoloured roof): the map is luminance structure only, so check colour with regions or view. The flat inside of a changed object can stay dark while its outline lights, so changed_fraction is a floor on the changed area, not its size. Inspect bright areas with view before deciding."
 cost = { tier = "cheap", seconds = 1.0 }
 requires = ["align"]
 frame_args = ["frame", "against"]
@@ -39,4 +39,4 @@ type = "object"
 type = "object"
 [tool.output_schema.properties.measurements]
 type = "array"
-description = "changed_fraction (ratio): the share of pixels whose normalised luminance differs by more than one unit."
+description = "changed_fraction (ratio): the share of pixels whose normalised luminance differs by more than one unit; a floor on the changed area, blind to colour."
