@@ -34,6 +34,29 @@ def test_a_widened_edge_is_one_added_piece_with_its_shift():
     assert found["area_change"] > 0.25
 
 
+def test_slivers_along_one_moved_edge_are_one_piece():
+    # The near edge moved 8 px, but the segmenter kept the old line in two places: three
+    # slivers in a row, each too small to score, that are one change.
+    before = rect(768, 1024, 100, 300, 900, 500)
+    after = rect(768, 1024, 100, 300, 900, 508)
+    after[500:508, 330:360] = False
+    after[500:508, 600:640] = False
+    found = outline.compare(before, after, scale=1.0)
+    added = [p for p in found["pieces"] if p["kind"] == "added"]
+    assert len(added) == 1 and added[0]["parts"] == 3, added
+    x0, _, x1, _ = added[0]["bbox"]
+    assert x0 < 0.11 and x1 > 0.87
+
+
+def test_pieces_apart_or_out_of_line_are_not_chained():
+    before = rect(768, 1024, 100, 300, 900, 500)
+    after = before.copy()
+    after[500:508, 100:300] = True  # one sliver under the left of the edge
+    after[300:500, 900:908] = True  # one up the right side, across the other's axis
+    found = outline.compare(before, after, scale=1.0)
+    assert len([p for p in found["pieces"] if p["kind"] == "added"]) == 2, found["pieces"]
+
+
 def test_a_cut_corner_is_a_removed_piece():
     before = rect(300, 400, 50, 100, 350, 250)
     after = before.copy()

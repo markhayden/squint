@@ -56,6 +56,9 @@ MIN_AREA = 0.0005
 # Boundary points compared per side, at most (the distance matrix is chunked).
 MAX_POINTS = 4000
 MAX_REGIONS = 6
+# Pieces of one kind, thin along one axis, level across it and no further apart along it than
+# this share of the longer side are parts of one moved edge and are scored as one (`chained`).
+CHAIN_GAP = 0.08
 ALL = "all"
 
 # The all-classes scan. Classes the segmenter reads as one another when the light or the season
@@ -365,6 +368,67 @@ def nearest(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     return out
 
 
+def _in_line(a: list[float], b: list[float], h: int, w: int) -> bool:
+    """Two piece boxes (fractions) that are thin along one axis, level with each other across it
+    and at most `CHAIN_GAP` apart along it: parts of one moved edge."""
+    ax0, ay0, ax1, ay1 = a[0] * w, a[1] * h, a[2] * w, a[3] * h
+    bx0, by0, bx1, by1 = b[0] * w, b[1] * h, b[2] * w, b[3] * h
+    gap, near = CHAIN_GAP * max(h, w), 2 * JITTER
+    across = lambda lo0, hi0, lo1, hi1: min(hi0, hi1) - max(lo0, lo1) >= -near
+    along = lambda lo0, hi0, lo1, hi1: max(lo0, lo1) - min(hi0, hi1) <= gap
+    wide = (ax1 - ax0) >= 2 * (ay1 - ay0) and (bx1 - bx0) >= 2 * (by1 - by0)
+    tall = (ay1 - ay0) >= 2 * (ax1 - ax0) and (by1 - by0) >= 2 * (bx1 - bx0)
+    return (wide and across(ay0, ay1, by0, by1) and along(ax0, ax1, bx0, bx1)) or (
+        tall and across(ax0, ax1, bx0, bx1) and along(ay0, ay1, by0, by1)
+    )
+
+
+def chained(pieces: list[dict[str, Any]], h: int, w: int) -> list[dict[str, Any]]:
+    """Pieces of one kind in line along one edge, joined into one: an edge moved 10 px comes
+    back from the segmenter as several slivers, each too small to score, that are one change."""
+    groups = [[p] for p in pieces]
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(groups)):
+            for j in range(i + 1, len(groups)):
+                if groups[i][0]["kind"] != groups[j][0]["kind"]:
+                    continue
+                if any(_in_line(p["bbox"], q["bbox"], h, w) for p in groups[i] for q in groups[j]):
+                    groups[i] += groups.pop(j)
+                    merged = True
+                    break
+            if merged:
+                break
+    out = []
+    for g in groups:
+        if len(g) == 1:
+            out.append(g[0])
+            continue
+        shifts = [p["shift_px"] for p in g if p["shift_px"] is not None]
+        out.append(
+            {
+                "kind": g[0]["kind"],
+                "bbox": [
+                    min(p["bbox"][0] for p in g),
+                    min(p["bbox"][1] for p in g),
+                    max(p["bbox"][2] for p in g),
+                    max(p["bbox"][3] for p in g),
+                ],
+                "area": sum(p["area"] for p in g),
+                "shift_px": max(shifts) if shifts else None,
+                "edge": any(p["edge"] for p in g),
+                "object": max(p["object"] for p in g),
+                "parts": len(g),
+                "_at": (
+                    np.concatenate([p["_at"][0] for p in g]),
+                    np.concatenate([p["_at"][1] for p in g]),
+                ),
+            }
+        )
+    return out
+
+
 def compare(before: np.ndarray, after: np.ndarray, scale: float) -> dict[str, Any]:
     """Two masks on one grid: measurements, and the added and removed pieces as boxes with the
     largest boundary shift inside each. `scale` converts grid pixels to frame pixels."""
@@ -416,6 +480,7 @@ def compare(before: np.ndarray, after: np.ndarray, scale: float) -> dict[str, An
                     "_at": (ys, xs),
                 }
             )
+    pieces = chained(pieces, h, w)
     extent = max(a0, a1)
     for p in pieces:
         p["extent"] = extent
