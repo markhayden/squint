@@ -681,6 +681,15 @@ fn plan_input(prepared: &Prepared, job: &Job, tools: &ToolRegistry) -> ledger::P
             .map(|m| u64::from(m.returns.max_images))
             .max()
             .unwrap_or(0),
+        // An unknown screen tool fails at the screen itself, with its name.
+        screen_calls: {
+            let manifests: Vec<crate::tool::Manifest> = tools.manifests().cloned().collect();
+            crate::screen::prerequisites(
+                prepared.summary.screen.iter().map(String::as_str),
+                &manifests,
+            )
+            .map_or(0, |order| order.len() as u64)
+        },
     }
 }
 
