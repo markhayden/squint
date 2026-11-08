@@ -209,11 +209,17 @@ pack lists through the three adapters' wire transformations beside `submit_verdi
 
 **`regions`** (`regions.py`, task 5.4a) is the first real tool: where an aligned pair differs, as
 high-recall pointers. It takes two frames in one grid, `frame` (usually the aligned candidate) and
-`against` (usually `raw:source`), and marks a pixel changed when either of two photometric views
+`against` (usually `raw:source`). A grade over the whole frame is taken out of `frame` first (a
+gain and offset per channel, fitted on the 70% of pixels that fit best), so a golden hour, a dusk
+or a fog is not a change and a patch changed in one place still is. It marks a pixel changed when
+either of two photometric views
 says so (the locally contrast-normalised luminance residual, which sees texture change through a
 lighting change, and the blurred colour difference, which sees a flat area replaced by another
 flat colour) or when the segmenter gives the two sides different classes and is confident on
 both. Photometric components become boxes first, then class disagreements no box already covers;
+a disagreement counts in proportion to the photometric change behind it (the segmenter changing
+its mind about unchanged pixels is not a change), and one between classes it confuses (`outline`'s
+groups) scores a third;
 each is labelled by the majority class on each side (`floor -> swimming pool`), scored by how
 strongly it changed, nudged by `hints.regions` (`preserve` classes up by a quarter, `ignore`
 classes halved, never dropped), and the strongest twelve are returned on `frame` with one image,
