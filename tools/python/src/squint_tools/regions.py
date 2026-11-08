@@ -3,7 +3,8 @@
 Two frames in one grid (an aligned candidate and the source it was registered onto, or any pair
 `align` produced) are compared two ways and the union is reported: a photometric change map (the
 absolute difference of the locally contrast-normalised luminances, as `change_map` computes it)
-and the segmenter's class disagreement where both sides are confident. Connected components of
+and the segmenter's class disagreement where both sides are confident, after a grade over the
+whole frame is taken out of `frame` (`matched`). Connected components of
 the combined map become boxed regions on `frame`, labelled by the majority class on each side
 ("floor -> swimming pool"), scored by how strongly they changed, nudged by `hints.regions`
 (`preserve` classes up, `ignore` classes down, never dropped), and capped at the manifest's
@@ -35,6 +36,12 @@ COLOUR_CHANGED = 24.0
 CONFIDENT = 0.5
 # Components smaller than this share of the frame are noise.
 MIN_AREA = 0.001
+# A class disagreement counts in full only with at least this photometric strength behind it.
+SUPPORT = 0.2
+# The grade taken out before comparing (`matched`): the share of pixels the fit keeps, and the
+# bounds on its gain.
+GRADE_KEEP = 0.7
+GRADE_GAIN = (0.25, 4.0)
 
 RETURNS = {
     "max_images": 1,
@@ -70,7 +77,7 @@ MODEL_SCHEMA = {
 MANIFEST = {
     "manifest_version": 1,
     "name": "regions",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "purpose": "Finds regions that changed between an aligned pair, with high recall: "
     "photometric change and segmentation class disagreement, boxed and labelled.",
     "when_to_use": "After align registers the candidate onto the source, before judging "
@@ -186,6 +193,30 @@ def _working(rgb: np.ndarray, size: tuple[int, int]) -> np.ndarray:
     return np.asarray(Image.fromarray(rgb).resize((size[1], size[0]), Image.BILINEAR))
 
 
+def matched(rgb: np.ndarray, to: np.ndarray) -> np.ndarray:
+    """`rgb` with a grade over the whole frame (a golden hour, a fog, a dusk) taken out: per
+    channel, `rgb ≈ gain · to + offset` is fitted on the pixels that fit it best (a local edit
+    is left out of the fit, `GRADE_KEEP`) and inverted, so what remains different is local. Two
+    numbers per channel cannot absorb a change in one place; a flat `to` gives an offset only."""
+    out = np.empty(rgb.shape, np.float32)
+    for c in range(3):
+        x = to[..., c].astype(np.float32).ravel()
+        y = rgb[..., c].astype(np.float32).ravel()
+        keep = np.ones(x.size, bool)
+        gain, offset = 1.0, 0.0
+        for _ in range(3):
+            xs, ys = x[keep], y[keep]
+            if xs.var() < 1.0:
+                gain, offset = 1.0, float(np.median(ys - xs))
+            else:
+                gain = float(np.clip(np.cov(xs, ys, bias=True)[0, 1] / xs.var(), *GRADE_GAIN))
+                offset = float(ys.mean() - gain * xs.mean())
+            res = np.abs(y - (gain * x + offset))
+            keep = res <= np.percentile(res, 100 * GRADE_KEEP)
+        out[..., c] = (rgb[..., c].astype(np.float32) - offset) / gain
+    return out.clip(0, 255).astype(np.uint8)
+
+
 def find(
     frame_rgb: np.ndarray,
     against_rgb: np.ndarray,
@@ -196,9 +227,12 @@ def find(
 ) -> tuple[list[dict[str, Any]], dict[str, float]]:
     """Regions on the frame (normalised boxes, labels, scores, sorted by score) and the
     measurements behind them. The segmentations are (labels, confidence) over the frame only."""
+    from . import outline  # outline uses this module's components: imported here, not above
+
     h, w = frame_rgb.shape[:2]
     size = (GRID, max(1, round(GRID * w / h))) if h >= w else (max(1, round(GRID * h / w)), GRID)
-    fa, fb = _working(frame_rgb, size), _working(against_rgb, size)
+    fb = _working(against_rgb, size)
+    fa = matched(_working(frame_rgb, size), fb)
     # Two photometric views: the locally contrast-normalised residual, which sees texture change
     # through a lighting change, and the plain colour difference of the blurred images, which
     # sees a flat area replaced by another flat colour (the normalised residual is zero inside
@@ -275,7 +309,15 @@ def find(
             share = float(disagree_sum[k] / count[k])
             before = names[int(majority["before"][k])]
             after = names[int(majority["after"][k])]
+            # A class disagreement with no change in the pixels behind it is the segmenter
+            # changing its mind (a tank read as building after a grade), not the image: it
+            # counts in proportion to the photometric support, and between classes the
+            # segmenter confuses (outline's groups) it is a relabelling and scores less.
+            if by_class:
+                share *= min(1.0, strength / SUPPORT)
             score = min(1.0, 0.5 * strength + 0.5 * max(strength, share))
+            if by_class and before != after and outline.related(before, after):
+                score *= outline.RELABEL
             if before in preserve or after in preserve:
                 score = min(1.0, score * 1.25)
             if before in ignore and after in ignore:

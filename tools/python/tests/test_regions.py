@@ -311,3 +311,40 @@ def test_the_overlay_is_capped_at_the_manifests_long_edge_and_a_projection_misma
     )
     env = regions.regions({"frame": "aligned:candidate:t1", "against": "raw:source"}, ctx)
     assert env["status"] == "invalid_args" and "one grid" in env["summary"]
+
+
+def textured_pair(seed=3, size=256):
+    rng = np.random.default_rng(seed)
+    base = rng.uniform(40, 200, (size // 8, size // 8, 3))
+    base = np.asarray(Image.fromarray(base.astype(np.uint8)).resize((size, size), Image.BICUBIC))
+    return base.copy(), base
+
+
+def graded(rgb, gain=(1.25, 1.05, 0.75), offset=12.0):
+    return (rgb.astype(np.float32) * np.array(gain) + offset).clip(0, 255).astype(np.uint8)
+
+
+def test_a_grade_over_the_whole_frame_is_no_region_and_does_not_hide_a_local_one():
+    names = ["wall"] * 150
+    candidate, source = textured_pair()
+    lab, conf = np.zeros((256, 256), int), np.full((256, 256), 0.9)
+    found, _ = regions.find(graded(candidate), source, (lab, conf), (lab, conf), None, names)
+    assert [r for r in found if r["score"] >= 0.5] == [], found
+    candidate[100:140, 60:100] = (230, 40, 200)
+    found, _ = regions.find(graded(candidate), source, (lab, conf), (lab, conf), None, names)
+    strong = [r for r in found if r["score"] >= 0.5]
+    assert len(strong) == 1, found
+    x0, y0, x1, y1 = strong[0]["bbox"]
+    assert x0 < 100 / 256 < x1 and y0 < 120 / 256 < y1
+
+
+def test_a_class_flip_with_nothing_changed_in_the_pixels_scores_low():
+    names = ["tank", "building", "tree"] + ["x"] * 147
+    candidate, source = textured_pair()
+    conf = np.full((256, 256), 0.9)
+    before = np.zeros((256, 256), int)
+    for after_class in (1, 2):  # related (tank, building) and not (tank, tree)
+        after = before.copy()
+        after[60:140, 60:140] = after_class
+        found, _ = regions.find(candidate, source, (after, conf), (before, conf), None, names)
+        assert found and all(r["score"] < 0.3 for r in found), found

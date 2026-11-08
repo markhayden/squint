@@ -1,7 +1,7 @@
 # The built-in align tool (SPEC "Transports", ADR 0014, tasks 4.3a and 4.3b).
 [tool]
 name = "align"
-version = "1.0.0"
+version = "1.1.0"
 purpose = "Registers one image onto another of the same scene and viewpoint: a homography for flat images, a rotation on the sphere for panoramas; returns the first image warped into the second's frame with how well the pair agrees."
 when_to_use = "Before comparing a candidate with its source: to see them in one frame and to learn whether the candidate kept the source's geometry."
 when_not_to_use = "On images of different scenes or viewpoints; it reports those as not registered rather than forcing a fit."
@@ -39,4 +39,4 @@ type = "object"
 type = "object"
 [tool.output_schema.properties.measurements]
 type = "array"
-description = "ncc (ratio), inlier_fraction (ratio), overlap (ratio), texture (intensity per pixel); translation_px, rotation_deg and scale for flat pairs; yaw_deg, pitch_deg and roll_deg for panoramas."
+description = "ncc (ratio), inlier_fraction (ratio), overlap (ratio), texture (intensity per pixel); translation_px, rotation_deg and scale (of the motion at the image centre) and perspective (ratio: how far the projective depth changes from the centre to a corner; a keystone, not a rotation) for flat pairs; yaw_deg, pitch_deg and roll_deg for panoramas."
