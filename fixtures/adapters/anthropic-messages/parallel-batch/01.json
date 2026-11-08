@@ -80,8 +80,7 @@
             ],
             "type": "object"
           },
-          "name": "fake_regions",
-          "strict": true
+          "name": "fake_regions"
         },
         {
           "description": "Submit the final structured verdict: exactly one disposition per checklist item, any further findings, and your own opinion (recorded only).",
@@ -358,7 +357,7 @@
     "status": 200,
     "headers": {
       "content-type": "application/json",
-      "request-id": "req_011CgTVC6n2dVTX14ErSzB58"
+      "request-id": "req_011CgppYyhFrqRZ6zLWGtMDU"
     },
     "body": {
       "container": null,
@@ -367,7 +366,7 @@
           "caller": {
             "type": "direct"
           },
-          "id": "toolu_01M1NgD1iU6VchrcjagSVaSa",
+          "id": "toolu_01Gb2Crsh4779PNmQXiom9LJ",
           "input": {
             "image": "candidate"
           },
@@ -378,7 +377,7 @@
           "caller": {
             "type": "direct"
           },
-          "id": "toolu_01DWHULc1o3XHYki8wnrvWNb",
+          "id": "toolu_0141kD7kDXLVrr44PD3C2M4M",
           "input": {
             "image": "source"
           },
@@ -387,7 +386,7 @@
         }
       ],
       "diagnostics": null,
-      "id": "msg_011CgTVC77rhwMsbMr7RwLHK",
+      "id": "msg_011CgppYyz7TbgAqT6vzP8nh",
       "input_transformations": [],
       "model": "claude-opus-5-5",
       "role": "assistant",

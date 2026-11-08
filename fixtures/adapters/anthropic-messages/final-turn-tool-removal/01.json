@@ -80,8 +80,7 @@
             ],
             "type": "object"
           },
-          "name": "fake_regions",
-          "strict": true
+          "name": "fake_regions"
         },
         {
           "description": "Submit the final structured verdict: exactly one disposition per checklist item, any further findings, and your own opinion (recorded only).",
@@ -358,13 +357,13 @@
     "status": 200,
     "headers": {
       "content-type": "application/json",
-      "request-id": "req_011CgTVKdrW1wo2ZN9H3LxeR"
+      "request-id": "req_011CgpphQJpWvJA72Wrx7S9W"
     },
     "body": {
       "container": null,
       "content": [
         {
-          "signature": "CAQSuQYKEAgTGAI4AUIIdGhpbmtpbmcSDKF9YqFwc/veC82AABoMxyxHlFkqD34vBc8yIjDTgyeF5m3EPFZnGH9kqkgka6n6h52wnlPNB2FbYgddPypVhdJ4UHD0eLQLYQrWrlYq1gUDHtrYNAiQHKD0tbu1G2ihSu9yF77382vbCdkHPmqWC+pqFd6gP1WPIZBxcDFTE9Y92MT8yrcj1IOAx7Daq74+ILdLX0yq8MAFOVlwQskbckOwidLJZaoBJYx5nNhEcLpqXCSn54MjUxq/RZ3avd06DjjprP1yJOLJQc1HMUkwae/6JTuGaBvxTAouFQnYFj2zaPZ0KCsU3JFmQe1BqCXYTGw/Dtw8cQt3Hq6ZKWXkU/VB3zDonZ13YwxnsJnzO08Cap4PFzbVASGJxc03UqyJqVPX16Cn93Sme/N53HOUIJt2F832l4WGRPzFIbNCwjJ+MlcxxLiC40N1SLN46vhq1Vh/IM/OJti/62ZOiYsaJc9q5pY/2nFF1TG6+oKvyeCJDGtI7H6xuhNiGczKhi47aJ3MpPCWapkKdlHXO72EsKXN9HIfrVpfCr6arn2Xxm7q1/67Rl1tDNCee5rH7auuii4RPwh/jwv0anV92bimKxGqBQ3+ADQQMJldH/6+bE3xcACyZvNgYtCPTKir5vvYvLDR1KoLvjgqL1Ee2NeLZhFfCGGaSQoJLzWTdBMTlC80g+bv4M+OYAVV2QF3FxLdTHPXAsghRcAAPgT1MCJaSekMSlZiEnyFmSqE+HKhrOTx4EwjmyeGkbntf8qjwLotGb1aNooq5tH+k2jW4uP1DZyUC32ZZ9EkjV7HC+nVTltL9HCRm/olXc/OBiCaAiu9nn5eKd0Qk4IRUj2W76g8Ikj06ukKkine4+bWs9OzNPJ0L5n/TJ+YVxFEVk2Vf4Nbg2lIgqPQROzFD6lQ9gdvxFCpL/SElzlyBdlhhU0arEqi/W7OKJzTkCZCk7mgiQzvhwGQBRchEz8dm18dP/kU84I67hpzRNcP5QdzoDt9O+BWCWeRVS4JPNRkJePo/C/D1keoVSFD8ZvF1x4/wt5Na9U6Mj4Zra25LaW/xlGh2TYUgT5cHoEYAQ==",
+          "signature": "CAQSiQYKEAgTGAI4AUIIdGhpbmtpbmcSDINfaBfey34W/x+hpRoMzkDJHMbSr4hU0KY9IjBM5kWJJUvzhUSrtmtdEZLHsSR+o/x0jgwTzEZWva9Dvh/cvrzqPaVLGi8OGCFQaREqpgWmQB1TxeAsyDRwan1gx7dZn73fF90KUpWRW9XF2OMNb2jU88kppcaU6PgCUfUDHdOWWAer2iXGI+6Bm03xEkVUy6xdPefNXuzIAqZWJYtl3VCxYNTlr2M+unZsgIyliE0tuF2/lcft6qPBRAG5V70az1NKbeC5R8KjDX70QtYhseFjDLuV2p3U2nM9PRNTFLlsGR/cCGfgfa48wP1tLzL44GgQeQrG7E+ngj5aq+Yr9n5EcL4d9GTkKrrngDbRHcBIqt01GR9mbplwOmZOICh2FGNaKjnX5eIp8sA0mO7mJKJlKplKtPaGOg9jRMzkiOYuu5xOkD16QdisCrKalHpTtbUtiWRCVEFxSETel5U0pPoS8mA8BZoHRoxI9vWBnSDWKzdfhkN3vvvoxUSuCrUCl/+i0jNx64fwi5f4YZBD/WwxcyH3tJxZTwnFxtpzN73Xr8uoFBJQsRMB1oX9CYBAsgB9SNRqh9CKPZA/6f2KKB6a+OHhzmW1vMQtRZiNb8ulX5dpG9lVUBJLPn/wKYU1lywmf918SCWyU4biunbqJEtsU68m7W2b35CtgRwrBRRPSi1tF3DnHyvqu6N1gSgcOhQmmd9sFifCAHbKsHT8I2s8Aa58FJKhrhA1QbYPqGmLPlz4wpA/amJkrtURfAdXC8Z27vkdkO38H9TrLuD31muVVIDUB12yykVncW4L8GZuNV68fEEhvgugemylPuE0ZTwwkq4QUUQDl1BwSql+r4Q4tMUmoJsXLWHmazWkI+NqDG9BhNGlvNGGKIDTq1BokuSOz+Gj8GSF+lP3OPI/xkWc2RetXtEPxiFxXY0uR+t5DhlXQwKaCNlZAdyiciyTdYnAW/PWJl/aJQeyjwkELWIY11TPKbJIbeSiHw2AjNS5zxWOBqkYAQ==",
           "thinking": "",
           "type": "thinking"
         },
@@ -372,7 +371,7 @@
           "caller": {
             "type": "direct"
           },
-          "id": "toolu_01JRXPckefUoRF9FYS2LCrtK",
+          "id": "toolu_01HmSoDSzVtY3wKzPAtDrJd5",
           "input": {
             "image": "candidate"
           },
@@ -381,7 +380,7 @@
         }
       ],
       "diagnostics": null,
-      "id": "msg_011CgTVKeB6JQLUcQ1RwAWsV",
+      "id": "msg_011CgpphQwGUDYJULwxY68pv",
       "input_transformations": [],
       "model": "claude-opus-5-5",
       "role": "assistant",
@@ -398,9 +397,9 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "global",
         "input_tokens": 3396,
-        "output_tokens": 130,
+        "output_tokens": 101,
         "output_tokens_details": {
-          "thinking_tokens": 78
+          "thinking_tokens": 49
         },
         "service_tier": "standard",
         "speed": "standard"

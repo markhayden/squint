@@ -340,13 +340,13 @@
     "status": 200,
     "headers": {
       "content-type": "application/json",
-      "request-id": "req_011CgTVGZ9e4DrCBdG12duhd"
+      "request-id": "req_011CgppeJx2KpzXz1ntRRsPF"
     },
     "body": {
       "container": null,
       "content": [
         {
-          "signature": "CAQSswgKEAgTGAI4AUIIdGhpbmtpbmcSDG3B8zBdkCCGTtfZ4BoMMmjeePAcbwB0FcTOIjAPc2slVivQh5KD1CYqETCKgPxmSrF1oKrG0Qndl+i9daI4F51RvQADC1G+twXB+Iwq0Ae0IYt9QoXTCwAwfcZyw8IsHj2IARNxoXM9+WlD9rwTgzDvQ+4t8JgKy5MgqnAoSL1xocL7+8a47RjEMKMceYHqn+NwPXJiialXzCUngxqTcHU9Ge8DUEOC0OskKa/1rCnwYK/SNFAlhVJlOvrMsasBhpir9wuVFdMAR9KtnnyB/LSdQ0xy8lrbqOhgiJL6N6lqmtVn24MFoYmF9exvLrbE76uW1r6ShI3+zT4CB6/DdmK4yZKpNeALkUd5R7Nf821SYw0CmstjJo5qJDqzoy2l+JqUAMHaIlhcznm/lLxvGlnt3wErWmbt/vheXnQdTyPD3cbRdqFBQQ2ddyMc21fOcEqnFdTN334KBoqazD1QPc8E4Vqn51m57OpkSLShIfHBflMdijBK8WE16upKg6y7XokE7SJRlqUY4dp96CPePYiTha4dcu3ratCaPhnKJBRNFQzAAdQ8torBeR1NtPAVV+uC4fDrdv71P/WwuCKxqcD+T39u/JSrRZ5ZyztgYmMQht7sbMMDlRAB2KL4ruqtU+oanzEuRh9DuIaPTnfLgRyuT8IXX38hNgD6AUwAXsa6N6Jed/0eaK8WfBbTDFTe/aAUfVL6xSTqkw4H799rInHkNBwnecbNZeeUZrQuik+/xNzHNEVFL5Ev8ts633gtSsKsRPqABWcuDJH7Ibn+1m/aFDVzAO83N7Zz4eQ3E2Wy684uQYiKhOs6KCVWAheDO3PoUmGPbmfqg7gbhgYOYcL8B/DKJGSI4Eta1d3mduS+vl7JFLbQxA/0etxz5hFPotw+4dTZO/xtz8wfeuflmIqkdoyhTpcwAm4SbCYIg4Ex38dbC0Btm/QDTbM2wS+qV5e/eiSL5Mh1IkTHSlo157bOFF3oX6ZqiSXioeov3oRn3RREC5s+6jYwvzXJD8ukPwQtwNQhRf3nBBc6UNGppw8+CdTMtdYlaDGPNxU2A7UD9TQgdgLsdxSXbPwO1J+XkTj36LDbb0H7alKfy3a0YtNBCNxOQ5gPSel01EeovVTLdSrfbuN0UqiFbJiPYfBJfuystAjhWM3+cl+JgVvlAL43+QQJyyBB540Fm/cSM+NZ+IbNZMkJ0jxSJnmr3csLwx+uuAK5YCEo8eNOKBerCxxLTBlP2voZ1cm8NyweC2pJ0B0uaLBlZ4YyeIsMixTZbVtG1SmqUhBfsxL0zxUU3fUreWC4CjXkQBo12SwvPM1iS8SiPqwzynpyewoytFp3KD1NzJozj4yemF24Rj890fYCGyQuvIxx6KK/Ynw2l+MBugHlMyfr+4+nFqsLGYSnGAE=",
+          "signature": "CAQSwwkKEAgTGAI4AUIIdGhpbmtpbmcSDIsipVgXWkOJ0WGJ8hoMCaUbVr7sih9IHqnAIjCx0XhUMSSF5/WwJMWc1xbx6pqzWUqGJV7DYNesYjo164rJBuIfggqEXxIx7U4QwJkq4AjCafhlbfnTWCIXsxzAqALmTZS65RsrSZpIZxOaisbD7CeeCTyKmEN5DiMy8Sx6+a+kx/4Rruh1ekh11jCr8tNG+wOq6BmWdGxeXDk5r4DdTJ2FAm4Wtv1ZyaS8B1vLoG3hIUs8csHZbyWv4IHeQc182gakSMh3zaWogL8/Mc8tRJHyc/8IEMKXKoS0B8tko5givS0+VsNFmruQXiGMl8qyVuBqxOXWRQLwkhRWlBpSjfOUMveaIIrL6BKs0nSwQdWn8ujrAe1F2XUPoqk1LTMtIEJBpe1XbxFg0Rel/sXpnTuhMb+m2k8njbjq7w1NHUQplX0YqB6hhVbOhBbCJ2LnlAUjCmgoNwsA9rZpEoqQu2f19BcHSf0+u7kKN3dvc8Nzw4cM80BPrno3Tjs+QEX0RqDWRNDE0F3xGEnC8EMPjKedIPnrqrOPXppk3POW7k2xkEa58dju3pm5VYO8eYILDZUAwD5tnZDDjnoYrxpfbaQJcbWw15jonqEjhGCh9X4SZM2GOJ8RBe0tMkuuwKPWTzzZ85jiSxoz+dAbDsSgmV/6NPIMTuA6JQCagNrOQoRMWMXUrFoWNO6kOxplqf0KLMQ2IAeKOt4Z6+00IeLbcm64rSVgDydqfXd3uqzR4IoJdXHu/OS+h5qKe8hW1PK6UfcSU8OY78fTQsVBpeC3DBjEWO0gX5RCStIX0e5FO4+w9LHmPPDa4XjyeFVyNJPEc3CRLnI5j/tjD4Zttio28kAt+66JIXCBGfuo9A8NzzQDZk5nABpnRPlk5/Sm6xCHqg6SMJn/FnyxObkgLy73v0HOBXSEawOZw0GqB1g8K/JEO7CVRTcKs/2qbpl/0p6dTCxKafWSQK61KybAXs2wNNm68Z0xgXtMwl0qeONfaVgITqejKlxfZ7h1YlINRLlasGgpX3skhxxDW+RC1sJKlXV+5fKbbyEkQe2wISfQJdW++ZTssY0kxLb/URJ+EWrnEeRnp5BCdIzDnYRF9ls4Z3bsYdpHeIRmCrw+nZJ9kMbESAASp2bO4IzgedOblvU2MOKBoqYAkhxiA+qfNv991Q/zEN6KeB0fLMBLluuFFSbeCckTcElvt72McBtxE1rFBB9EGV5MUfkGQcuhAGDTTee/cGihy1clZbVG18YoGJ2B+blBhff5wr0HWoMYALqdyzO4P2JUFliEXR9ca3gIYF/rlWbfd/MZZtr0Pq0JgzfSv6eX8dgMMGyWCX1o8F7JCgNv0k3S2lNKHIDlqiFMfiRjwSQGq24NmT1aSVCmEGOagkBfrglGfQ4x3r45yjiBW9u+vc454C5250ISTDLi6VQxAd+kUGm1aMc4VtLBYNl8E6DivRtaU/cuSHBaqRNnO7Aky0KiW/dz/n1X91+zUogatwyuNXZbidauv+le8AQ4EGA9T8aGBZZnZpdNQwcl4V07+vL1MiCDXgVCjkglV3Xvp7zYGOGqo9weZwAz32+2svi/1zu6QvWxTMVFtQdtGAE=",
           "thinking": "",
           "type": "thinking"
         },
@@ -354,9 +354,34 @@
           "caller": {
             "type": "direct"
           },
-          "id": "toolu_01N8WPBdLowFS97i9UaFa7Pp",
+          "id": "toolu_01DuWfNYBne6J36kP19ojVUk",
           "input": {
-            "findings": [],
+            "findings": [
+              {
+                "allowed_by": null,
+                "confidence": "tentative",
+                "disposition": "observed",
+                "evidence": [],
+                "location": {
+                  "bbox": [
+                    0.33,
+                    0.17,
+                    0.62,
+                    0.6
+                  ],
+                  "fov": null,
+                  "frame": "raw:candidate",
+                  "kind": "bbox",
+                  "pitch": null,
+                  "polygon": null,
+                  "yaw": null
+                },
+                "obligation_ids": [
+                  "SF4"
+                ],
+                "reason": "A solid white square that isn't in the source has been added near the centre."
+              }
+            ],
             "items": [
               {
                 "allowed_by": null,
@@ -366,10 +391,10 @@
                 "id": "chk:ob:SF1@candidate",
                 "location": {
                   "bbox": [
-                    0.31,
-                    0.21,
-                    0.63,
-                    0.67
+                    0.33,
+                    0.17,
+                    0.62,
+                    0.6
                   ],
                   "fov": null,
                   "frame": "raw:candidate",
@@ -378,7 +403,7 @@
                   "polygon": null,
                   "yaw": null
                 },
-                "reason": "The brief says to keep the structure, but a solid white square now covers the middle of the candidate. It hides the source's gradient there completely, so this is not a restyle."
+                "reason": "The brief says to keep the structure. A new opaque white square covers the central part of the gradient, so the structure there is not kept. A restyle would not add this."
               },
               {
                 "allowed_by": null,
@@ -387,11 +412,11 @@
                 "evidence": [],
                 "id": "chk:ob:SF2@candidate",
                 "location": null,
-                "reason": "The candidate keeps the same frame and the same gradient layout as the source. Nothing looks rotated, stretched or cropped."
+                "reason": "The frame size and gradient layout match the source. Nothing looks rotated, stretched or cropped; only the colours and the added square differ."
               }
             ],
             "opinion": {
-              "reason": "A white square was pasted over the middle of the scene and wipes out the structure the brief said to keep.",
+              "reason": "The added white square hides part of the scene's structure.",
               "verdict": "fail"
             },
             "schema_version": 1
@@ -401,7 +426,7 @@
         }
       ],
       "diagnostics": null,
-      "id": "msg_011CgTVGZTF8rePiZt1EFojj",
+      "id": "msg_011CgppeKG8RhvzjdM3LaZLL",
       "input_transformations": [],
       "model": "claude-opus-5-5",
       "role": "assistant",
@@ -418,9 +443,9 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "global",
         "input_tokens": 3053,
-        "output_tokens": 618,
+        "output_tokens": 762,
         "output_tokens_details": {
-          "thinking_tokens": 168
+          "thinking_tokens": 183
         },
         "service_tier": "standard",
         "speed": "standard"
