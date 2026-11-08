@@ -62,7 +62,7 @@ MODEL_SCHEMA = {
 MANIFEST = {
     "manifest_version": 1,
     "name": "classes",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "purpose": "Names what the segmenter sees in one region of an aligned pair, before and after: "
     "the classes covering the box on each side with their shares.",
     "when_to_use": "On a region `regions` pointed at, or any box you want named, to learn what "
@@ -70,7 +70,11 @@ MANIFEST = {
     "when_not_to_use": "To judge whether a change is allowed; the rules decide that. On frames "
     "that do not share one grid.",
     "output_guidance": "Shares are of the box, from a 150-class scene segmenter that can be "
-    "wrong on unusual images; low confidence says so. A class difference is a pointer.",
+    "wrong on unusual images; low confidence says so. A class difference is a pointer. The same "
+    "class on both sides does not mean nothing changed: the segmenter names a small patch by "
+    "its surroundings (a tree pasted onto a wall can still read as building), so look with "
+    "view, and read a large drop in the main class's share as a change. A swap to a related "
+    "class (path to dirt track, building to house) is often the segmenter, not the picture.",
     "cost": {"tier": "expensive", "seconds": 3.0},
     "requires": ["align"],
     "pairs_with": ["regions", "view"],
