@@ -81,6 +81,54 @@ fn a_missing_argument_with_no_default_and_an_unknown_tool_are_usage_errors() {
     assert_eq!(o.status.code(), Some(64));
     assert!(String::from_utf8_lossy(&o.stderr).contains("architecture"));
 
+    // A prerequisite's record survives its dependant's failure: align cannot register a square
+    // candidate onto a 4:3 source, and change_map refuses two frames that do not share a grid.
+    let run = |candidate: &str, tag: &str| {
+        let out = out_dir(tag);
+        let _ = std::fs::remove_dir_all(&out);
+        let o = Command::new(env!("CARGO_BIN_EXE_squint"))
+            .current_dir(repo_root())
+            .args([
+                "tools",
+                "call",
+                "change_map",
+                "--config",
+                "fixtures/config/minimal.toml",
+                "--use-case",
+                "source-fidelity",
+                "--source",
+                "fixtures/images/align/scene.png",
+                "--candidate",
+                candidate,
+                "--out",
+                out.to_str().unwrap(),
+            ])
+            .output()
+            .unwrap();
+        let written: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(out.join("result.json")).unwrap())
+                .unwrap();
+        (o, written)
+    };
+    let (o, written) = run("fixtures/images/align/square.png", "no-grid");
+    assert_eq!(
+        o.status.code(),
+        Some(64),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert_eq!(written["calls"][0]["tool"], "align");
+    // A same-size pair align cannot register (here an unrelated scene, as a strong restyle can
+    // look) falls back to the raw candidate and runs.
+    let (o, written) = run("fixtures/images/align/unrelated.png", "no-frame");
+    assert_eq!(
+        o.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&o.stderr)
+    );
+    assert_eq!(written["calls"][1]["arguments"]["against"], "raw:candidate");
+
     let o = tools_call("outline", &[], &out_dir("unknown"));
     assert_eq!(o.status.code(), Some(64));
     assert!(String::from_utf8_lossy(&o.stderr).contains("no tool \"outline\""));

@@ -128,7 +128,15 @@ fn call(args: &ToolsCallArgs) -> Result<i32, (i32, String)> {
         } else {
             serde_json::json!({})
         };
-        let arguments = with_defaults(manifest, explicit, &session.frames()).map_err(usage)?;
+        // What ran before a failure stays on record: an `align` that could not register is
+        // the reason its dependant had no frame.
+        let arguments = match with_defaults(manifest, explicit, &session.frames()) {
+            Ok(a) => a,
+            Err(e) => {
+                write_result(&out, args, &records).map_err(|e| (EXIT_TOOL, e))?;
+                return Err(usage(e));
+            }
+        };
         let record = runtime
             .block_on(session.call(name, arguments))
             .map_err(|e| (EXIT_TOOL, format!("{name}: {e}")))?;
@@ -223,17 +231,15 @@ fn with_defaults(
             .filter_map(|w| hint.find(w).map(|at| (at, w)))
             .min();
         let value = match first.map(|(_, w)| w) {
+            // No aligned frame: align could not register the pair (a strong restyle often
+            // defeats it though the framing is unchanged). The raw candidate stands in; a tool
+            // that needs one grid refuses a pair whose sizes differ.
             Some("aligned") => frames
                 .iter()
                 .rev()
                 .find(|f| f.starts_with("aligned:candidate:"))
                 .cloned()
-                .ok_or_else(|| {
-                    format!(
-                        "{} needs an aligned frame for {arg:?} and none was made",
-                        manifest.name
-                    )
-                })?,
+                .unwrap_or_else(|| "raw:candidate".to_string()),
             Some(image) if is_image => image.to_string(),
             Some(image) => format!("raw:{image}"),
             None => {
@@ -371,6 +377,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(view, serde_json::json!({ "frame": "raw:source" }));
+        // Without an aligned frame (align refused), the raw candidate stands in.
+        let raw_only = vec!["raw:candidate".to_string(), "raw:source".to_string()];
+        let unaligned =
+            with_defaults(&get("change_map"), serde_json::json!({}), &raw_only).unwrap();
+        assert_eq!(unaligned["against"], "raw:candidate");
         let err = with_defaults(&get("resize"), serde_json::json!({}), &frames).unwrap_err();
         assert!(err.contains("long_edge"), "{err}");
     }

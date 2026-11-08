@@ -122,7 +122,7 @@ fn a_check_using_regions_without_the_segmenter_ends_at_resolve_naming_the_file()
     assert_eq!(o.status.code(), Some(64), "{stderr}");
     let artifact = cache_home.join("squint/models/segmenter-v1/eomt-large-ade20k-512.onnx");
     assert!(
-        stderr.contains("regions and classes need the segmenter artifact")
+        stderr.contains("regions, classes and outline need the segmenter artifact")
             && stderr.contains(&format!("{} is missing", artifact.display()))
             && stderr.contains("`squint-tools fetch`"),
         "{stderr}"

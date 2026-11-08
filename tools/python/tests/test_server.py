@@ -325,7 +325,7 @@ def test_initialize_without_the_segmenter_names_the_missing_file_and_the_fetch_c
     [init] = run([INITIALIZE])
     message = init["error"]["message"]
     assert init["error"]["code"] == -32603 and "result" not in init
-    assert message.startswith("regions and classes need the segmenter artifact")
+    assert message.startswith("regions, classes and outline need the segmenter artifact")
     assert f"{artifact} is missing" in message and "`squint-tools fetch`" in message
 
     # A file of the wrong size is refused the same way, without loading it.
@@ -333,7 +333,7 @@ def test_initialize_without_the_segmenter_names_the_missing_file_and_the_fetch_c
     artifact.write_bytes(b"not the model")
     [init] = run([INITIALIZE], served=["classes"])
     message = init["error"]["message"]
-    assert message.startswith("classes need the segmenter artifact")
+    assert message.startswith("classes needs the segmenter artifact")
     assert f"{artifact} is 13 bytes" in message and "`squint-tools fetch` again" in message
 
 
@@ -364,7 +364,12 @@ def test_a_server_serving_only_echo_region_starts_without_the_segmenter(tmp_path
 def test_with_the_segmenter_present_every_tool_serves():
     init, listed = run([INITIALIZE, {"jsonrpc": "2.0", "id": 2, "method": "tools/list"}])
     assert init["result"]["protocolVersion"] == "2025-11-25"
-    assert [t["name"] for t in listed["result"]["tools"]] == ["echo_region", "regions", "classes"]
+    assert [t["name"] for t in listed["result"]["tools"]] == [
+        "echo_region",
+        "regions",
+        "classes",
+        "outline",
+    ]
 
 
 def test_unreadable_pixels_are_an_error_reply_not_a_crash():

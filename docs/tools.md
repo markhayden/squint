@@ -191,7 +191,7 @@ the harness records as a tool error, never an answer the model acts on. `envelop
 result envelopes and returned images (lossless PNG named `crop:<call id>:<n>` or an aligned frame,
 with its mapping in the parent), and splits the images' bytes out of `structuredContent` into the
 MCP image blocks the client pairs with them by position and media type. A server serving a tool
-that needs the segmenter (`regions`, `classes`) checks its artifact at `initialize` (present, at
+that needs the segmenter (`regions`, `classes`, `outline`) checks its artifact at `initialize` (present, at
 the recorded size) and loads it there; without it the server answers `initialize` with a JSON-RPC
 error naming the file and `squint-tools fetch`, so the harness stops at resolve, before any
 provider call, with those words. A server serving only `echo_region` neither needs nor loads it.

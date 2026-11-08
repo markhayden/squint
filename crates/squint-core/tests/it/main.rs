@@ -26,4 +26,5 @@ mod run_json;
 mod submission_rules;
 mod terminal_states;
 mod tool_schemas;
+mod tool_session;
 mod tool_turns;

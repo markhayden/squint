@@ -1,7 +1,7 @@
 Obligations. Each is numbered; cite ids exactly as written.
 
 Rules:
-1. SF1 (must hold; judges candidate; consults source) Permanent structure (walls, floors, ceilings, columns, pools, roads, built landmarks) keeps its shape, position and extent relative to the source. If this is hidden behind something else, say `hidden`; that is recorded, not unsure.
+1. SF1 (must hold; judges candidate; consults source) Permanent structure (walls, floors, ceilings, columns, pools, roads, built landmarks) keeps its shape, position and extent relative to the source. Compare outlines and edges, not the overall look: a pool widened, an end rounded or a band of tile moved is a violation even when the scene reads the same. A close alignment is not evidence that structure held. A region a tool flags on permanent structure is not dismissed until you have looked at it with view beside the same box of the source. If this is hidden behind something else, say `hidden`; that is recorded, not unsure.
 2. SF2 (must hold; judges candidate; consults source) The candidate is derived from the source: same scene, same camera, same projection; nothing rotated, stretched or cropped away.
 3. SF3 (allowed; on candidate) Furniture, people, vehicles, decoration, textiles, lighting and vegetation may change, appear or disappear. This states what may change; it waives nothing and is never an `allowed_by`. Where such a change leaves the obligations above intact, mark the item `held`.
 4. SF4 (observe; on candidate) Any other change is noted with its location. Report such things as `observed` findings; they never change the verdict.

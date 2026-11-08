@@ -235,6 +235,7 @@ pub fn merge(input: &MergeInput<'_>) -> Result<Merged> {
         warnings: Vec::new(),
     };
 
+    let mut hinted_by_files = std::collections::BTreeSet::new();
     for (provenance, file) in &layers {
         if file.rules.use_case != merged.use_case {
             return Err(Error::Config(format!(
@@ -256,6 +257,23 @@ pub fn merge(input: &MergeInput<'_>) -> Result<Merged> {
         }
         for (tool, table) in &file.hints {
             merged.hints.insert(tool.clone(), table.clone());
+            if provenance.starts_with("file:") {
+                hinted_by_files.insert(tool.clone());
+            }
+        }
+    }
+    // Hints for a tool that is not enabled are dropped. A consumer's own file naming one is
+    // probably a typo and is warned about; the shipped rules carry hints for every shipped tool,
+    // enabled or not, and drop them silently.
+    let hinted: Vec<String> = merged.hints.keys().cloned().collect();
+    for tool in hinted {
+        if !input.enabled_tools.iter().any(|t| t == &tool) {
+            if hinted_by_files.contains(&tool) {
+                merged.warnings.push(format!(
+                    "rules: [hints.{tool}] dropped: tool {tool:?} is not enabled"
+                ));
+            }
+            merged.hints.remove(&tool);
         }
     }
     if let Some(job) = input.job {
@@ -264,7 +282,7 @@ pub fn merge(input: &MergeInput<'_>) -> Result<Merged> {
         }
     }
 
-    validate(&mut merged, input.job, input.enabled_tools)?;
+    validate(&mut merged, input.job)?;
     Ok(merged)
 }
 
@@ -307,7 +325,7 @@ fn check_id_format(id: &str, provenance: &str) -> Result<()> {
     Ok(())
 }
 
-fn validate(merged: &mut Merged, job: Option<&Job>, enabled_tools: &[String]) -> Result<()> {
+fn validate(merged: &mut Merged, job: Option<&Job>) -> Result<()> {
     let ids: Vec<&str> = merged
         .obligations
         .iter()
@@ -422,15 +440,6 @@ fn validate(merged: &mut Merged, job: Option<&Job>, enabled_tools: &[String]) ->
         }
     }
 
-    let hinted: Vec<String> = merged.hints.keys().cloned().collect();
-    for tool in hinted {
-        if !enabled_tools.iter().any(|t| t == &tool) {
-            merged.warnings.push(format!(
-                "rules: [hints.{tool}] dropped: tool {tool:?} is not enabled"
-            ));
-            merged.hints.remove(&tool);
-        }
-    }
     Ok(())
 }
 

@@ -5,7 +5,7 @@ version = "1.0.0"
 purpose = "Registers one image onto another of the same scene and viewpoint: a homography for flat images, a rotation on the sphere for panoramas; returns the first image warped into the second's frame with how well the pair agrees."
 when_to_use = "Before comparing a candidate with its source: to see them in one frame and to learn whether the candidate kept the source's geometry."
 when_not_to_use = "On images of different scenes or viewpoints; it reports those as not registered rather than forcing a fit."
-output_guidance = "A registered pair gives an aligned frame to compare against the second image, and measurements of agreement. Not registered is itself evidence that the geometry changed; low texture means the images could not be judged."
+output_guidance = "A registered pair gives an aligned frame to compare against the second image, and measurements of agreement. Not registered is itself evidence that the geometry changed; low texture means the images could not be judged. Registered, even with high agreement, says only that the camera and frame match: it does not compare content, and a reshaped pool or wall inside the frame registers as well as an unchanged one."
 cost = { tier = "moderate", seconds = 3.0 }
 image_args = ["image", "against"]
 evidence_kind = "alignment_failure"

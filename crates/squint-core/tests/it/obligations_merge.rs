@@ -125,7 +125,8 @@ fn architecture_profile_replaces_sf1_and_sf3_with_profile_provenance() {
 }
 
 #[test]
-fn hints_for_a_tool_not_enabled_are_dropped_with_a_warning() {
+fn hints_for_a_tool_not_enabled_are_dropped_with_a_warning_only_from_a_consumer_file() {
+    // The shipped profile's hints for tools that are not enabled go silently.
     let m = merge(&MergeInput {
         base: "source-fidelity",
         profile: Some("architecture"),
@@ -135,9 +136,23 @@ fn hints_for_a_tool_not_enabled_are_dropped_with_a_warning() {
         enabled_tools: &[],
     })
     .unwrap();
-    assert!(!m.hints.contains_key("regions"));
+    assert!(!m.hints.contains_key("regions") && !m.hints.contains_key("outline"));
+    assert!(m.warnings.is_empty(), "{:?}", m.warnings);
+    // A consumer's own file naming a tool that is not enabled is told so.
+    let mine = consumer(
+        r#"
+[rules]
+use_case = "source-fidelity"
+version = 1
+
+[hints.regoins]
+preserve = ["wall"]
+"#,
+    );
+    let m = merge_with(&[mine], Some(&pair_job()), &["regions"]).unwrap();
+    assert!(!m.hints.contains_key("regoins"));
     assert_eq!(m.warnings.len(), 1);
-    assert!(m.warnings[0].contains("hints.regions"));
+    assert!(m.warnings[0].contains("hints.regoins"), "{:?}", m.warnings);
 }
 
 #[test]

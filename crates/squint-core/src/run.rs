@@ -1745,8 +1745,15 @@ fn prepare_call(
             },
         );
     }
-    if let Some(hints) = prepared.hints.get(&manifest.name) {
-        ctx.hints = hints.clone();
+    // The hint tables the manifest accepts, keyed by name (`{"regions": {"preserve": …}}`), as
+    // the tool reads them.
+    let accepted: serde_json::Map<String, serde_json::Value> = manifest
+        .accepts_hints
+        .iter()
+        .filter_map(|name| Some((name.clone(), prepared.hints.get(name)?.clone())))
+        .collect();
+    if !accepted.is_empty() {
+        ctx.hints = serde_json::Value::Object(accepted);
     }
     journal.append(&Event::ToolCalled(events::ToolCalled {
         call_id: Some(call_id.clone()),

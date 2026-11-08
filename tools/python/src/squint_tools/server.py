@@ -111,7 +111,8 @@ class Server:
                 problem = f"{type(e).__name__}: {e}"
         if problem is None:
             return None
-        return f"{' and '.join(needing)} need the segmenter artifact: {problem}"
+        named = needing[0] if len(needing) == 1 else f"{', '.join(needing[:-1])} and {needing[-1]}"
+        return f"{named} need{'s' if len(needing) == 1 else ''} the segmenter artifact: {problem}"
 
     def call(self, request_id: Any, params: dict[str, Any]) -> None:
         self.calls_since_reset += 1

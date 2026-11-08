@@ -98,21 +98,36 @@ class Segmenter:
         labels, confidence = semantic_map(c, m, with_confidence=True)
         return [(labels[i], confidence[i], placement) for i, (_, placement) in enumerate(prepared)]
 
+    def scores(self, images: list[np.ndarray]) -> list[tuple[np.ndarray, Placement]]:
+        """Each image's per-class scores ``[classes, 128, 128]`` over its square input (the sum
+        the semantic map takes its argmax of), with where the image sits in it: for tools that
+        need a class's extent finer than the argmax's grid."""
+        prepared = [prepare(rgb) for rgb in images]
+        c, m = self.run(np.stack([pv for pv, _ in prepared]))
+        seg = class_scores(c, m)
+        return [(seg[i], placement) for i, (_, placement) in enumerate(prepared)]
+
 
 def semantic_map(class_logits: np.ndarray, mask_logits: np.ndarray, with_confidence: bool = False):
     """The class of each pixel (preprocessing version 1, ``MODEL.md``): softmax over classes
     without the no-object column, sigmoid over masks, their product summed over queries, argmax.
     With `with_confidence`, also the winning class's share of the summed scores at each pixel."""
-    c = class_logits - class_logits.max(-1, keepdims=True)
-    probs = np.exp(c)
-    probs = (probs / probs.sum(-1, keepdims=True))[..., :-1]
-    masks = 0.5 * (1.0 + np.tanh(0.5 * mask_logits))  # the sigmoid, without exp overflow
-    seg = np.einsum("bqc,bqhw->bchw", probs, masks, optimize=True)
+    seg = class_scores(class_logits, mask_logits)
     labels = seg.argmax(1)
     if not with_confidence:
         return labels
     best = np.take_along_axis(seg, labels[:, None], 1)[:, 0]
     return labels, best / np.maximum(seg.sum(1), 1e-6)
+
+
+def class_scores(class_logits: np.ndarray, mask_logits: np.ndarray) -> np.ndarray:
+    """Per-class scores ``[b, classes, h, w]``: softmax over classes without the no-object
+    column, sigmoid over masks, their product summed over queries."""
+    c = class_logits - class_logits.max(-1, keepdims=True)
+    probs = np.exp(c)
+    probs = (probs / probs.sum(-1, keepdims=True))[..., :-1]
+    masks = 0.5 * (1.0 + np.tanh(0.5 * mask_logits))  # the sigmoid, without exp overflow
+    return np.einsum("bqc,bqhw->bchw", probs, masks, optimize=True)
 
 
 def class_names() -> list[str]:
