@@ -233,12 +233,15 @@ fn anthropic_request_body_maps_history_images_tools_and_controls() {
     assert_eq!(result["content"][1]["source"]["data"], "SlBFRy1C");
     assert!(result.get("is_error").is_none());
     assert_eq!(messages[2]["content"][1]["type"], "text");
-    // Tools carry the wire schema and strict mode; the submission schema lost its constraints.
+    // Only the submission is strict, its schema stripped of the constraints strict mode rejects;
+    // an inspection tool goes as its canonical schema, without strict, so the compiled grammar
+    // stays within Anthropic's limit however many tools are enabled.
     let tools = body["tools"].as_array().unwrap();
     assert_eq!(tools.len(), 2);
     assert_eq!(tools[0]["name"], "regions");
-    assert_eq!(tools[0]["strict"], true);
+    assert!(tools[0].get("strict").is_none());
     assert_eq!(tools[1]["name"], "submit_verdict");
+    assert_eq!(tools[1]["strict"], true);
     assert!(tools[1]["input_schema"].to_string().contains("$defs"));
     assert!(
         !tools[1]["input_schema"]

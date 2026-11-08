@@ -91,7 +91,29 @@ Unique ids and id format; every `waives` target exists and is mandatory; an exem
 has a condition; no `waives` or `condition` outside exemptions; `hidden_ok` only on mandatory
 kinds; no explicit empty `scope`; every scope and evidence entry is a role or an image id in the
 job; the job's use case matches the rules'; the set's required roles are present; `[hints.<tool>]`
-for a tool that is not enabled is dropped with a warning.
+for a tool that is not enabled is dropped with a warning, and so is a `[screen]` tool that is not
+enabled (silently when a shipped profile names it).
+
+## Screening
+
+`[screen]` names tools the harness runs on the job's images before the model's first turn, each
+after the tools it requires and with the arguments its descriptions default to ("usually the
+aligned candidate"). Their results open the conversation, with their images, as if the model had
+called them, and their regions are on the checklist it answers; a refusal (align cannot register
+a restyle) is shown as one. The screen spends none of the model's tool budget. The architecture
+profile screens with `outline` and `regions`, because models left both uncalled in every run of
+the baseline. A later layer's `[screen]` replaces an earlier one's, and `tools = []` turns it off:
+
+```toml
+[rules]
+use_case = "source-fidelity"
+version = 1
+
+[screen]
+tools = ["regions"]
+```
+
+The report's `rules.screen` names the tools that ran.
 
 ## Resolution
 

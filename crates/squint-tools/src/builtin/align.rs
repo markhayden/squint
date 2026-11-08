@@ -152,7 +152,7 @@ impl Tool for Align {
                     _ => Mapping::Rotation(params.clone()),
                 };
                 summary = format!(
-                    "{image_id} registered onto {against_id}: {summary}. The aligned frame {frame} shares {against_id}'s grid; compare it with raw:{against_id}."
+                    "{image_id} registered onto {against_id}: {summary}. The aligned frame {frame} shares {against_id}'s grid; compare it with raw:{against_id}. Registration matches the camera, not the content: a structure reshaped inside the frame registers just as well, so a close fit is no evidence that structure held."
                 );
                 envelope.transforms.push(Transform {
                     id: transform_id,

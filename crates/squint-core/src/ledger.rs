@@ -92,13 +92,17 @@ pub struct PlanInput {
     /// the most images; zero without tools.
     pub tool_envelope_bytes: u64,
     pub tool_images: u64,
+    /// The calls the rules' screen makes before the first turn: tool results every request
+    /// carries, the first included, beyond the model's call budget.
+    pub screen_calls: u64,
 }
 
 /// The most images one request of the run can carry: the job's images plus every tool result the
 /// call budget allows at the largest tool's `returns.max_images`. The plan bounds the later
 /// requests with it, and resolve prepares the images against it.
 pub fn worst_case_images(config: &Config, input: &PlanInput) -> u64 {
-    input.job_images + u64::from(config.budget.tool_calls) * input.tool_images
+    input.job_images
+        + (u64::from(config.budget.tool_calls) + input.screen_calls) * input.tool_images
 }
 
 /// One planned request of the envelope.
@@ -146,7 +150,9 @@ pub fn plan(config: &Config, input: &PlanInput, pricing: &dyn Pricing) -> Result
     // The whole call budget may be spent at any point, so every request after the first carries
     // every tool result the run can produce.
     let tool_tokens = planned_tokens(u64::from(b.tool_calls) * input.tool_envelope_bytes);
-    let tool_images = worst_case_images(config, input) - input.job_images;
+    let screen_tokens = planned_tokens(input.screen_calls * input.tool_envelope_bytes);
+    let screen_images = input.screen_calls * input.tool_images;
+    let tool_images = worst_case_images(config, input) - input.job_images - screen_images;
     let max_output = u64::from(config.provider.max_output_tokens);
 
     let mut requests = Vec::new();
@@ -162,7 +168,9 @@ pub fn plan(config: &Config, input: &PlanInput, pricing: &dyn Pricing) -> Result
         };
         let mut input_tokens = planned_tokens(base_bytes)
             + prior * (max_output + planned_tokens(checklist_bytes + FRAMING_BYTES));
-        let mut images = input.job_images;
+        // The screen's results open the conversation: in every request, the first included.
+        input_tokens += screen_tokens;
+        let mut images = input.job_images + screen_images;
         if prior > 0 {
             input_tokens += tool_tokens;
             images += tool_images;
@@ -594,6 +602,7 @@ mod tests {
             job_images: 2,
             tool_envelope_bytes: 0,
             tool_images: 0,
+            screen_calls: 0,
         };
         let e = plan(&config, &input, &prices).expect("plan");
         assert_eq!(
@@ -629,5 +638,37 @@ mod tests {
             e.usd,
             (once + e.retry_reserve_usd) * f64::from(config.budget.decision_runs)
         ));
+    }
+
+    #[test]
+    fn a_screen_is_carried_by_every_request_the_first_included() {
+        let text = crate::fixture("config/minimal.toml");
+        let config = Config::parse(&text, &[], &|_| None).expect("config");
+        let prices = Prices {
+            input_per_million: 1.0,
+            output_per_million: 4.0,
+            per_image: 0.001,
+        };
+        let mut input = PlanInput {
+            system_bytes: 6000,
+            tools_bytes: 1000,
+            first_look_bytes: 800,
+            checklist_bytes: 300,
+            job_images: 2,
+            tool_envelope_bytes: 4000,
+            tool_images: 1,
+            screen_calls: 0,
+        };
+        let without = plan(&config, &input, &prices).expect("plan");
+        input.screen_calls = 3;
+        let with = plan(&config, &input, &prices).expect("plan");
+        for (a, b) in without.requests.iter().zip(&with.requests) {
+            assert_eq!(b.shape.images, a.shape.images + 3, "{}", b.kind);
+            assert!(b.shape.input_tokens > a.shape.input_tokens, "{}", b.kind);
+        }
+        assert_eq!(
+            worst_case_images(&config, &input),
+            2 + u64::from(config.budget.tool_calls) + 3
+        );
     }
 }

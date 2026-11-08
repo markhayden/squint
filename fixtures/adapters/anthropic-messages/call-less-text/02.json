@@ -349,13 +349,13 @@
     "status": 200,
     "headers": {
       "content-type": "application/json",
-      "request-id": "req_011CgTVHdT8kcpuG6TwGT4Ft"
+      "request-id": "req_011CgppfRWhTYH3g98XVgJ8T"
     },
     "body": {
       "container": null,
       "content": [
         {
-          "signature": "CAQS0ggKEAgTGAI4AUIIdGhpbmtpbmcSDJkK6aC5+bCSWMjD5RoM2/M/IhwoUfsAaj/aIjDCQzYLXtgArmD9AhydIQmQkHSOEwwa1kuoo70OyvBN1SaDJxqkppFhlCsmJzCylCwq7wel4xtldsRhhmi6mj/exriDDZi+HF17LkSp4tNeOmxVmqaKou+WePvLbmuKeKmlb+90ZtwlG5s2oJ2gQhzCD680dLU6pWdjdiG/cvdtO3fyJzrpwpj6YB3WKsG3AAQIRsQTsOJXiG3T0JPC4UtJJcKepIS5x2FQwE1ROKM13hp+on5VOd36tFtwPTXyRrjFQ3T94SoxzzFw9o0t7DuBC5Mfbq1F6yDSG9MJOfYTwQmuZhG3+4nK+9LDy5eM6a7BWhKovQWYLC4Dkrm4rC+A4lCV16XJ79MPbm3c4Sa+6kieUfCC/lRJdkBTmh8QQrXsLoeqgLWTu8vRLrCazryAL1MQgrGTnDMOreG7H3bVsVdwGOAf+p1nsIB9P+kNr4FWjCKhDVFTK/I2aBI6LhXqXdsrC8KAQWr50bXvskWJ0sajStzUEPtf/JNvt/6cTP5VIEmGIZBAqvtJrxDeJFX0Le8V8aA/ZQABs3jQTSVUG1yX0mhaKUgIkPQ1GAq38uUucel7uW0ISLiCK/loL31GQh0R60K0FiE4mVy85ZmHH9KKoXbpAku3Kq3YE1HDPHS5J+Cy5jjs8MR9hVPwX0+EWpGsAV+427oMxklJdMWbGPyqBJsuPGA5yjCU2kV81TIsXMHyXHZEppnUVqswyK59NX+EjL3JR5nFqmlSX20OukfKE30h0Da481S/B3wk74MTjhdaknaBMXtFCDn5OmFf/ubMqDC8cavRyIgBClisAkrschBN4NonAyCZ0ewv4uTNeQWzKD5GZmXt3ZQXzfglZ+z9rodJQxz2TiNpwPZgDOc0lXFsfpkJg20rbOkA9XnTZ5TiOMjmZBnFKp3n3MspgPz8+YWrobEMlka3f8OnlqOR6qWUZbknYqSFbbih6Ng71hODHHoTyTJudY9F4rpQOcaF6QpGT5RET3na7Kgdj1rM6m2pa1Mhebxf4hvIj13D4kg9PEMKWuSkqITZaY5zwMW+T308Fx0+1/QCGNeKeQvqL8Ke+udekKfVrjNJ5iTMQTRpXi0j7o0HK61jQFR3ca9TtM+I+rYPk7tfOVox7sBT7dMxlPM6HIIAZXlGQuqv03nwcHE07Y1irW/eg0dNSIDA5k0ETbs4awV1N8RT/IzpMVw4eEWL6pV4GTwOhg0E3vJIxs+DTiadgypuvTmF6Pv6haZDQuuLY8Ue+v9m7UM3NfJD+/Rs+kkQO0iRr960G0c8FaLZYu1umTmsUwWPtZnPGHDjSTh5ofaHqcajpuBWGq3CUN2jJGdIr2QBVKd3ubreFrlS6dMlZJIUY1/jh7s/aWdOkR4DxzSArNy+XOh7iRS1kSum9b7qT1KnSbDb5hgB",
+          "signature": "CAQShwkKEAgTGAI4AUIIdGhpbmtpbmcSDB6HdMZEOhsuFFNowxoM6Z6YtMPkEueyAF0cIjA22HcZT5qI/woS6s0hSbzFDX7YA9QPq4F5qdVtLddI1SLtes13h1VS/Xf5d6iXhEUqpAjayN35doWQjujuuXtJwG8kAiKlLRYNt2IxUX8WpwQ64ON+bfz+hG+foH6mjr3gPe75MIgX60scPsLRSSaq+lO/KXFAZdbYkpldnUwVLgY0CHV7yiLVdLLVjNknUwBjrOQYV5NLdoQW2XJ9U+GS2ibroCS9UoWE0t0lkGKgkNwqcC7MlMeJJ3PPz8tsM8Q8psKwThhafQdRch4S0GwJOlOeVU8lEbM8HDlyJRTEcPp/afxkMbgd/8ZZD+P0zMJjgt0TjQQdpsi80QxoPPkRTC8Jmpnhxmskn+wU9GVYtGcT+BdhVhTC6xTEuubKU1V5nxrJCV9tjQ4X6VWIQgUHrEtd0UV3NzPdus/vqnXyT6LG+Feiw/ZlK2qIPZnaycH6KmfZJ+Eo2Zig7FgUigslWMEU4k8R/VHjQG5mwA/PD+2mXlo8Xr9lnLtIzmCndxsQHA6opVfXs6CKCDu/YzBr1F4WPwYD6+4ExaxxicH/xpubILOdubjTvvf8+kXKaWU5cZMJOhIkbDRlXJqcF/UDS8bV0KpbQWhrXFWCA4i4gbPZdAOoYxn4CRDUloeiLLEsNWfCSJbbPaQYArcszFPzO8tiy9q0N1dVZkXfylXbCbuadWEmDx7TJ31X099bPe8pcj8eqqd+bhAWpHE1ZEGZAeg+pFq2NNf70NPTzr1RbslSkRW4exkX5aa2AiIpj1eyMP2wx3yuaqSE/BIWfBZtqgS8BIlOYY3rr2dOZA9YTCXVNABQfZGTvNShLXQyFjXjA+KvwHijkPZXQk3IUdUoddCLFfmHrovkhvcrc6bGkFS+qSyLuh9Lln0qeJ2JO1uUh6NgsjR8tuGSX8Kft9/5emF8uzYV/s9HIqsKdrRBeVGp0PSXKlyzYGE4KjV3xghmFqYhj3Hy+Kt76+304zRn5cqYXBkkvIai/OnS2fpDfUP5zmjK1XdhnVj7ZWFLDLf16HrOGMsvxKu1Bm+JPdz9ewZddwrGDfGwnh9mBGwOrBq7tsY1m+A0VofhXwJYpbCpZS/BzFnAsU/w94/YxRlO4zoxl+ZzWakNoE10lZIoE/6A/zB99Lc8SOO4y1T+OL/rDQ+ne59JMQLlrubEaoPIMIJfB6++ZHxDAcZNS9nx2qHV1uoudUJYKc2MJcZHP0lzCyylzRahtyIJIXLfPY1Ub/lF/09jWirigabHaPoMcrNGbE4PBbdv1eXqIp5hYLtw9ccidHE0DAL5IdJw9CkQ1/IQSm4oyV47VJpgZOEUGMDF9AFOIE8TdzTKJwassVwn/sgrnVFS97pi5X+87h7kF0mqI2T+eyS9kVbr43V3pk7twg1/hNR9aRBHYSlnwygO9t/JkRBPyjgnSj5PQxrXPpkVKMiv0OJhBtAFPoGHaTh4u1MGt4FzgWiL4Iguz+QcFmL/b21PGAE=",
           "thinking": "",
           "type": "thinking"
         },
@@ -363,36 +363,12 @@
           "caller": {
             "type": "direct"
           },
-          "id": "toolu_01CNVTBdKwSqtePbszhoCZVK",
+          "id": "toolu_014Zkg3LND7GuAbLksTqTnJW",
           "input": {
             "findings": [
               {
                 "allowed_by": null,
-                "confidence": "confident",
-                "disposition": "observed",
-                "evidence": [],
-                "location": {
-                  "bbox": [
-                    0.33,
-                    0.2,
-                    0.62,
-                    0.65
-                  ],
-                  "fov": null,
-                  "frame": "raw:candidate",
-                  "kind": "bbox",
-                  "pitch": null,
-                  "polygon": null,
-                  "yaw": null
-                },
-                "obligation_ids": [
-                  "SF4"
-                ],
-                "reason": "An opaque white square was added in the centre of the candidate. It is not in the source."
-              },
-              {
-                "allowed_by": null,
-                "confidence": "confident",
+                "confidence": "tentative",
                 "disposition": "observed",
                 "evidence": [],
                 "location": {
@@ -407,7 +383,7 @@
                 "obligation_ids": [
                   "RC1"
                 ],
-                "reason": "I did not ask the clarifying question about the brief, because the harness required a tool call in this response."
+                "reason": "A clarifying question was planned, but the harness required a tool call, so the question was not asked before judging."
               }
             ],
             "items": [
@@ -431,7 +407,7 @@
                   "polygon": null,
                   "yaw": null
                 },
-                "reason": "The brief says to keep the structure. A solid white square now covers the centre of the gradient, so that part of the structure is gone rather than restyled."
+                "reason": "A solid white square now covers the centre of the candidate and hides the source's gradient structure there. That is new content, not a restyle, so the structure the brief asks to keep is not kept."
               },
               {
                 "allowed_by": null,
@@ -440,11 +416,11 @@
                 "evidence": [],
                 "id": "chk:ob:SF2@candidate",
                 "location": null,
-                "reason": "The candidate shows the same gradient scene at the same size and orientation. Nothing appears rotated, stretched or cropped."
+                "reason": "The candidate has the same size and the same colour-gradient layout as the source. There is no sign of rotation, stretching or cropping."
               }
             ],
             "opinion": {
-              "reason": "An opaque white square was added in the centre, which breaks the instruction to keep the structure.",
+              "reason": "Most of the candidate matches the source, but a white square added in the centre breaks the 'keep the structure' requirement.",
               "verdict": "fail"
             },
             "schema_version": 1
@@ -454,7 +430,7 @@
         }
       ],
       "diagnostics": null,
-      "id": "msg_011CgTVHdkkAbEcUJjcsdmtP",
+      "id": "msg_011CgppfRo4XWRqr2ggnjTPG",
       "input_transformations": [],
       "model": "claude-opus-5-5",
       "role": "assistant",
@@ -471,9 +447,9 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "global",
         "input_tokens": 3186,
-        "output_tokens": 894,
+        "output_tokens": 780,
         "output_tokens_details": {
-          "thinking_tokens": 164
+          "thinking_tokens": 175
         },
         "service_tier": "standard",
         "speed": "standard"

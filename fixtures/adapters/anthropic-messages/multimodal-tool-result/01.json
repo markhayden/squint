@@ -80,8 +80,7 @@
             ],
             "type": "object"
           },
-          "name": "fake_regions",
-          "strict": true
+          "name": "fake_regions"
         },
         {
           "description": "Submit the final structured verdict: exactly one disposition per checklist item, any further findings, and your own opinion (recorded only).",
@@ -358,20 +357,16 @@
     "status": 200,
     "headers": {
       "content-type": "application/json",
-      "request-id": "req_011CgTVDygSNnW4t2GT8BR36"
+      "request-id": "req_011CgppbBpaMGACL5JunV8WT"
     },
     "body": {
       "container": null,
       "content": [
         {
-          "text": "Following RC1, I'll call fake_regions first.",
-          "type": "text"
-        },
-        {
           "caller": {
             "type": "direct"
           },
-          "id": "toolu_01WeDdHk4vABphTiTDFAo7LU",
+          "id": "toolu_013DRK6yiys6xMGwHgP7fh5F",
           "input": {
             "image": "candidate"
           },
@@ -380,7 +375,7 @@
         }
       ],
       "diagnostics": null,
-      "id": "msg_011CgTVDz1Y67HgJnq5TNiyY",
+      "id": "msg_011CgppbCAQdxD5XXLZhWiWf",
       "input_transformations": [],
       "model": "claude-opus-5-5",
       "role": "assistant",
@@ -397,7 +392,7 @@
         "cache_read_input_tokens": 0,
         "inference_geo": "global",
         "input_tokens": 3367,
-        "output_tokens": 69,
+        "output_tokens": 51,
         "output_tokens_details": {
           "thinking_tokens": 0
         },

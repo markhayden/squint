@@ -155,8 +155,9 @@ fn without_the_segmenter_initialize_names_the_missing_file_and_echo_region_alone
     };
     let message = e.to_string();
     assert!(
-        message.contains("initialize failed: regions and classes need the segmenter artifact")
-            && message.contains(&format!("{} is missing", artifact.display()))
+        message.contains(
+            "initialize failed: regions, classes and outline need the segmenter artifact"
+        ) && message.contains(&format!("{} is missing", artifact.display()))
             && message.contains("`squint-tools fetch`"),
         "{message}"
     );

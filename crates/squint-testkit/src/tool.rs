@@ -30,6 +30,17 @@ impl ScriptedTool {
         }
     }
 
+    /// A scripted tool under another manifest (a description that names a default image, a
+    /// different name), returning `envelopes` in order.
+    pub fn with_manifest(manifest: Manifest, envelopes: Vec<Envelope>) -> ScriptedTool {
+        ScriptedTool {
+            manifest,
+            envelopes: Mutex::new(envelopes.into()),
+            delay: std::time::Duration::ZERO,
+            calls: Mutex::new(Vec::new()),
+        }
+    }
+
     /// Every call sleeps this long first, for cancellation tests.
     pub fn with_delay(mut self, delay: std::time::Duration) -> ScriptedTool {
         self.delay = delay;

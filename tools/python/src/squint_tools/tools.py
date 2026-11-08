@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 from typing import Any
 
-from . import __version__, classes, regions
+from . import __version__, classes, outline, regions
 from .context import Context
 from .envelope import bbox_location, envelope, invalid_args, png_image
 
@@ -75,11 +75,11 @@ ECHO_REGION = {
     "output_schema": {"type": "object"},
 }
 
-MANIFESTS = [ECHO_REGION, regions.MANIFEST, classes.MANIFEST]
+MANIFESTS = [ECHO_REGION, regions.MANIFEST, classes.MANIFEST, outline.MANIFEST]
 
 # The tools that run the segmenter: a server serving any of them checks for its artifact at
 # `initialize` and refuses to start without it.
-NEEDS_SEGMENTER = frozenset({"regions", "classes"})
+NEEDS_SEGMENTER = frozenset({"regions", "classes", "outline"})
 
 
 def _bbox(value: Any) -> list[float] | None:
@@ -138,4 +138,9 @@ def echo_region(args: dict[str, Any], ctx: Context) -> dict[str, Any]:
     )
 
 
-HANDLERS = {"echo_region": echo_region, "regions": regions.regions, "classes": classes.classes}
+HANDLERS = {
+    "echo_region": echo_region,
+    "regions": regions.regions,
+    "classes": classes.classes,
+    "outline": outline.outline,
+}

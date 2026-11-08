@@ -4,7 +4,7 @@
   "verdict": "unsure",
   "error": null,
   "repairs": [],
-  "turns": 2,
+  "turns": 3,
   "tool_calls": 2,
-  "cost_usd": 0.056688
+  "cost_usd": 0.07008
 }

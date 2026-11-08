@@ -140,6 +140,50 @@ impl ToolRegistry {
             .map(|t| t.as_ref())
     }
 
+    /// The same tools narrowed to `enabled`, in this registry's order, sharing the running tools
+    /// (a pack is not started again), with their projections and lock digests: one call's tool set
+    /// inside a session's. A name this registry lacks, or a kept tool whose prerequisite was
+    /// dropped, is a configuration error.
+    pub fn narrowed(&self, enabled: &[String]) -> Result<ToolRegistry> {
+        if let Some(missing) = enabled.iter().find(|n| self.get(n).is_none()) {
+            return Err(Error::Config(format!(
+                "tool {missing:?} is not enabled in this configuration"
+            )));
+        }
+        let tools: Vec<Arc<dyn Tool>> = self
+            .tools
+            .iter()
+            .filter(|t| enabled.contains(&t.manifest().name))
+            .cloned()
+            .collect();
+        for t in &tools {
+            for req in &t.manifest().requires {
+                if !tools.iter().any(|o| &o.manifest().name == req) {
+                    return Err(Error::Config(format!(
+                        "tool {:?} requires {req:?}, which is not enabled",
+                        t.manifest().name
+                    )));
+                }
+            }
+        }
+        let keep = |name: &String| enabled.contains(name);
+        Ok(ToolRegistry {
+            tools,
+            projections: self
+                .projections
+                .iter()
+                .filter(|(n, _)| keep(n))
+                .map(|(n, p)| (n.clone(), p.clone()))
+                .collect(),
+            lock_digests: self
+                .lock_digests
+                .iter()
+                .filter(|(n, _)| keep(n))
+                .map(|(n, d)| (n.clone(), d.clone()))
+                .collect(),
+        })
+    }
+
     /// A shared handle, for running a call on another thread.
     pub fn get_shared(&self, name: &str) -> Option<Arc<dyn Tool>> {
         self.tools

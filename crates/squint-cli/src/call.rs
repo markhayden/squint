@@ -291,6 +291,15 @@ fn one(
     // The configuration as loaded, before `max_spend_usd` lowers its cap: the estimate's
     // identity, which the invocation records (table-manners 4.8).
     let config_identity = contract::config_identity(&config);
+    // The call's own profile and tool set, applied to this call's copy of the configuration
+    // before its tools start, so a check without tools never starts the pack.
+    let choices = match contract::CallChoices::from_call(&call) {
+        Ok(c) => c,
+        Err(e) => return usage(e.to_string()),
+    };
+    if let Err(e) = choices.apply(&action.replace('_', "-"), &mut config) {
+        return usage(e.to_string());
+    }
     let allowed = match dirs {
         Dirs::Flags => {
             match crate::serve::allowed_dirs(&args.allow_dirs, &config.serve.allow_dirs) {
@@ -400,6 +409,7 @@ fn one(
             config_identity: Some(config_identity),
             max_spend_usd,
             requirements: inspection.used(&needs),
+            choices: choices.clone(),
         })
         .with_allocated(Arc::new(move |dir: &Path| {
             if let Ok(mut slot) = told.lock() {

@@ -687,7 +687,7 @@ pub fn description(
                 purpose: purpose(base).into(),
                 // A completed check carries the contract's verdict (table-manners 2.4).
                 answers: Some(Answers::Verdict),
-                params_schema: params_schema(),
+                params_schema: params_schema_for(base, config),
                 images: Some(images),
                 locations: Some(Vec::new()),
                 outputs: Some(Outputs {
@@ -882,8 +882,22 @@ fn references_slot(required: bool) -> ImageSlot {
 /// slot optional but the candidate (whether an action needs its source is that action's to say,
 /// when the arguments are checked as its call's).
 pub fn estimate_arguments() -> (serde_json::Value, Vec<ImageSlot>) {
+    // Any action's `profile` and `tools`: which values a base and configuration offer is the
+    // estimated call's to check ([`CallChoices::apply`]).
+    let mut schema = params_schema();
+    if let Some(properties) = schema.get_mut("properties").and_then(|p| p.as_object_mut()) {
+        for key in ["profile", "tools"] {
+            properties.insert(
+                key.into(),
+                serde_json::json!({
+                    "type": "string",
+                    "description": format!("The estimated call's `{key}`, as its action declares it.")
+                }),
+            );
+        }
+    }
     (
-        params_schema(),
+        schema,
         vec![
             slot("candidate", "candidate", true),
             slot("source", "source", false),
@@ -921,7 +935,170 @@ fn obligation_schema() -> (serde_json::Value, serde_json::Value) {
 }
 
 /// The arguments of a check beside its images: the brief, the job's requirements, a lower spend
-/// cap.
+/// cap, and the per-call choices this configuration offers for `base` ([`CallChoices`]): a rules
+/// profile where the base has shipped profiles, and a tool set where the configuration enables
+/// tools. Both are enums, so a generic host offers them as a select.
+fn params_schema_for(base: &str, config: Option<&Config>) -> serde_json::Value {
+    let mut schema = params_schema();
+    let Some(properties) = schema.get_mut("properties").and_then(|p| p.as_object_mut()) else {
+        return schema;
+    };
+    let profiles = profiles_of(base);
+    if !profiles.is_empty() {
+        let mut values = vec![NO_PROFILE.to_string()];
+        values.extend(profiles.iter().map(|p| p.to_string()));
+        properties.insert(
+            "profile".into(),
+            serde_json::json!({
+                "type": "string",
+                "enum": values,
+                "description": format!(
+                    "The rules profile for this check, replacing the configured one; `{NO_PROFILE}` \
+                     is the base rules alone. `architecture`: permanent structure (walls, floors, \
+                     pools, roads) must keep its shape; furniture, decoration and plants may change."
+                ),
+            }),
+        );
+    }
+    let configured = config.map(|c| c.tools.enabled.as_slice()).unwrap_or(&[]);
+    let sets = tool_sets(configured);
+    if sets.len() > 1 {
+        properties.insert(
+            "tools".into(),
+            serde_json::json!({
+                "type": "string",
+                "enum": sets.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
+                "description": "The evidence tools this check may use, from those the configuration \
+                    enables: `none` (the model looks at the images alone), `view_align` (view and \
+                    align), `all` (every configured tool). Omitted means every configured tool.",
+            }),
+        );
+    }
+    schema
+}
+
+/// The `profile` value that asks for the base rules with no profile.
+pub const NO_PROFILE: &str = "none";
+
+/// The shipped profiles of one base.
+fn profiles_of(base: &str) -> Vec<&'static str> {
+    crate::obligations::SHIPPED_PROFILES
+        .iter()
+        .filter(|(b, _)| *b == base)
+        .map(|(_, p)| *p)
+        .collect()
+}
+
+/// The tool sets a call may choose from a configuration's enabled tools, by name: `none`,
+/// `view_align` when both are enabled, `all`. Each is a subset of `configured`, in its order.
+fn tool_sets(configured: &[String]) -> Vec<(&'static str, Vec<String>)> {
+    if configured.is_empty() {
+        return Vec::new();
+    }
+    let mut sets = vec![("none", Vec::new())];
+    let visual = ["view", "align"];
+    if visual.iter().all(|t| configured.iter().any(|c| c == t)) {
+        let chosen: Vec<String> = configured
+            .iter()
+            .filter(|c| visual.contains(&c.as_str()))
+            .cloned()
+            .collect();
+        if chosen.len() < configured.len() {
+            sets.push(("view_align", chosen));
+        }
+    }
+    sets.push(("all", configured.to_vec()));
+    sets
+}
+
+/// What a call chooses for itself beside its job (the `profile` and `tools` arguments): applied
+/// to a copy of the configuration for that one call, never to the session's.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct CallChoices {
+    /// A shipped profile of the call's base, or [`NO_PROFILE`].
+    pub profile: Option<String>,
+    /// A tool set's name (`none`, `view_align`, `all`).
+    pub tools: Option<String>,
+}
+
+impl CallChoices {
+    /// The choices in a call's arguments. A value of the wrong type is a usage error; whether the
+    /// value is one this base and configuration offer is [`CallChoices::apply`]'s to say.
+    pub fn from_call(args: &serde_json::Map<String, serde_json::Value>) -> crate::Result<Self> {
+        let text = |key: &str| -> crate::Result<Option<String>> {
+            match args.get(key) {
+                None => Ok(None),
+                Some(serde_json::Value::String(s)) => Ok(Some(s.clone())),
+                Some(_) => Err(crate::Error::Job(format!("{key}: a string"))),
+            }
+        };
+        Ok(CallChoices {
+            profile: text("profile")?,
+            tools: text("tools")?,
+        })
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.profile.is_none() && self.tools.is_none()
+    }
+
+    /// The configuration for one call of `use_case`: the profile replaces the configured one
+    /// (`[rules]` is created for the use case when the configuration has none), and the tool set
+    /// narrows `[tools] enabled` to its subset. A value this base or configuration does not offer
+    /// is a usage error naming what it does offer.
+    pub fn apply(&self, use_case: &str, config: &mut Config) -> crate::Result<()> {
+        use crate::Error;
+        if let Some(profile) = &self.profile {
+            let offered = profiles_of(use_case);
+            let chosen = if profile == NO_PROFILE {
+                None
+            } else if offered.contains(&profile.as_str()) {
+                Some(profile.clone())
+            } else {
+                let mut all = vec![NO_PROFILE];
+                all.extend(offered);
+                return Err(Error::Job(format!(
+                    "profile: {profile:?} is not a profile of {use_case}; one of {all:?}"
+                )));
+            };
+            match config.rules.as_mut() {
+                Some(rules) => rules.profile = chosen,
+                None => {
+                    config.rules = Some(crate::config::RulesConfig {
+                        base: use_case.to_string(),
+                        profile: chosen,
+                        extra: Vec::new(),
+                    });
+                }
+            }
+        }
+        if let Some(name) = &self.tools {
+            let sets = tool_sets(&config.tools.enabled);
+            let Some((_, chosen)) = sets.iter().find(|(n, _)| n == name) else {
+                let names: Vec<&str> = sets.iter().map(|(n, _)| *n).collect();
+                return Err(Error::Job(if names.is_empty() {
+                    format!("tools: {name:?}, but the configuration enables no tools")
+                } else {
+                    format!("tools: {name:?} is not one of {names:?}")
+                }));
+            };
+            config.tools.enabled = chosen.clone();
+            config.tools.order.retain(|t| chosen.contains(t));
+        }
+        Ok(())
+    }
+
+    /// The choices as call arguments, for a binding or a run's recorded arguments.
+    pub fn insert_into(&self, arguments: &mut serde_json::Map<String, serde_json::Value>) {
+        if let Some(p) = &self.profile {
+            arguments.insert("profile".into(), p.clone().into());
+        }
+        if let Some(t) = &self.tools {
+            arguments.insert("tools".into(), t.clone().into());
+        }
+    }
+}
+
 fn params_schema() -> serde_json::Value {
     let (obligation, defs) = obligation_schema();
     let properties = serde_json::json!({
@@ -955,6 +1132,8 @@ const CALL_ARGUMENTS: &[&str] = &[
     "brief",
     "requirements",
     "max_spend_usd",
+    "profile",
+    "tools",
     "return_images",
     "image_blocks",
 ];
@@ -1155,6 +1334,7 @@ impl Binder<'_> {
         job: &crate::job::Job,
         file_digests: &[String],
         max_spend_usd: Option<f64>,
+        choices: &CallChoices,
     ) -> String {
         let image = |n: usize| {
             let spec = &job.images[n];
@@ -1200,6 +1380,7 @@ impl Binder<'_> {
         if let Some(max) = max_spend_usd {
             arguments.insert("max_spend_usd".into(), max.into());
         }
+        choices.insert_into(&mut arguments);
         digest(&serde_json::json!({
             "action": action,
             "arguments": arguments,
@@ -1239,6 +1420,7 @@ pub fn estimate(
     job: &crate::job::Job,
     job_base: &Path,
     max_spend_usd: Option<f64>,
+    choices: &CallChoices,
 ) -> crate::Result<table_manners::Estimate> {
     use table_manners::{Estimate, EstimateRefusal, ReadinessState};
     // With no configuration, squint's defaults stand for the cap and the image bounds.
@@ -1296,7 +1478,7 @@ pub fn estimate(
         action: action.into(),
         binding: ctx
             .binder
-            .binding(action, job, &file_digests, max_spend_usd),
+            .binding(action, job, &file_digests, max_spend_usd, choices),
         session_id: ctx.binder.session_id.map(str::to_string),
         effective,
         worst_case_usd: worst,
@@ -1354,6 +1536,8 @@ pub struct CallFacts {
     pub config_identity: Option<String>,
     pub max_spend_usd: Option<f64>,
     pub requirements: Vec<String>,
+    /// The call's `profile` and `tools`, recorded among its arguments.
+    pub choices: CallChoices,
 }
 
 /// A call's invocation, and the note its result carries when the job had more than a call's
@@ -1416,6 +1600,7 @@ pub fn invocation(
     if let Some(max) = facts.max_spend_usd {
         arguments.insert("max_spend_usd".into(), max.into());
     }
+    facts.choices.insert_into(&mut arguments);
     Invoked {
         invocation: table_manners::Invocation {
             action: action.into(),

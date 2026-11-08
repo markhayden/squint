@@ -1,0 +1,7 @@
+# Consumer rules for tests: screen with the fake region finder before the first turn.
+[rules]
+use_case = "source-fidelity"
+version = 1
+
+[screen]
+tools = ["fake_regions"]

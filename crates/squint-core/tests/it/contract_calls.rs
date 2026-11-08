@@ -117,3 +117,105 @@ fn inline_bytes_that_are_not_base64_are_input() {
     .unwrap_err();
     assert!(matches!(err, Error::Input(_)), "{err}");
 }
+
+/// A call's `profile` and `tools` change only that call's copy of the configuration: the profile
+/// replaces the configured one (or creates `[rules]` for the use case), `none` asks for the base
+/// rules alone, and a tool set narrows `[tools] enabled` to its subset. Values the base or the
+/// configuration do not offer are usage errors naming what they do offer.
+#[test]
+fn call_choices_apply_to_one_call() {
+    use squint_core::config::Config;
+    use squint_core::contract::CallChoices;
+    let text = r#"
+[provider]
+profile = "anthropic"
+model = "claude-haiku-5-5"
+[tools]
+enabled = ["view", "align", "change_map", "regions"]
+order = ["align", "regions", "view", "change_map"]
+[privacy]
+cloud_calls = true
+account = "anthropic:test"
+[output]
+dir = "./out"
+"#;
+    let base = Config::parse(text, &[], &|_| None).unwrap();
+    let choose = |v: serde_json::Value| CallChoices::from_call(&args(v)).unwrap();
+
+    // Nothing chosen: the configuration as it is.
+    let mut config = base.clone();
+    let none = choose(json!({}));
+    assert!(none.is_empty());
+    none.apply("source-fidelity", &mut config).unwrap();
+    assert!(config.rules.is_none());
+    assert_eq!(config.tools.enabled, base.tools.enabled);
+
+    // A profile with no `[rules]`: created for the use case.
+    let mut config = base.clone();
+    choose(json!({ "profile": "architecture" }))
+        .apply("source-fidelity", &mut config)
+        .unwrap();
+    let rules = config.rules.as_ref().unwrap();
+    assert_eq!(rules.base, "source-fidelity");
+    assert_eq!(rules.profile.as_deref(), Some("architecture"));
+
+    // `none` clears a configured profile.
+    choose(json!({ "profile": "none" }))
+        .apply("source-fidelity", &mut config)
+        .unwrap();
+    assert_eq!(config.rules.as_ref().unwrap().profile, None);
+
+    // A profile of another base, or an unknown one, is refused.
+    let err = choose(json!({ "profile": "architecture" }))
+        .apply("reality-checks", &mut base.clone())
+        .unwrap_err();
+    assert!(matches!(err, Error::Job(_)), "{err}");
+    assert!(err.to_string().contains("[\"none\"]"), "{err}");
+
+    // Tool sets narrow the enabled tools, keeping their order.
+    for (set, expected) in [
+        ("none", vec![]),
+        ("view_align", vec!["view", "align"]),
+        ("all", vec!["view", "align", "change_map", "regions"]),
+    ] {
+        let mut config = base.clone();
+        choose(json!({ "tools": set }))
+            .apply("source-fidelity", &mut config)
+            .unwrap();
+        assert_eq!(config.tools.enabled, expected, "{set}");
+        assert!(
+            config
+                .tools
+                .order
+                .iter()
+                .all(|t| expected.contains(&t.as_str()))
+        );
+    }
+    let err = choose(json!({ "tools": "regions_only" }))
+        .apply("source-fidelity", &mut base.clone())
+        .unwrap_err();
+    assert!(err.to_string().contains("view_align"), "{err}");
+
+    // A configuration with no tools offers no tool sets.
+    let mut bare = base.clone();
+    bare.tools.enabled.clear();
+    let err = choose(json!({ "tools": "none" }))
+        .apply("source-fidelity", &mut bare)
+        .unwrap_err();
+    assert!(err.to_string().contains("enables no tools"), "{err}");
+
+    // The wrong type is refused before anything is applied.
+    assert!(CallChoices::from_call(&args(json!({ "tools": ["view"] }))).is_err());
+
+    // Both are call arguments a job accepts beside its images.
+    let job = job_from_call(
+        "source-fidelity",
+        &args(json!({
+            "candidate": { "path": path("candidate-64x48.png") },
+            "source": { "path": path("candidate-64x48.png") },
+            "profile": "architecture",
+            "tools": "none"
+        })),
+    );
+    assert!(job.is_ok(), "{job:?}");
+}

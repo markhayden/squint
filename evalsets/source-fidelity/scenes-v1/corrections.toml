@@ -1,0 +1,13 @@
+# Owner corrections to labels.toml found after the set was labelled and scored. labels.toml
+# stays as sealed; a correction here supersedes the label of the item it names for any later
+# reading of the set (docs/evalsets.md).
+[[correction]]
+item = "red-barn-no-silo"
+was = "fail"
+expected = "fail"
+failure_types = ["silo-changed", "barn-extended"]
+words = "the silo is gone from the candidate, and the generator built a lean-to roof against the barn where the silo stood"
+obligation_ids = ["SF1", "RQ1", "RQ2"]
+adjudicated_by = "owner"
+adjudicated_on = "2026-11-07"
+found_by = "the outline tool review (2026-11-07): added building pieces where the silo stood; the owner confirmed it against the source"

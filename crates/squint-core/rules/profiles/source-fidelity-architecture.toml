@@ -6,7 +6,7 @@
 use_case = "source-fidelity"
 profile = "architecture"
 extends = "source-fidelity"
-version = 1
+version = 3
 
 [[rule]]
 id = "SF1"
@@ -14,7 +14,7 @@ kind = "must_hold"
 scope = ["candidate"]
 evidence = ["source"]
 hidden_ok = true
-text = "Permanent structure (walls, floors, ceilings, columns, pools, roads, built landmarks) keeps its shape, position and extent relative to the source."
+text = "Permanent structure (walls, floors, ceilings, columns, pools, roads, built landmarks) keeps its shape, position and extent relative to the source. Compare outlines and edges, not the overall look: a pool widened, an end rounded or a band of tile moved is a violation even when the scene reads the same. A close alignment is not evidence that structure held. A region a tool flags on permanent structure is not dismissed until you have looked at it with view beside the same box of the source."
 
 [[rule]]
 id = "SF3"
@@ -25,3 +25,12 @@ text = "Furniture, people, vehicles, decoration, textiles, lighting and vegetati
 [hints.regions]
 preserve = ["wall", "floor", "ceiling", "column", "swimming pool", "building", "road"]
 ignore = ["chair", "table", "person", "plant", "curtain", "lamp", "car"]
+
+[hints.outline]
+classes = ["swimming pool", "building", "column"]
+
+# Run before the model's first turn, so its first look already has the shape comparison and the
+# change regions (an earlier baseline: the model left both uncalled in every run). outline and
+# regions run after align, which they require.
+[screen]
+tools = ["outline", "regions"]

@@ -261,7 +261,27 @@ fn wire_tool_set_limits_are_enforced_per_adapter() {
         assert_eq!(set.len(), 2);
         assert_eq!(set[0].definition.name, "regions");
     }
-    // Anthropic: 16 union-typed parameters across the set; the submission already uses 13.
+    // Anthropic: only the submission is strict, so the strict-mode limits count it alone and an
+    // inspection tool of any shape goes as its canonical schema.
+    let anthropic = check_tool_set(
+        Adapter::AnthropicMessages,
+        &caps("claude-opus-5-5"),
+        &[regions.clone(), submit.clone()],
+    )
+    .unwrap();
+    assert!(!anthropic[0].wire.strict);
+    assert_eq!(anthropic[0].definition.input_schema, regions.input_schema);
+    assert!(anthropic[1].wire.strict);
+    // OpenAI and Gemini are unchanged: every tool takes the adapter's own rules.
+    let openai = check_tool_set(
+        Adapter::OpenaiResponses,
+        &caps("gpt-6.1-sol"),
+        std::slice::from_ref(&regions),
+    )
+    .unwrap();
+    assert!(openai[0].wire.strict);
+    // 16 union-typed parameters across the strict schemas; the submission already uses 13, and a
+    // non-strict tool's unions do not count.
     let mut props = serde_json::Map::new();
     for i in 0..4 {
         props.insert(format!("p{i}"), json!({ "type": ["string", "null"] }));
@@ -271,16 +291,12 @@ fn wire_tool_set_limits_are_enforced_per_adapter() {
         description: "d".into(),
         input_schema: json!({ "type": "object", "additionalProperties": false, "required": ["p0", "p1", "p2", "p3"], "properties": props }),
     };
-    let err = check_tool_set(
+    check_tool_set(
         Adapter::AnthropicMessages,
         &caps("claude-opus-5-5"),
         &[unions.clone(), submit.clone()],
     )
-    .unwrap_err();
-    assert!(
-        err.to_string().contains("17 union-typed parameters"),
-        "{err}"
-    );
+    .unwrap();
     check_tool_set(
         Adapter::OpenaiResponses,
         &caps("gpt-6.1-sol"),
@@ -293,9 +309,16 @@ fn wire_tool_set_limits_are_enforced_per_adapter() {
             ..regions.clone()
         })
         .collect();
-    let err =
-        check_tool_set(Adapter::AnthropicMessages, &caps("claude-opus-5-5"), &many).unwrap_err();
-    assert!(err.to_string().contains("20 strict tools"), "{err}");
+    // Twenty-one inspection tools and the submission: one strict tool, within the limit of 20.
+    let mut with_submit = many.clone();
+    with_submit.push(submit.clone());
+    let set = check_tool_set(
+        Adapter::AnthropicMessages,
+        &caps("claude-opus-5-5"),
+        &with_submit,
+    )
+    .unwrap();
+    assert_eq!(set.iter().filter(|t| t.wire.strict).count(), 1);
     // OpenAI: nesting deeper than ten levels.
     let mut deep = json!({ "type": "string" });
     for _ in 0..11 {

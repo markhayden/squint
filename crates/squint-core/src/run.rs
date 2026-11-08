@@ -681,6 +681,15 @@ fn plan_input(prepared: &Prepared, job: &Job, tools: &ToolRegistry) -> ledger::P
             .map(|m| u64::from(m.returns.max_images))
             .max()
             .unwrap_or(0),
+        // An unknown screen tool fails at the screen itself, with its name.
+        screen_calls: {
+            let manifests: Vec<crate::tool::Manifest> = tools.manifests().cloned().collect();
+            crate::screen::prerequisites(
+                prepared.summary.screen.iter().map(String::as_str),
+                &manifests,
+            )
+            .map_or(0, |order| order.len() as u64)
+        },
     }
 }
 
@@ -954,6 +963,11 @@ async fn drive(
             image_id: img.id.clone(),
         });
     }
+    // The screen (`[screen]` in the rules): tools the harness runs before the first turn. Their
+    // results open the conversation, and their regions are on the checklist rendered next.
+    if !prepared.summary.screen.is_empty() {
+        run_screen(config, services, prepared, journal, state, &mut content).await?;
+    }
     content.push(ContentBlock::Text {
         text: state.checklist.render(&state.instances),
     });
@@ -1218,6 +1232,82 @@ async fn drive(
             }
         }
     }
+}
+
+/// Runs the rules' screen, each tool after its prerequisites with the arguments it defaults to,
+/// and appends what each returned to `content` as the model would have seen it, images included.
+/// A call the tool refuses (align cannot register a restyle) is shown refused: the refusal is
+/// evidence too. Screen calls do not count against the model's tool budget.
+async fn run_screen(
+    config: &Config,
+    services: &Services<'_>,
+    prepared: &Prepared,
+    journal: &mut Journal,
+    state: &mut RunState,
+    content: &mut Vec<ContentBlock>,
+) -> Result<()> {
+    let tools = services.tools;
+    let manifests: Vec<crate::tool::Manifest> = tools.manifests().cloned().collect();
+    let order = crate::screen::prerequisites(
+        prepared.summary.screen.iter().map(String::as_str),
+        &manifests,
+    )
+    .map_err(|e| Error::Tool(format!("screen: {e}")))?;
+    content.push(ContentBlock::Text {
+        text: crate::screen::preamble(&order),
+    });
+    for (n, name) in order.iter().enumerate() {
+        let Some(manifest) = manifests.iter().find(|m| &m.name == name) else {
+            continue;
+        };
+        let frames: Vec<String> = state.registry.ids().map(str::to_string).collect();
+        let arguments = match crate::screen::with_defaults(manifest, serde_json::json!({}), &frames)
+        {
+            Ok(a) => a,
+            Err(e) => {
+                content.push(ContentBlock::Text {
+                    text: format!("Screen: `{name}` was not run: {e}."),
+                });
+                continue;
+            }
+        };
+        let call = ToolCall {
+            id: format!("screen-{}", n + 1),
+            name: name.clone(),
+            arguments: arguments.clone(),
+        };
+        let block = execute_call(
+            config,
+            services.provider,
+            tools,
+            prepared,
+            journal,
+            state,
+            &call,
+            services.cancel,
+        )
+        .await?;
+        match block {
+            ContentBlock::ToolResult {
+                content: text,
+                is_error,
+                images,
+                ..
+            } => {
+                content.push(ContentBlock::Text {
+                    text: format!(
+                        "Screen: `{name}` with {arguments}{}: {text}",
+                        if is_error { ", refused" } else { "" }
+                    ),
+                });
+                for image_id in images {
+                    content.push(ContentBlock::Image { image_id });
+                }
+            }
+            other => content.push(other),
+        }
+    }
+    Ok(())
 }
 
 /// The appended final-turn instruction, with the full checklist.
@@ -1745,8 +1835,15 @@ fn prepare_call(
             },
         );
     }
-    if let Some(hints) = prepared.hints.get(&manifest.name) {
-        ctx.hints = hints.clone();
+    // The hint tables the manifest accepts, keyed by name (`{"regions": {"preserve": …}}`), as
+    // the tool reads them.
+    let accepted: serde_json::Map<String, serde_json::Value> = manifest
+        .accepts_hints
+        .iter()
+        .filter_map(|name| Some((name.clone(), prepared.hints.get(name)?.clone())))
+        .collect();
+    if !accepted.is_empty() {
+        ctx.hints = serde_json::Value::Object(accepted);
     }
     journal.append(&Event::ToolCalled(events::ToolCalled {
         call_id: Some(call_id.clone()),
@@ -1817,6 +1914,30 @@ async fn settle_call(
     ready: ReadyCall,
     outcome: Result<crate::tool::Envelope>,
 ) -> Result<ContentBlock> {
+    settle(
+        config,
+        Some(provider),
+        prepared,
+        journal,
+        state,
+        ready,
+        outcome,
+    )
+    .map(|(block, _)| block)
+}
+
+/// [`settle_call`], also returning the envelope as the tool returned it (image bytes dropped),
+/// before the checklist took its regions; `None` for a call answered as the model's mistake.
+/// Without a provider (a [`ToolSession`]) the returned images are not prepared for a model.
+fn settle(
+    config: &Config,
+    provider: Option<&dyn Provider>,
+    prepared: &Prepared,
+    journal: &mut Journal,
+    state: &mut RunState,
+    ready: ReadyCall,
+    outcome: Result<crate::tool::Envelope>,
+) -> Result<(ContentBlock, Option<crate::tool::Envelope>)> {
     let ReadyCall {
         call,
         call_id,
@@ -1848,7 +1969,8 @@ async fn settle_call(
             true,
             Some(Status::InvalidArgs),
             envelope.summary.clone(),
-        );
+        )
+        .map(|block| (block, None));
     }
     envelope.check_bounds(&manifest.returns)?;
 
@@ -1920,8 +2042,17 @@ async fn settle_call(
                 manifest.name, img.frame
             ))
         })?;
-        state.prepare_for_provider(provider, &img.frame, &img.frame, &decoded)?;
+        if let Some(provider) = provider {
+            state.prepare_for_provider(provider, &img.frame, &img.frame, &decoded)?;
+        }
     }
+    let returned = {
+        let mut r = envelope.clone();
+        for img in &mut r.images {
+            img.base64 = None;
+        }
+        r
+    };
     let ingest = state.checklist.ingest(
         &call_id,
         &mut envelope,
@@ -1981,12 +2112,15 @@ async fn settle_call(
         })).collect::<Vec<_>>(),
         "images": envelope.images.iter().map(|i| serde_json::json!({ "frame": i.frame, "parent": i.parent, "mapping": i.mapping })).collect::<Vec<_>>(),
     });
-    Ok(ContentBlock::ToolResult {
-        tool_use_id: call.id.clone(),
-        content: serde_json::to_string(&presentation)?,
-        is_error: false,
-        images: envelope.images.iter().map(|i| i.frame.clone()).collect(),
-    })
+    Ok((
+        ContentBlock::ToolResult {
+            tool_use_id: call.id.clone(),
+            content: serde_json::to_string(&presentation)?,
+            is_error: false,
+            images: envelope.images.iter().map(|i| i.frame.clone()).collect(),
+        },
+        Some(returned),
+    ))
 }
 
 /// Prepares, runs and settles one call: the sequential path. A model-side mistake is an error
@@ -2206,6 +2340,166 @@ fn root_location(
     })
 }
 
+/// Tools run one call at a time with no model (`squint tools call`): the job's images become
+/// raw frames, and every call goes through the same validation, frame bookkeeping and region
+/// mapping a check uses, journaled under one directory. Nothing is sent and nothing is spent.
+pub struct ToolSession<'a> {
+    config: &'a Config,
+    tools: &'a ToolRegistry,
+    prepared: Prepared,
+    journal: Journal,
+    state: RunState,
+    next: u32,
+}
+
+/// One call of a [`ToolSession`].
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ToolCallRecord {
+    pub call_id: String,
+    pub tool: String,
+    /// The arguments as given.
+    pub arguments: serde_json::Value,
+    /// Why the call was refused as a caller's mistake (unknown frame, missing argument), when
+    /// it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rejected: Option<String>,
+    /// The envelope as the tool returned it, without image bytes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<crate::tool::Envelope>,
+    /// The file holding each returned image, by frame id.
+    pub images: BTreeMap<String, PathBuf>,
+    /// Each returned region's location on the raw frame of its root image, in envelope order;
+    /// `None` where the location does not map.
+    pub roots: Vec<Option<crate::report::RootLocation>>,
+}
+
+impl<'a> ToolSession<'a> {
+    /// Resolves the job's rules (for the tools' hints) and images into a fresh directory `dir`,
+    /// which must not hold a journal already.
+    pub fn open(
+        config: &'a Config,
+        job: &Job,
+        job_base: &Path,
+        tools: &'a ToolRegistry,
+        dir: &Path,
+    ) -> Result<ToolSession<'a>> {
+        let setup = setup(config, job, job_base, tools, None)?;
+        std::fs::create_dir_all(dir)?;
+        let dir = std::path::absolute(dir)?;
+        let mut journal = Journal::create(&dir)?;
+        let mut state = RunState::new(&dir, 1, &config.secrets)?;
+        state.images = setup.images;
+        state.instances = setup.prepared.resolved.instances.clone();
+        state.checklist = setup.prepared.checklist.clone();
+        for img in &state.images {
+            state
+                .registry
+                .add_raw(&img.id, img.width, img.height, img.projection);
+        }
+        let ids: Vec<String> = state.images.iter().map(|i| i.id.clone()).collect();
+        for id in ids {
+            state.frame_file(&format!("raw:{id}"))?;
+        }
+        journal.append(&Event::Resolved(events::Resolved {
+            images: state.images.clone(),
+            images_sent: BTreeMap::new(),
+            instances: state.instances.clone(),
+            checklist: state.checklist.clone(),
+            tools: tools.manifests().map(|m| m.name.clone()).collect(),
+        }))?;
+        Ok(ToolSession {
+            config,
+            tools,
+            prepared: setup.prepared,
+            journal,
+            state,
+            next: 1,
+        })
+    }
+
+    /// The frame ids this session knows: the raw frames, then every frame a call returned.
+    pub fn frames(&self) -> Vec<String> {
+        self.state.registry.ids().map(str::to_string).collect()
+    }
+
+    /// Runs one tool on `arguments`, as a model's call would run. A caller's mistake comes back
+    /// in the record's `rejected`; a tool failure or bound breach is an error.
+    pub async fn call(
+        &mut self,
+        tool: &str,
+        arguments: serde_json::Value,
+    ) -> Result<ToolCallRecord> {
+        let call = ToolCall {
+            id: format!("direct-{}", self.next),
+            name: tool.to_string(),
+            arguments: arguments.clone(),
+        };
+        self.next += 1;
+        let mut record = ToolCallRecord {
+            call_id: String::new(),
+            tool: tool.to_string(),
+            arguments,
+            rejected: None,
+            envelope: None,
+            images: BTreeMap::new(),
+            roots: Vec::new(),
+        };
+        let ready = match prepare_call(
+            self.tools,
+            &self.prepared,
+            &mut self.journal,
+            &mut self.state,
+            &call,
+        )? {
+            PreparedCall::Rejected(block) => {
+                record.call_id = format!("call:{}", self.state.next_call - 1);
+                record.rejected = Some(rejection_text(block));
+                return Ok(record);
+            }
+            PreparedCall::Ready(ready) => ready,
+        };
+        record.call_id = ready.call_id.clone();
+        let rx = spawn_tool(&ready);
+        let outcome = await_tool(rx, None, &ready.call_id, &ready.manifest.name).await;
+        let (block, envelope) = settle(
+            self.config,
+            None,
+            &self.prepared,
+            &mut self.journal,
+            &mut self.state,
+            *ready,
+            outcome,
+        )?;
+        let Some(envelope) = envelope else {
+            record.rejected = Some(rejection_text(block));
+            return Ok(record);
+        };
+        for img in &envelope.images {
+            if let Some(path) = self.state.frame_files.get(&img.frame) {
+                record.images.insert(img.frame.clone(), path.clone());
+            }
+        }
+        record.roots = envelope
+            .regions
+            .iter()
+            .map(|r| root_location(&self.state.registry, &r.location))
+            .collect();
+        record.envelope = Some(envelope);
+        Ok(record)
+    }
+}
+
+/// The text of a refused call's answer.
+fn rejection_text(block: ContentBlock) -> String {
+    match block {
+        ContentBlock::ToolResult { content, .. } => content
+            .strip_prefix("invalid arguments: ")
+            .map(str::to_string)
+            .unwrap_or(content),
+        other => format!("{other:?}"),
+    }
+}
+
 /// A fresh decision directory named for `started_ms`, the decision's start as `run.json` records
 /// it, so the runs list's order and its times agree.
 fn new_decision_dir(out_dir: &Path, started_ms: u64) -> Result<PathBuf> {
@@ -2241,6 +2535,9 @@ pub struct RulesSummary {
     pub profile: Option<String>,
     pub versions: BTreeMap<String, u32>,
     pub obligations: Vec<obligations::MergedObligation>,
+    /// The tools run before the model's first turn; absent when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub screen: Vec<String>,
     pub warnings: Vec<String>,
 }
 
@@ -2302,6 +2599,7 @@ pub fn resolve_rules(
             profile: merged.profile.clone(),
             versions: merged.versions.clone(),
             obligations: merged.obligations.clone(),
+            screen: merged.screen.clone(),
             warnings: merged.warnings.clone(),
         },
         resolved,
