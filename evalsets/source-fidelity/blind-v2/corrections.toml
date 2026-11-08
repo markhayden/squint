@@ -11,3 +11,25 @@ obligation_ids = ["RQ3"]
 adjudicated_by = "owner"
 adjudicated_on = "2026-10-30"
 found_by = "both arms of gate-regions-initial-2-2026-10 rejected the item for the raised door; the owner confirmed it against the source"
+
+[[correction]]
+item = "terraced-street-4"
+was = "fail"
+expected = "fail"
+failure_types = ["one chimney stack-changed", "chimney stacks-moved"]
+words = "a chimney stack is gone from the candidate (five become four), and three of the four that remain are re-spaced along the roofline; only the rightmost stays put"
+obligation_ids = ["SF1", "RQ2"]
+adjudicated_by = "owner"
+adjudicated_on = "2026-11-07"
+found_by = "the outline tool review (2026-11-07): its pieces along the roofline showed the old and new chimney spots; the owner confirmed it against the source"
+
+[[correction]]
+item = "boatyard-4"
+was = "fail"
+expected = "fail"
+failure_types = ["anchor on its plinth-changed", "rowing boats-count changed"]
+words = "the anchor on its plinth is gone from the candidate, and so is one of the small rowing boats beside it, so the four rowing boats are three"
+obligation_ids = ["SF1", "RQ1", "RQ4"]
+adjudicated_by = "owner"
+adjudicated_on = "2026-11-07"
+found_by = "the outline tool review (2026-11-07): a removed boat piece beside the plinth, confirmed by the second reviewer and the owner against the source"

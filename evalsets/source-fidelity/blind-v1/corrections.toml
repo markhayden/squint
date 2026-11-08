@@ -1,0 +1,13 @@
+# Owner corrections to labels.toml found after the gate scored the set. labels.toml stays as
+# sealed and scored; a correction here supersedes the label of the item it names for any later
+# reading of the set (docs/evalsets.md).
+[[correction]]
+item = "bakery-front-snow"
+was = "pass"
+expected = "pass"
+failure_types = []
+words = "a permitted restyle (winter, light snow on the awning and pavement); the generator also added parked cars in front of the side street, which cover none of the protected subjects (the awning, the bay window display, the bicycle rack), so the item still passes"
+obligation_ids = []
+adjudicated_by = "owner"
+adjudicated_on = "2026-11-07"
+found_by = "the outline tool review (2026-11-07): added car pieces in front of the side street; the owner judged them outside every requirement"
