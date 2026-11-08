@@ -23,6 +23,7 @@ mod repair_retry;
 mod report;
 mod resolve_render;
 mod run_json;
+mod screen_run;
 mod submission_rules;
 mod terminal_states;
 mod tool_schemas;

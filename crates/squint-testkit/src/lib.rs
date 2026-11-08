@@ -12,7 +12,7 @@ pub mod tool;
 
 pub use provider::{FAKE_PRICES, ScriptTurn, ScriptedPricing, ScriptedProvider};
 pub use sets::synthetic_set;
-pub use tool::ScriptedTool;
+pub use tool::{FAKE_REGIONS_MANIFEST, ScriptedTool};
 
 /// Errors this crate produces.
 #[derive(Debug, thiserror::Error)]

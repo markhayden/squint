@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use squint_core::run::{ToolCallRecord, ToolSession};
+use squint_core::screen::{prerequisites, with_defaults};
 use squint_core::tool::{Manifest, Tool, ToolRegistry};
 
 use crate::{
@@ -94,7 +95,7 @@ fn call(args: &ToolsCallArgs) -> Result<i32, (i32, String)> {
         }
     }
     let manifests: Vec<Manifest> = available.iter().map(|t| t.manifest().clone()).collect();
-    let order = prerequisites(&args.tool, &manifests).map_err(usage)?;
+    let order = prerequisites([args.tool.as_str()], &manifests).map_err(usage)?;
     let tools = ToolRegistry::new(available, &order, &[]).map_err(usage)?;
 
     let out = args.out.clone().unwrap_or_else(|| {
@@ -157,108 +158,6 @@ fn call(args: &ToolsCallArgs) -> Result<i32, (i32, String)> {
         print_summary(&out, &records);
     }
     Ok(0)
-}
-
-/// The tool and everything it requires, prerequisites first.
-fn prerequisites(tool: &str, manifests: &[Manifest]) -> Result<Vec<String>, String> {
-    fn visit(
-        name: &str,
-        manifests: &[Manifest],
-        seen: &mut Vec<String>,
-        path: &mut Vec<String>,
-    ) -> Result<(), String> {
-        if seen.iter().any(|s| s == name) {
-            return Ok(());
-        }
-        if path.iter().any(|p| p == name) {
-            return Err(format!("tool {name:?} requires itself"));
-        }
-        let m = manifests.iter().find(|m| m.name == name).ok_or_else(|| {
-            let known: Vec<&str> = manifests.iter().map(|m| m.name.as_str()).collect();
-            format!(
-                "no tool {name:?} in this build or the configured packs; known: {}",
-                known.join(", ")
-            )
-        })?;
-        path.push(name.to_string());
-        for req in &m.requires {
-            visit(req, manifests, seen, path)?;
-        }
-        path.pop();
-        seen.push(name.to_string());
-        Ok(())
-    }
-    let mut seen = Vec::new();
-    visit(tool, manifests, &mut seen, &mut Vec::new())?;
-    Ok(seen)
-}
-
-/// `given` with every required frame or image argument it leaves out filled from the argument's
-/// description: the first of "aligned", "source" or "candidate" after "usually" (else anywhere)
-/// picks the newest aligned frame, the source or the candidate. Image arguments take the image
-/// id, frame arguments the raw frame id. Any other missing required argument is the caller's.
-fn with_defaults(
-    manifest: &Manifest,
-    mut given: serde_json::Value,
-    frames: &[String],
-) -> Result<serde_json::Value, String> {
-    let schema = &manifest.model_schema;
-    let required: Vec<&str> = schema
-        .get("required")
-        .and_then(|r| r.as_array())
-        .map(|r| r.iter().filter_map(|v| v.as_str()).collect())
-        .unwrap_or_default();
-    let obj = given.as_object_mut().expect("checked to be an object");
-    for arg in required {
-        if obj.contains_key(arg) {
-            continue;
-        }
-        let is_image = manifest.image_args.iter().any(|a| a == arg);
-        let is_frame = manifest.frame_args.iter().any(|a| a == arg);
-        if !is_image && !is_frame {
-            return Err(format!(
-                "{} needs {arg:?}; pass it in --args, for example --args '{{\"{arg}\": …}}' ({})",
-                manifest.name,
-                describe(schema, arg)
-            ));
-        }
-        let text = describe(schema, arg).to_lowercase();
-        let hint = text
-            .split_once("usually")
-            .map_or(text.as_str(), |(_, after)| after);
-        let first = ["aligned", "source", "candidate"]
-            .into_iter()
-            .filter_map(|w| hint.find(w).map(|at| (at, w)))
-            .min();
-        let value = match first.map(|(_, w)| w) {
-            // No aligned frame: align could not register the pair (a strong restyle often
-            // defeats it though the framing is unchanged). The raw candidate stands in; a tool
-            // that needs one grid refuses a pair whose sizes differ.
-            Some("aligned") => frames
-                .iter()
-                .rev()
-                .find(|f| f.starts_with("aligned:candidate:"))
-                .cloned()
-                .unwrap_or_else(|| "raw:candidate".to_string()),
-            Some(image) if is_image => image.to_string(),
-            Some(image) => format!("raw:{image}"),
-            None => {
-                return Err(format!(
-                    "{} needs {arg:?} and its description names no default; pass it in --args",
-                    manifest.name
-                ));
-            }
-        };
-        obj.insert(arg.to_string(), serde_json::Value::String(value));
-    }
-    Ok(given)
-}
-
-fn describe<'a>(schema: &'a serde_json::Value, arg: &str) -> &'a str {
-    schema
-        .pointer(&format!("/properties/{arg}/description"))
-        .and_then(|d| d.as_str())
-        .unwrap_or("")
 }
 
 fn write_result(
@@ -342,11 +241,11 @@ mod tests {
         let mut all = builtins.clone();
         all.push(regions());
         assert_eq!(
-            prerequisites("regions", &all).unwrap(),
+            prerequisites(["regions"], &all).unwrap(),
             ["align", "regions"]
         );
-        assert_eq!(prerequisites("view", &all).unwrap(), ["view"]);
-        let err = prerequisites("outline", &all).unwrap_err();
+        assert_eq!(prerequisites(["view"], &all).unwrap(), ["view"]);
+        let err = prerequisites(["outline"], &all).unwrap_err();
         assert!(err.contains("outline") && err.contains("align"), "{err}");
     }
 

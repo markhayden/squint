@@ -6,7 +6,7 @@
 use_case = "source-fidelity"
 profile = "architecture"
 extends = "source-fidelity"
-version = 2
+version = 3
 
 [[rule]]
 id = "SF1"
@@ -28,3 +28,9 @@ ignore = ["chair", "table", "person", "plant", "curtain", "lamp", "car"]
 
 [hints.outline]
 classes = ["swimming pool", "building", "column"]
+
+# Run before the model's first turn, so its first look already has the shape comparison and the
+# change regions (an earlier baseline: the model left both uncalled in every run). outline and
+# regions run after align, which they require.
+[screen]
+tools = ["outline", "regions"]

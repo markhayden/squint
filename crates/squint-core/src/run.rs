@@ -954,6 +954,11 @@ async fn drive(
             image_id: img.id.clone(),
         });
     }
+    // The screen (`[screen]` in the rules): tools the harness runs before the first turn. Their
+    // results open the conversation, and their regions are on the checklist rendered next.
+    if !prepared.summary.screen.is_empty() {
+        run_screen(config, services, prepared, journal, state, &mut content).await?;
+    }
     content.push(ContentBlock::Text {
         text: state.checklist.render(&state.instances),
     });
@@ -1218,6 +1223,82 @@ async fn drive(
             }
         }
     }
+}
+
+/// Runs the rules' screen, each tool after its prerequisites with the arguments it defaults to,
+/// and appends what each returned to `content` as the model would have seen it, images included.
+/// A call the tool refuses (align cannot register a restyle) is shown refused: the refusal is
+/// evidence too. Screen calls do not count against the model's tool budget.
+async fn run_screen(
+    config: &Config,
+    services: &Services<'_>,
+    prepared: &Prepared,
+    journal: &mut Journal,
+    state: &mut RunState,
+    content: &mut Vec<ContentBlock>,
+) -> Result<()> {
+    let tools = services.tools;
+    let manifests: Vec<crate::tool::Manifest> = tools.manifests().cloned().collect();
+    let order = crate::screen::prerequisites(
+        prepared.summary.screen.iter().map(String::as_str),
+        &manifests,
+    )
+    .map_err(|e| Error::Tool(format!("screen: {e}")))?;
+    content.push(ContentBlock::Text {
+        text: crate::screen::preamble(&order),
+    });
+    for (n, name) in order.iter().enumerate() {
+        let Some(manifest) = manifests.iter().find(|m| &m.name == name) else {
+            continue;
+        };
+        let frames: Vec<String> = state.registry.ids().map(str::to_string).collect();
+        let arguments = match crate::screen::with_defaults(manifest, serde_json::json!({}), &frames)
+        {
+            Ok(a) => a,
+            Err(e) => {
+                content.push(ContentBlock::Text {
+                    text: format!("Screen: `{name}` was not run: {e}."),
+                });
+                continue;
+            }
+        };
+        let call = ToolCall {
+            id: format!("screen-{}", n + 1),
+            name: name.clone(),
+            arguments: arguments.clone(),
+        };
+        let block = execute_call(
+            config,
+            services.provider,
+            tools,
+            prepared,
+            journal,
+            state,
+            &call,
+            services.cancel,
+        )
+        .await?;
+        match block {
+            ContentBlock::ToolResult {
+                content: text,
+                is_error,
+                images,
+                ..
+            } => {
+                content.push(ContentBlock::Text {
+                    text: format!(
+                        "Screen: `{name}` with {arguments}{}: {text}",
+                        if is_error { ", refused" } else { "" }
+                    ),
+                });
+                for image_id in images {
+                    content.push(ContentBlock::Image { image_id });
+                }
+            }
+            other => content.push(other),
+        }
+    }
+    Ok(())
 }
 
 /// The appended final-turn instruction, with the full checklist.
@@ -2445,6 +2526,9 @@ pub struct RulesSummary {
     pub profile: Option<String>,
     pub versions: BTreeMap<String, u32>,
     pub obligations: Vec<obligations::MergedObligation>,
+    /// The tools run before the model's first turn; absent when none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub screen: Vec<String>,
     pub warnings: Vec<String>,
 }
 
@@ -2506,6 +2590,7 @@ pub fn resolve_rules(
             profile: merged.profile.clone(),
             versions: merged.versions.clone(),
             obligations: merged.obligations.clone(),
+            screen: merged.screen.clone(),
             warnings: merged.warnings.clone(),
         },
         resolved,

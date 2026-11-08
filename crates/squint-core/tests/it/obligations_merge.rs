@@ -156,6 +156,51 @@ preserve = ["wall"]
 }
 
 #[test]
+fn the_screen_is_the_last_layers_and_keeps_enabled_tools_only() {
+    // The architecture profile screens with outline and regions; with neither enabled, both go,
+    // silently: a shipped profile may name tools a config leaves out.
+    let m = merge(&MergeInput {
+        base: "source-fidelity",
+        profile: Some("architecture"),
+        extra: &[],
+        extra_names: &[],
+        job: Some(&pair_job()),
+        enabled_tools: &["regions".to_string()],
+    })
+    .unwrap();
+    assert_eq!(m.screen, ["regions"]);
+    assert!(m.warnings.is_empty(), "{:?}", m.warnings);
+    // A consumer file replaces it; a tool it names that is not enabled is warned about.
+    let mine = consumer(
+        r#"
+[rules]
+use_case = "source-fidelity"
+version = 1
+
+[screen]
+tools = ["regions", "outlin"]
+"#,
+    );
+    let m = merge_with(&[mine], Some(&pair_job()), &["regions"]).unwrap();
+    assert_eq!(m.screen, ["regions"]);
+    assert_eq!(m.warnings.len(), 1);
+    assert!(m.warnings[0].contains("\"outlin\""), "{:?}", m.warnings);
+    // `tools = []` turns it off.
+    let off = consumer(
+        r#"
+[rules]
+use_case = "source-fidelity"
+version = 1
+
+[screen]
+tools = []
+"#,
+    );
+    let m = merge_with(&[off], Some(&pair_job()), &["regions"]).unwrap();
+    assert!(m.screen.is_empty());
+}
+
+#[test]
 fn unknown_profile_and_wrong_extends_are_refused() {
     let r = merge(&MergeInput {
         base: "source-fidelity",

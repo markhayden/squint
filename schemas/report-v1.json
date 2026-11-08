@@ -1199,6 +1199,13 @@
             "null"
           ]
         },
+        "screen": {
+          "description": "The tools run before the model's first turn; absent when none.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
         "versions": {
           "additionalProperties": {
             "format": "uint32",
