@@ -1,0 +1,49 @@
+# Item of source-fidelity/blind-v3; built by construction, see the owner's record.
+[job]
+use_case = "source-fidelity"
+brief = "Restyle the scene; keep the structure and every named subject, including how many there are, their shapes, colours and any lettering."
+
+[[job.requirements]]
+id = "RQ1"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The lap pool keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ2"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The pool house and its two doors keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ3"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The pergola keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ4"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The outdoor shower keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ5"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The five cypress trees keeps its identity, shape, position and extent relative to the source."
+
+[[job.images]]
+id = "candidate"
+role = "candidate"
+source = { path = "items/lap-poolhouse-2/candidate.png", sha256 = "b23e9df09c2a11bf771c5bd8e8cb711cc920e2ac441b710a8dd20e9d29020ea4" }
+
+[[job.images]]
+id = "source"
+role = "source"
+source = { path = "families/lap-poolhouse/source.png", sha256 = "8c68b3074030eebf8105312bf98abd1000b72675660939d51ef6ea5ee3ecfd44" }

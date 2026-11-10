@@ -1,0 +1,49 @@
+# Item of source-fidelity/blind-v3; built by construction, see the owner's record.
+[job]
+use_case = "source-fidelity"
+brief = "Restyle the scene; keep the structure and every named subject, including how many there are, their shapes, colours and any lettering."
+
+[[job.requirements]]
+id = "RQ1"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The cottage and its thatched roof keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ2"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The four small windows keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ3"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The round-topped blue door keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ4"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The picket fence and its gate keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ5"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The stone well keeps its identity, shape, position and extent relative to the source."
+
+[[job.images]]
+id = "candidate"
+role = "candidate"
+source = { path = "items/thatched-cottage-4/candidate.png", sha256 = "af1c57c27d1b3db7f01dff890073362b6e73680f76d86279c640aa2507e7bca0" }
+
+[[job.images]]
+id = "source"
+role = "source"
+source = { path = "families/thatched-cottage/source.png", sha256 = "06a0a0018854c92b0d881c6d176b9c61b7a7747cf32ff6be7824181614090537" }

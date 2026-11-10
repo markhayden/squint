@@ -1,0 +1,49 @@
+# Item of source-fidelity/blind-v3; built by construction, see the owner's record.
+[job]
+use_case = "source-fidelity"
+brief = "Restyle the scene; keep the structure and every named subject, including how many there are, their shapes, colours and any lettering."
+
+[[job.requirements]]
+id = "RQ1"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The island keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ2"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The pendant lamps (a cluster of three shades and one single shade) keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ3"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The arched window keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ4"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The range cooker keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ5"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The two bar stools keeps its identity, shape, position and extent relative to the source."
+
+[[job.images]]
+id = "candidate"
+role = "candidate"
+source = { path = "items/island-kitchen-3/candidate.png", sha256 = "94237de13c595be34492d7d4769f97c8d809da206f11f79b78ba399ff7989561" }
+
+[[job.images]]
+id = "source"
+role = "source"
+source = { path = "families/island-kitchen/source.png", sha256 = "e6c70e96f235ab8133375b632c839d86623a5169f5e4e2f7581dc0e2dc23eb48" }

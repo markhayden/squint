@@ -1,0 +1,49 @@
+# Item of source-fidelity/blind-v3; built by construction, see the owner's record.
+[job]
+use_case = "source-fidelity"
+brief = "Restyle the scene; keep the structure and every named subject, including how many there are, their shapes, colours and any lettering."
+
+[[job.requirements]]
+id = "RQ1"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The house keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ2"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The three dormer windows keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ3"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The porch and its four columns keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ4"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The brick chimney keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ5"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The front door keeps its identity, shape, position and extent relative to the source."
+
+[[job.images]]
+id = "candidate"
+role = "candidate"
+source = { path = "items/dormer-house-2/candidate.png", sha256 = "532922f94ce0dbf3b32c51d13bdc3b10a0069d62791ecf1aa8d6da720e104ae9" }
+
+[[job.images]]
+id = "source"
+role = "source"
+source = { path = "families/dormer-house/source.png", sha256 = "5c598f734e9a280548a18c0e2e481b428066b6b2c76d84942642030bae755b95" }

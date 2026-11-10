@@ -1,0 +1,49 @@
+# Item of source-fidelity/blind-v3; built by construction, see the owner's record.
+[job]
+use_case = "source-fidelity"
+brief = "Restyle the scene; keep the structure and every named subject, including how many there are, their shapes, colours and any lettering."
+
+[[job.requirements]]
+id = "RQ1"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The pool and its edges keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ2"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The two white loungers keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ3"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The blue umbrella keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ4"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The glass balustrade keeps its identity, shape, position and extent relative to the source."
+
+[[job.requirements]]
+id = "RQ5"
+kind = "must_hold"
+scope = ["candidate"]
+evidence = ["source"]
+text = "The three potted olive trees keeps its identity, shape, position and extent relative to the source."
+
+[[job.images]]
+id = "candidate"
+role = "candidate"
+source = { path = "items/infinity-terrace-1/candidate.png", sha256 = "4ba64ace7d704c2d8be9a6b38356a158b0d1923db361be5afc93756c052ca8e8" }
+
+[[job.images]]
+id = "source"
+role = "source"
+source = { path = "families/infinity-terrace/source.png", sha256 = "3f3c07e030beeaefd24e65f0484265b95285559ab4d3d781ba0e8f571ba56a3b" }

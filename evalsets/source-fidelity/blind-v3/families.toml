@@ -1,0 +1,96 @@
+# Subject or scene families; a family never appears in more than one split.
+[[family]]
+id = "infinity-terrace"
+description = "an infinity pool on a stone terrace with two white loungers, one blue umbrella, a glass balustrade and three potted olive trees"
+
+[[family]]
+id = "kidney-backyard"
+description = "a kidney-shaped backyard pool with a diving board, a slide, three striped loungers and a palm tree beside a wooden fence"
+
+[[family]]
+id = "rooftop-pool"
+description = "a narrow rooftop pool between city towers with five grey daybeds, a bar counter with three stools and a row of square planters"
+
+[[family]]
+id = "lap-poolhouse"
+description = "a long lap pool beside a white pool house with two doors, a pergola, an outdoor shower and a row of five cypress trees"
+
+[[family]]
+id = "dormer-house"
+description = "a detached grey house with three dormer windows, a covered porch with four columns, one brick chimney and a hedge"
+
+[[family]]
+id = "wraparound-farmhouse"
+description = "a white farmhouse with a wraparound porch on four columns, two chimneys, green shutters and a porch swing"
+
+[[family]]
+id = "flatroof-villa"
+description = "a modern flat-roofed white villa with a wall of tall windows, a carport on two posts, a cantilevered balcony and three square trees"
+
+[[family]]
+id = "thatched-cottage"
+description = "a thatched cottage with two small windows either side of a round-topped door, a white picket fence with a gate and a stone well"
+
+[[family]]
+id = "high-street"
+description = "a high street with four shopfronts with signs (BAKER, BOOKS, CHEMIST, HARDWARE), a red bus stop shelter and a row of five bollards"
+
+[[family]]
+id = "zebra-crossing"
+description = "a city street corner with a zebra crossing, two traffic lights, a street name sign reading ELM STREET, a green bench and a newspaper kiosk"
+
+[[family]]
+id = "tram-boulevard"
+description = "a tree-lined boulevard with a tram stop, a stop sign reading PARK GATE, a yellow tram, a row of plane trees and two ornate clocks on posts"
+
+[[family]]
+id = "culdesac"
+description = "a cul-de-sac of three houses with small number plaques by their doors, a row of four mailboxes, a basketball hoop and a round turning circle"
+
+[[family]]
+id = "island-kitchen"
+description = "a kitchen with a white island, brass pendant lamps (a cluster of three shades and one single shade), an arched window over the sink, a range cooker and two bar stools"
+
+[[family]]
+id = "fireplace-lounge"
+description = "a living room with a stone fireplace, a green sofa, two armchairs, a tall bookcase and a round rug"
+
+[[family]]
+id = "freestanding-bath"
+description = "a bathroom with a freestanding white tub, a double vanity with two round mirrors, a tall window and a towel ladder"
+
+[[family]]
+id = "reading-room"
+description = "a library reading room with a long oak table, chairs along both sides, a row of tall arched windows and two green desk lamps"
+
+[[family]]
+id = "mill-footbridge"
+description = "a stone footbridge with two arches over a stream, a wooden mill wheel on a stone mill, and a split-rail fence"
+
+[[family]]
+id = "pier-lamps"
+description = "a long wooden pier into a calm sea with six lamp posts, a small hut at its end and a lifebuoy stand"
+
+[[family]]
+id = "field-windmill"
+description = "a white windmill with six sails on a hill above a wheat field, a farm gate and a single oak tree"
+
+[[family]]
+id = "vineyard-winery"
+description = "a stone winery with an arched doorway and a bell tower, rows of vines, three cypress trees and a stack of barrels"
+
+[[family]]
+id = "luna-cafe"
+description = "a café front with a striped awning lettered LUNA CAFE, a chalk menu board, two bistro tables and a bay tree in a pot"
+
+[[family]]
+id = "bay-bookshop"
+description = "a bookshop with a curved bay window, a sign reading HARBOUR BOOKS, a blue door with a brass knocker and a book cart outside"
+
+[[family]]
+id = "barber-pole"
+description = "a barber shop with a striped barber pole, a sign reading SAM'S BARBERS, a window with two chairs inside, and a bench"
+
+[[family]]
+id = "corner-pharmacy"
+description = "a corner pharmacy with a green cross sign, a sign reading PHARMACY, two display windows, an automatic door and a post box"

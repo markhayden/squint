@@ -513,7 +513,7 @@ fn the_published_sets_are_consistent_at_the_manifest_level() {
     squint_eval::sets::check_families(&root).unwrap();
     let readme = std::fs::read_to_string(root.join("README.md")).unwrap();
     let dirs = squint_eval::sets::discover(&root).unwrap();
-    assert_eq!(dirs.len(), 12, "{dirs:?}");
+    assert_eq!(dirs.len(), 13, "{dirs:?}");
     for dir in dirs {
         let manifest: Manifest =
             toml::from_str(&std::fs::read_to_string(dir.join("set.toml")).unwrap()).unwrap();

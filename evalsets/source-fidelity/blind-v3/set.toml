@@ -1,0 +1,726 @@
+# Built by squint-sets; labels confirmed by the owner.
+[set]
+id = "source-fidelity/blind-v3"
+use_case = "source-fidelity"
+split = "blind"
+licence = "CC-BY-4.0"
+images_repo = "github.com/markhayden/wafflery-evalsets"
+images_rev = "d5413a4f0806c0c8d4e0376eb71bffe3d541b98e"
+labels_sha256 = "ecd6abc432d66a43e983d24367a509558ee49d84f44549872672cabf4928ffd8"
+families = "families.toml"
+rules = { base = "source-fidelity", version = 1 }
+
+[[item]]
+id = "infinity-terrace-1"
+family = "infinity-terrace"
+job = "items/infinity-terrace-1/job.toml"
+
+[[item]]
+id = "infinity-terrace-2"
+family = "infinity-terrace"
+job = "items/infinity-terrace-2/job.toml"
+
+[[item]]
+id = "infinity-terrace-3"
+family = "infinity-terrace"
+job = "items/infinity-terrace-3/job.toml"
+
+[[item]]
+id = "infinity-terrace-4"
+family = "infinity-terrace"
+job = "items/infinity-terrace-4/job.toml"
+
+[[item]]
+id = "infinity-terrace-5"
+family = "infinity-terrace"
+job = "items/infinity-terrace-5/job.toml"
+
+[[item]]
+id = "infinity-terrace-6"
+family = "infinity-terrace"
+job = "items/infinity-terrace-6/job.toml"
+
+[[item]]
+id = "kidney-backyard-1"
+family = "kidney-backyard"
+job = "items/kidney-backyard-1/job.toml"
+
+[[item]]
+id = "kidney-backyard-2"
+family = "kidney-backyard"
+job = "items/kidney-backyard-2/job.toml"
+
+[[item]]
+id = "kidney-backyard-3"
+family = "kidney-backyard"
+job = "items/kidney-backyard-3/job.toml"
+
+[[item]]
+id = "kidney-backyard-4"
+family = "kidney-backyard"
+job = "items/kidney-backyard-4/job.toml"
+
+[[item]]
+id = "kidney-backyard-5"
+family = "kidney-backyard"
+job = "items/kidney-backyard-5/job.toml"
+
+[[item]]
+id = "kidney-backyard-6"
+family = "kidney-backyard"
+job = "items/kidney-backyard-6/job.toml"
+
+[[item]]
+id = "rooftop-pool-1"
+family = "rooftop-pool"
+job = "items/rooftop-pool-1/job.toml"
+
+[[item]]
+id = "rooftop-pool-2"
+family = "rooftop-pool"
+job = "items/rooftop-pool-2/job.toml"
+
+[[item]]
+id = "rooftop-pool-3"
+family = "rooftop-pool"
+job = "items/rooftop-pool-3/job.toml"
+
+[[item]]
+id = "rooftop-pool-4"
+family = "rooftop-pool"
+job = "items/rooftop-pool-4/job.toml"
+
+[[item]]
+id = "rooftop-pool-5"
+family = "rooftop-pool"
+job = "items/rooftop-pool-5/job.toml"
+
+[[item]]
+id = "rooftop-pool-6"
+family = "rooftop-pool"
+job = "items/rooftop-pool-6/job.toml"
+
+[[item]]
+id = "lap-poolhouse-1"
+family = "lap-poolhouse"
+job = "items/lap-poolhouse-1/job.toml"
+
+[[item]]
+id = "lap-poolhouse-2"
+family = "lap-poolhouse"
+job = "items/lap-poolhouse-2/job.toml"
+
+[[item]]
+id = "lap-poolhouse-3"
+family = "lap-poolhouse"
+job = "items/lap-poolhouse-3/job.toml"
+
+[[item]]
+id = "lap-poolhouse-4"
+family = "lap-poolhouse"
+job = "items/lap-poolhouse-4/job.toml"
+
+[[item]]
+id = "lap-poolhouse-5"
+family = "lap-poolhouse"
+job = "items/lap-poolhouse-5/job.toml"
+
+[[item]]
+id = "lap-poolhouse-6"
+family = "lap-poolhouse"
+job = "items/lap-poolhouse-6/job.toml"
+
+[[item]]
+id = "dormer-house-1"
+family = "dormer-house"
+job = "items/dormer-house-1/job.toml"
+
+[[item]]
+id = "dormer-house-2"
+family = "dormer-house"
+job = "items/dormer-house-2/job.toml"
+
+[[item]]
+id = "dormer-house-3"
+family = "dormer-house"
+job = "items/dormer-house-3/job.toml"
+
+[[item]]
+id = "dormer-house-4"
+family = "dormer-house"
+job = "items/dormer-house-4/job.toml"
+
+[[item]]
+id = "dormer-house-5"
+family = "dormer-house"
+job = "items/dormer-house-5/job.toml"
+
+[[item]]
+id = "dormer-house-6"
+family = "dormer-house"
+job = "items/dormer-house-6/job.toml"
+
+[[item]]
+id = "wraparound-farmhouse-1"
+family = "wraparound-farmhouse"
+job = "items/wraparound-farmhouse-1/job.toml"
+
+[[item]]
+id = "wraparound-farmhouse-2"
+family = "wraparound-farmhouse"
+job = "items/wraparound-farmhouse-2/job.toml"
+
+[[item]]
+id = "wraparound-farmhouse-3"
+family = "wraparound-farmhouse"
+job = "items/wraparound-farmhouse-3/job.toml"
+
+[[item]]
+id = "wraparound-farmhouse-4"
+family = "wraparound-farmhouse"
+job = "items/wraparound-farmhouse-4/job.toml"
+
+[[item]]
+id = "wraparound-farmhouse-5"
+family = "wraparound-farmhouse"
+job = "items/wraparound-farmhouse-5/job.toml"
+
+[[item]]
+id = "wraparound-farmhouse-6"
+family = "wraparound-farmhouse"
+job = "items/wraparound-farmhouse-6/job.toml"
+
+[[item]]
+id = "flatroof-villa-1"
+family = "flatroof-villa"
+job = "items/flatroof-villa-1/job.toml"
+
+[[item]]
+id = "flatroof-villa-2"
+family = "flatroof-villa"
+job = "items/flatroof-villa-2/job.toml"
+
+[[item]]
+id = "flatroof-villa-3"
+family = "flatroof-villa"
+job = "items/flatroof-villa-3/job.toml"
+
+[[item]]
+id = "flatroof-villa-4"
+family = "flatroof-villa"
+job = "items/flatroof-villa-4/job.toml"
+
+[[item]]
+id = "flatroof-villa-5"
+family = "flatroof-villa"
+job = "items/flatroof-villa-5/job.toml"
+
+[[item]]
+id = "flatroof-villa-6"
+family = "flatroof-villa"
+job = "items/flatroof-villa-6/job.toml"
+
+[[item]]
+id = "thatched-cottage-1"
+family = "thatched-cottage"
+job = "items/thatched-cottage-1/job.toml"
+
+[[item]]
+id = "thatched-cottage-2"
+family = "thatched-cottage"
+job = "items/thatched-cottage-2/job.toml"
+
+[[item]]
+id = "thatched-cottage-3"
+family = "thatched-cottage"
+job = "items/thatched-cottage-3/job.toml"
+
+[[item]]
+id = "thatched-cottage-4"
+family = "thatched-cottage"
+job = "items/thatched-cottage-4/job.toml"
+
+[[item]]
+id = "thatched-cottage-5"
+family = "thatched-cottage"
+job = "items/thatched-cottage-5/job.toml"
+
+[[item]]
+id = "thatched-cottage-6"
+family = "thatched-cottage"
+job = "items/thatched-cottage-6/job.toml"
+
+[[item]]
+id = "high-street-1"
+family = "high-street"
+job = "items/high-street-1/job.toml"
+
+[[item]]
+id = "high-street-2"
+family = "high-street"
+job = "items/high-street-2/job.toml"
+
+[[item]]
+id = "high-street-3"
+family = "high-street"
+job = "items/high-street-3/job.toml"
+
+[[item]]
+id = "high-street-4"
+family = "high-street"
+job = "items/high-street-4/job.toml"
+
+[[item]]
+id = "high-street-5"
+family = "high-street"
+job = "items/high-street-5/job.toml"
+
+[[item]]
+id = "high-street-6"
+family = "high-street"
+job = "items/high-street-6/job.toml"
+
+[[item]]
+id = "zebra-crossing-1"
+family = "zebra-crossing"
+job = "items/zebra-crossing-1/job.toml"
+
+[[item]]
+id = "zebra-crossing-2"
+family = "zebra-crossing"
+job = "items/zebra-crossing-2/job.toml"
+
+[[item]]
+id = "zebra-crossing-3"
+family = "zebra-crossing"
+job = "items/zebra-crossing-3/job.toml"
+
+[[item]]
+id = "zebra-crossing-4"
+family = "zebra-crossing"
+job = "items/zebra-crossing-4/job.toml"
+
+[[item]]
+id = "zebra-crossing-5"
+family = "zebra-crossing"
+job = "items/zebra-crossing-5/job.toml"
+
+[[item]]
+id = "zebra-crossing-6"
+family = "zebra-crossing"
+job = "items/zebra-crossing-6/job.toml"
+
+[[item]]
+id = "tram-boulevard-1"
+family = "tram-boulevard"
+job = "items/tram-boulevard-1/job.toml"
+
+[[item]]
+id = "tram-boulevard-2"
+family = "tram-boulevard"
+job = "items/tram-boulevard-2/job.toml"
+
+[[item]]
+id = "tram-boulevard-3"
+family = "tram-boulevard"
+job = "items/tram-boulevard-3/job.toml"
+
+[[item]]
+id = "tram-boulevard-4"
+family = "tram-boulevard"
+job = "items/tram-boulevard-4/job.toml"
+
+[[item]]
+id = "tram-boulevard-5"
+family = "tram-boulevard"
+job = "items/tram-boulevard-5/job.toml"
+
+[[item]]
+id = "tram-boulevard-6"
+family = "tram-boulevard"
+job = "items/tram-boulevard-6/job.toml"
+
+[[item]]
+id = "culdesac-1"
+family = "culdesac"
+job = "items/culdesac-1/job.toml"
+
+[[item]]
+id = "culdesac-3"
+family = "culdesac"
+job = "items/culdesac-3/job.toml"
+
+[[item]]
+id = "culdesac-4"
+family = "culdesac"
+job = "items/culdesac-4/job.toml"
+
+[[item]]
+id = "culdesac-5"
+family = "culdesac"
+job = "items/culdesac-5/job.toml"
+
+[[item]]
+id = "culdesac-6"
+family = "culdesac"
+job = "items/culdesac-6/job.toml"
+
+[[item]]
+id = "island-kitchen-1"
+family = "island-kitchen"
+job = "items/island-kitchen-1/job.toml"
+
+[[item]]
+id = "island-kitchen-2"
+family = "island-kitchen"
+job = "items/island-kitchen-2/job.toml"
+
+[[item]]
+id = "island-kitchen-3"
+family = "island-kitchen"
+job = "items/island-kitchen-3/job.toml"
+
+[[item]]
+id = "island-kitchen-4"
+family = "island-kitchen"
+job = "items/island-kitchen-4/job.toml"
+
+[[item]]
+id = "island-kitchen-5"
+family = "island-kitchen"
+job = "items/island-kitchen-5/job.toml"
+
+[[item]]
+id = "island-kitchen-6"
+family = "island-kitchen"
+job = "items/island-kitchen-6/job.toml"
+
+[[item]]
+id = "fireplace-lounge-1"
+family = "fireplace-lounge"
+job = "items/fireplace-lounge-1/job.toml"
+
+[[item]]
+id = "fireplace-lounge-2"
+family = "fireplace-lounge"
+job = "items/fireplace-lounge-2/job.toml"
+
+[[item]]
+id = "fireplace-lounge-3"
+family = "fireplace-lounge"
+job = "items/fireplace-lounge-3/job.toml"
+
+[[item]]
+id = "fireplace-lounge-4"
+family = "fireplace-lounge"
+job = "items/fireplace-lounge-4/job.toml"
+
+[[item]]
+id = "fireplace-lounge-5"
+family = "fireplace-lounge"
+job = "items/fireplace-lounge-5/job.toml"
+
+[[item]]
+id = "fireplace-lounge-6"
+family = "fireplace-lounge"
+job = "items/fireplace-lounge-6/job.toml"
+
+[[item]]
+id = "freestanding-bath-1"
+family = "freestanding-bath"
+job = "items/freestanding-bath-1/job.toml"
+
+[[item]]
+id = "freestanding-bath-2"
+family = "freestanding-bath"
+job = "items/freestanding-bath-2/job.toml"
+
+[[item]]
+id = "freestanding-bath-3"
+family = "freestanding-bath"
+job = "items/freestanding-bath-3/job.toml"
+
+[[item]]
+id = "freestanding-bath-4"
+family = "freestanding-bath"
+job = "items/freestanding-bath-4/job.toml"
+
+[[item]]
+id = "freestanding-bath-5"
+family = "freestanding-bath"
+job = "items/freestanding-bath-5/job.toml"
+
+[[item]]
+id = "freestanding-bath-6"
+family = "freestanding-bath"
+job = "items/freestanding-bath-6/job.toml"
+
+[[item]]
+id = "reading-room-1"
+family = "reading-room"
+job = "items/reading-room-1/job.toml"
+
+[[item]]
+id = "reading-room-2"
+family = "reading-room"
+job = "items/reading-room-2/job.toml"
+
+[[item]]
+id = "reading-room-3"
+family = "reading-room"
+job = "items/reading-room-3/job.toml"
+
+[[item]]
+id = "reading-room-4"
+family = "reading-room"
+job = "items/reading-room-4/job.toml"
+
+[[item]]
+id = "reading-room-5"
+family = "reading-room"
+job = "items/reading-room-5/job.toml"
+
+[[item]]
+id = "reading-room-6"
+family = "reading-room"
+job = "items/reading-room-6/job.toml"
+
+[[item]]
+id = "mill-footbridge-1"
+family = "mill-footbridge"
+job = "items/mill-footbridge-1/job.toml"
+
+[[item]]
+id = "mill-footbridge-2"
+family = "mill-footbridge"
+job = "items/mill-footbridge-2/job.toml"
+
+[[item]]
+id = "mill-footbridge-3"
+family = "mill-footbridge"
+job = "items/mill-footbridge-3/job.toml"
+
+[[item]]
+id = "mill-footbridge-4"
+family = "mill-footbridge"
+job = "items/mill-footbridge-4/job.toml"
+
+[[item]]
+id = "mill-footbridge-5"
+family = "mill-footbridge"
+job = "items/mill-footbridge-5/job.toml"
+
+[[item]]
+id = "mill-footbridge-6"
+family = "mill-footbridge"
+job = "items/mill-footbridge-6/job.toml"
+
+[[item]]
+id = "pier-lamps-1"
+family = "pier-lamps"
+job = "items/pier-lamps-1/job.toml"
+
+[[item]]
+id = "pier-lamps-2"
+family = "pier-lamps"
+job = "items/pier-lamps-2/job.toml"
+
+[[item]]
+id = "pier-lamps-3"
+family = "pier-lamps"
+job = "items/pier-lamps-3/job.toml"
+
+[[item]]
+id = "pier-lamps-4"
+family = "pier-lamps"
+job = "items/pier-lamps-4/job.toml"
+
+[[item]]
+id = "pier-lamps-5"
+family = "pier-lamps"
+job = "items/pier-lamps-5/job.toml"
+
+[[item]]
+id = "pier-lamps-6"
+family = "pier-lamps"
+job = "items/pier-lamps-6/job.toml"
+
+[[item]]
+id = "field-windmill-1"
+family = "field-windmill"
+job = "items/field-windmill-1/job.toml"
+
+[[item]]
+id = "field-windmill-2"
+family = "field-windmill"
+job = "items/field-windmill-2/job.toml"
+
+[[item]]
+id = "field-windmill-3"
+family = "field-windmill"
+job = "items/field-windmill-3/job.toml"
+
+[[item]]
+id = "field-windmill-4"
+family = "field-windmill"
+job = "items/field-windmill-4/job.toml"
+
+[[item]]
+id = "field-windmill-5"
+family = "field-windmill"
+job = "items/field-windmill-5/job.toml"
+
+[[item]]
+id = "field-windmill-6"
+family = "field-windmill"
+job = "items/field-windmill-6/job.toml"
+
+[[item]]
+id = "vineyard-winery-1"
+family = "vineyard-winery"
+job = "items/vineyard-winery-1/job.toml"
+
+[[item]]
+id = "vineyard-winery-2"
+family = "vineyard-winery"
+job = "items/vineyard-winery-2/job.toml"
+
+[[item]]
+id = "vineyard-winery-3"
+family = "vineyard-winery"
+job = "items/vineyard-winery-3/job.toml"
+
+[[item]]
+id = "vineyard-winery-4"
+family = "vineyard-winery"
+job = "items/vineyard-winery-4/job.toml"
+
+[[item]]
+id = "vineyard-winery-5"
+family = "vineyard-winery"
+job = "items/vineyard-winery-5/job.toml"
+
+[[item]]
+id = "vineyard-winery-6"
+family = "vineyard-winery"
+job = "items/vineyard-winery-6/job.toml"
+
+[[item]]
+id = "luna-cafe-1"
+family = "luna-cafe"
+job = "items/luna-cafe-1/job.toml"
+
+[[item]]
+id = "luna-cafe-2"
+family = "luna-cafe"
+job = "items/luna-cafe-2/job.toml"
+
+[[item]]
+id = "luna-cafe-3"
+family = "luna-cafe"
+job = "items/luna-cafe-3/job.toml"
+
+[[item]]
+id = "luna-cafe-4"
+family = "luna-cafe"
+job = "items/luna-cafe-4/job.toml"
+
+[[item]]
+id = "luna-cafe-5"
+family = "luna-cafe"
+job = "items/luna-cafe-5/job.toml"
+
+[[item]]
+id = "luna-cafe-6"
+family = "luna-cafe"
+job = "items/luna-cafe-6/job.toml"
+
+[[item]]
+id = "bay-bookshop-1"
+family = "bay-bookshop"
+job = "items/bay-bookshop-1/job.toml"
+
+[[item]]
+id = "bay-bookshop-2"
+family = "bay-bookshop"
+job = "items/bay-bookshop-2/job.toml"
+
+[[item]]
+id = "bay-bookshop-3"
+family = "bay-bookshop"
+job = "items/bay-bookshop-3/job.toml"
+
+[[item]]
+id = "bay-bookshop-4"
+family = "bay-bookshop"
+job = "items/bay-bookshop-4/job.toml"
+
+[[item]]
+id = "bay-bookshop-5"
+family = "bay-bookshop"
+job = "items/bay-bookshop-5/job.toml"
+
+[[item]]
+id = "bay-bookshop-6"
+family = "bay-bookshop"
+job = "items/bay-bookshop-6/job.toml"
+
+[[item]]
+id = "barber-pole-1"
+family = "barber-pole"
+job = "items/barber-pole-1/job.toml"
+
+[[item]]
+id = "barber-pole-2"
+family = "barber-pole"
+job = "items/barber-pole-2/job.toml"
+
+[[item]]
+id = "barber-pole-3"
+family = "barber-pole"
+job = "items/barber-pole-3/job.toml"
+
+[[item]]
+id = "barber-pole-4"
+family = "barber-pole"
+job = "items/barber-pole-4/job.toml"
+
+[[item]]
+id = "barber-pole-5"
+family = "barber-pole"
+job = "items/barber-pole-5/job.toml"
+
+[[item]]
+id = "barber-pole-6"
+family = "barber-pole"
+job = "items/barber-pole-6/job.toml"
+
+[[item]]
+id = "corner-pharmacy-1"
+family = "corner-pharmacy"
+job = "items/corner-pharmacy-1/job.toml"
+
+[[item]]
+id = "corner-pharmacy-2"
+family = "corner-pharmacy"
+job = "items/corner-pharmacy-2/job.toml"
+
+[[item]]
+id = "corner-pharmacy-3"
+family = "corner-pharmacy"
+job = "items/corner-pharmacy-3/job.toml"
+
+[[item]]
+id = "corner-pharmacy-4"
+family = "corner-pharmacy"
+job = "items/corner-pharmacy-4/job.toml"
+
+[[item]]
+id = "corner-pharmacy-5"
+family = "corner-pharmacy"
+job = "items/corner-pharmacy-5/job.toml"
+
+[[item]]
+id = "corner-pharmacy-6"
+family = "corner-pharmacy"
+job = "items/corner-pharmacy-6/job.toml"
