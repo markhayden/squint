@@ -1,0 +1,12 @@
+[seal]
+sha256 = "f719291ef1fb8364fa88afef840e617ae79269dcbc98b3a158dc4e744853f807"
+created = "2026-11-10T14:52:28Z"
+attestation = "Owner reviewed all 144 contact-sheet items on 2026-11-09 and confirmed 143; culdesac-2 struck (house numbers unreadable). The building agent corrected 9 family descriptions to match their sources, redrew 10 edits that had not taken, and corrected 6 labels; in doing so it saw about 40 items with their labels and ran pixel-difference checks and the segmenter on some. Single labeller: no second labeller."
+
+[seal.components]
+items = "a984d59dcf4d3924ba4f506b13b1dbb7ea67fc4fcbf8f6eaaccf8b2d9d3f7838"
+families = "3bdcf0e49991c6b13f3e78ad36b2a9ef34b0e731ea4762e4d4938f78606bc793"
+jobs = "0352ef0a55621b112c9f7e1e632d0808035be855b7a1d18bf8105c05f473830e"
+images = "ec0fa01bb606f5d67d96094c4d21bd2ad2e188a36312796601f52e8e90aa6a18"
+rules = "5c89a8178b5d389648013f543b02f2933be306ff72f7b27de3168ca47288ec56"
+labels = "ecd6abc432d66a43e983d24367a509558ee49d84f44549872672cabf4928ffd8"
