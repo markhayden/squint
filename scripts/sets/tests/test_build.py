@@ -4,6 +4,8 @@ import hashlib
 import tomllib
 from pathlib import Path
 
+import pytest
+
 from squint_sets import build
 from squint_sets import plan as plan_mod
 from squint_sets.generators import FakeGenerator
@@ -115,3 +117,38 @@ def test_promote_publishes_only_confirmed_labels(tmp_path: Path):
         assert "draft" in str(e)
     else:
         raise AssertionError("promoted an unreviewed draft")
+
+
+class Counting(FakeGenerator):
+    def __init__(self):
+        super().__init__()
+        self.edits = 0
+
+    def edit(self, image, prompt, seed):
+        self.edits += 1
+        return super().edit(image, prompt, seed)
+
+
+def test_an_item_can_name_its_own_generator_for_build_and_rebuild(tmp_path: Path):
+    text = PLAN.replace(
+        'id = "brick-house-no-bicycle"\n', 'id = "brick-house-no-bicycle"\ngenerator = "openai"\n'
+    )
+    family, other = Counting(), Counting()
+    gens = {"fake": family, "openai": other}
+    out, owner = tmp_path / "evalsets/source-fidelity/houses-v1", tmp_path / "owner"
+    build.build(plan_mod.parse(text), out, owner, generators=gens)
+    # The family's generator made the source; the item's own generator made its edit.
+    assert (family.edits, other.edits) == (0, 1)
+    build.rebuild(plan_mod.parse(text), out, owner, gens, "brick-house-no-bicycle", 1)
+    assert (family.edits, other.edits) == (0, 2)
+    record = tomllib.loads((owner / "source-fidelity/houses-v1/construction.toml").read_text())
+    item = next(i for i in record["item"] if i["id"] == "brick-house-no-bicycle")
+    assert item["generator"] == "openai"
+
+
+def test_an_item_generator_must_be_known():
+    bad = PLAN.replace(
+        'id = "brick-house-no-bicycle"\n', 'id = "brick-house-no-bicycle"\ngenerator = "dalle"\n'
+    )
+    with pytest.raises(ValueError, match="generator must be one of"):
+        plan_mod.parse(bad)

@@ -42,6 +42,9 @@ class Item:
     scene: Source | None = None
     from_item: str | None = None
     lookalike: str | None = None
+    # Scene families only: a generator for this item's candidate instead of the family's (the
+    # source is still the family's), for an edit the family's generator will not make.
+    generator: str | None = None
 
 
 @dataclass(frozen=True)
@@ -187,11 +190,13 @@ def parse(text: str) -> Plan:
                 raise ValueError(f"{iw}: duplicate item id")
             seen_items.add(it["id"])
             if kind == "scene":
-                _only(it, {"id", "op"}, iw)
+                _only(it, {"id", "op", "generator"}, iw)
                 _require(it, ("id", "op"), iw)
                 if "kind" not in it["op"]:
                     raise ValueError(f"{iw}: op needs a kind")
-                items.append(Item(id=it["id"], op=dict(it["op"])))
+                if it.get("generator") is not None and it["generator"] not in GENERATORS:
+                    raise ValueError(f"{iw}: generator must be one of {', '.join(GENERATORS)}")
+                items.append(Item(id=it["id"], op=dict(it["op"]), generator=it.get("generator")))
             elif kind == "brief":
                 _only(it, {"id", "op"}, iw)
                 _require(it, ("id", "op"), iw)

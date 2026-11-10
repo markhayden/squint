@@ -124,8 +124,22 @@ def _scene_requirements(family: Family) -> list[dict[str, Any]]:
     ]
 
 
+def _item_generator(family: Family, item: Item, gen: Any, generators: dict[str, Any] | None) -> Any:
+    """The generator for `item`'s candidate: its own when the plan names one, else the family's."""
+    if item.generator is None or item.generator == family.generator:
+        return gen
+    g = (generators or {}).get(item.generator)
+    if g is None:
+        raise ValueError(f"item {item.id}: no generator {item.generator!r} available")
+    return g
+
+
 def _build_scene_family(
-    family: Family, gen: Any, out: Path, use_case: str = "source-fidelity"
+    family: Family,
+    gen: Any,
+    out: Path,
+    use_case: str = "source-fidelity",
+    generators: dict[str, Any] | None = None,
 ) -> tuple[list[_Built], dict[str, Any], list[tuple[str, bytes, DraftLabel | None]]]:
     assert family.source is not None
     # Only source fidelity judges against the source; a reality-check job is the candidate alone.
@@ -152,12 +166,15 @@ def _build_scene_family(
     cells: list[tuple[str, bytes, DraftLabel | None]] = [("source", source, None)]
     for n, item in enumerate(family.items):
         assert item.op is not None
-        candidate, label = ops.apply(item.op, source, gen, family.source.seed + n + 1)
+        item_gen = _item_generator(family, item, gen, generators)
+        candidate, label = ops.apply(item.op, source, item_gen, family.source.seed + n + 1)
         if label.expected == "fail" and label.obligation_ids == ["SF1"]:
             _match_requirements(
                 label, item.op.get("removes") or item.op.get("alters"), requirements
             )
         rec = {"id": item.id, "family": family.id, "op": dict(item.op), "generated_on": _today()}
+        if item.generator is not None:
+            rec["generator"] = item.generator
         if label.notes:
             rec["edit_notes"] = label.notes
         built.append(
@@ -569,12 +586,17 @@ def rebuild(
         source = (out / source_rel).read_bytes()
         requirements = _scene_requirements(family) if with_source else []
         n = family.items.index(item)
-        candidate, label = ops.apply(item.op, source, gen, family.source.seed + n + 1 + seed_offset)
+        item_gen = _item_generator(family, item, gen, generators)
+        candidate, label = ops.apply(
+            item.op, source, item_gen, family.source.seed + n + 1 + seed_offset
+        )
         if label.expected == "fail" and label.obligation_ids == ["SF1"]:
             _match_requirements(
                 label, item.op.get("removes") or item.op.get("alters"), requirements
             )
         rec = {"id": item.id, "family": family.id, "op": dict(item.op), "generated_on": _today()}
+        if item.generator is not None:
+            rec["generator"] = item.generator
         if label.notes:
             rec["edit_notes"] = label.notes
         if seed_offset:
@@ -693,7 +715,9 @@ def build(plan: Plan, out: Path, owner: Path, generators: dict[str, Any]) -> Bui
         elif family.kind == "brief":
             built, record, cells = _build_brief_family(family, gen)
         else:
-            built, record, cells = _build_scene_family(family, gen, out, plan.set.use_case)
+            built, record, cells = _build_scene_family(
+                family, gen, out, plan.set.use_case, generators
+            )
             report.images += 1
         families_out.append({"id": family.id, "description": family.description})
         record_families.append(record)
