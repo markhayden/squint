@@ -11,6 +11,8 @@ import base64
 import io
 import json
 import os
+import sys
+import time
 import urllib.request
 import uuid
 
@@ -21,21 +23,44 @@ class GeneratorError(RuntimeError):
     pass
 
 
+#: Statuses worth another try: rate limits and the provider's own transient failures.
+RETRY_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
+#: Seconds to wait before each retry; a long build outlasts a short outage instead of dying on it.
+RETRY_WAITS = (5, 20, 60, 120, 240)
+
+
+def _open(req: urllib.request.Request | str, timeout: int, what: str, sleep=time.sleep) -> bytes:
+    """The response body of `req`, retried on a transient failure (a status in
+    `RETRY_STATUSES`, a dropped connection or a timeout) after each of `RETRY_WAITS`; any other
+    HTTP error, or the last transient one, is a `GeneratorError` naming `what`."""
+    for attempt in range(len(RETRY_WAITS) + 1):
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read()
+        except urllib.error.HTTPError as e:
+            detail = e.read()[:400].decode("utf-8", "replace")
+            if e.code not in RETRY_STATUSES or attempt == len(RETRY_WAITS):
+                raise GeneratorError(f"{what}: HTTP {e.code}: {detail}") from None
+            reason = f"HTTP {e.code}"
+        except (urllib.error.URLError, TimeoutError, ConnectionError) as e:
+            if attempt == len(RETRY_WAITS):
+                raise GeneratorError(f"{what}: {e}") from None
+            reason = type(e).__name__
+        wait = RETRY_WAITS[attempt]
+        print(f"{what}: {reason}, retrying in {wait}s", file=sys.stderr, flush=True)
+        sleep(wait)
+    raise AssertionError("unreachable")
+
+
 def _post_json(url: str, body: dict, headers: dict, timeout: int = 300) -> dict:
     req = urllib.request.Request(
         url, data=json.dumps(body).encode(), headers={"Content-Type": "application/json", **headers}
     )
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.load(r)
-    except urllib.error.HTTPError as e:
-        detail = e.read()[:400].decode("utf-8", "replace")
-        raise GeneratorError(f"{url}: HTTP {e.code}: {detail}") from None
+    return json.loads(_open(req, timeout, url))
 
 
 def _get_bytes(url: str, timeout: int = 120) -> bytes:
-    with urllib.request.urlopen(url, timeout=timeout) as r:
-        return r.read()
+    return _open(url, timeout, url)
 
 
 def _env(name: str) -> str:
@@ -150,12 +175,7 @@ class OpenAiImage:
                 "Content-Type": f"multipart/form-data; boundary={boundary}",
             },
         )
-        try:
-            with urllib.request.urlopen(req, timeout=300) as r:
-                d = json.load(r)
-        except urllib.error.HTTPError as e:
-            detail = e.read()[:400].decode("utf-8", "replace")
-            raise GeneratorError(f"images/edits: HTTP {e.code}: {detail}") from None
+        d = json.loads(_open(req, 300, "images/edits"))
         return base64.b64decode(d["data"][0]["b64_json"])
 
 

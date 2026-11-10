@@ -149,3 +149,70 @@ def test_generate_makes_the_candidate_from_its_own_prompt_with_the_defect_named(
         seed=9,
     )
     assert label.expected == "pass" and label.obligation_ids == []
+
+
+def textured(w=96, h=72):
+    im = Image.new("RGB", (w, h))
+    im.putdata(
+        [((x * 7) % 256, (y * 11) % 256, ((x + y) * 5) % 256) for y in range(h) for x in range(w)]
+    )
+    buf = io.BytesIO()
+    im.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+def test_camera_ops_keep_the_size_fill_the_frame_and_fail_structure():
+    for op, kind in (
+        ({"kind": "tilt", "degrees": 3}, "tilted"),
+        ({"kind": "zoom", "factor": 1.1}, "zoomed"),
+        ({"kind": "keystone", "strength": 0.06}, "keystoned"),
+    ):
+        out, label = ops.apply(op, textured(), generator=None, seed=1)
+        im = load(out)
+        assert im.size == (96, 72), kind
+        assert label.failure_type == kind and label.obligation_ids == ["SF2"]
+        # Refilled: no corner is the black of an empty wedge.
+        for xy in ((0, 0), (95, 0), (0, 71), (95, 71)):
+            assert sum(im.getpixel(xy)) > 0, (kind, xy)
+        assert out != textured(), kind
+
+
+def test_camera_ops_refuse_out_of_range_strengths():
+    for op in (
+        {"kind": "tilt", "degrees": 30},
+        {"kind": "zoom", "factor": 1.0},
+        {"kind": "keystone", "strength": 0.5},
+    ):
+        try:
+            ops.apply(op, textured(), generator=None, seed=1)
+        except ValueError:
+            continue
+        raise AssertionError(op)
+
+
+def test_delivery_damage_keeps_a_pass_a_pass_and_says_so():
+    out, label = ops.apply(
+        {"kind": "grade", "warmth": 0.1, "jpeg": 50, "resample": 0.5}, textured(), None, 1
+    )
+    assert load(out).size == (96, 72)
+    assert label.expected == "pass"
+    assert "JPEG at quality 50" in label.words and "50%" in label.notes["delivery"]
+
+
+def test_an_edit_that_adds_names_what_was_added():
+    class Gen:
+        def edit(self, image, prompt, seed):
+            im = load(image)
+            im.paste((0, 255, 0), (30, 20, 50, 40))
+            buf = io.BytesIO()
+            im.save(buf, format="PNG")
+            return buf.getvalue()
+
+    _, label = ops.apply(
+        {"kind": "edit", "prompt": "add a fourth dormer", "adds": "a fourth dormer"},
+        textured(),
+        Gen(),
+        1,
+    )
+    assert label.expected == "fail" and label.failure_type == "a fourth dormer-added"
+    assert label.words.startswith("the candidate has a fourth dormer")
