@@ -42,7 +42,7 @@ tracing = "0.1"
 table-manners = "=0.5.0"
 # The official MCP SDK for `squint serve`, pinned exactly as rascal pins it (ADR 0018); the client
 # squint uses for its tool packs stays in-house (ADR 0015).
-rmcp = { version = "=3.8.0", default-features = false, features = ["server", "transport-io"] }
+rmcp = { version = "=3.9.0", default-features = false, features = ["server", "transport-io"] }
 # Pinned exactly: the bootstrap's resample indices must reproduce from a seed across builds (ADR 0016).
 rand = "=0.9.5"
 rand_chacha = "=0.9.0"
