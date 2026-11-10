@@ -1,7 +1,7 @@
 # squint for agents and pipelines
 
 squint speaks the waffle tools' shared contract, [table-manners](https://github.com/markhayden/table-manners)
-v0.6.0, core and images profile (ADR 0018), pinned `=0.6.0` (by path until the release is published, then from crates.io). squint lists no operations profile: it has no artifact types, ports or
+v0.6.0, core and images profile (ADR 0018), pinned `=0.6.0`. squint lists no operations profile: it has no artifact types, ports or
 artifacts, and the reserved `export` and `import` are unknown tools. An agent or a script that knows the contract can
 describe squint, estimate a check, run one, follow it, stop it and read it back, the same way it
 does rascal. This page is squint's side; the contract's `CONTRACT.md` is the reference.
