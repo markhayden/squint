@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:core:progress-meta",
+  "title": "Progress metadata (CONTRACT.md 4.1, 5.3)",
+  "description": "The contract's keys in a notifications/progress `_meta`: a run's reference once the run is allocated, or the installable an install or uninstall works on (no run). Never both. Other keys in `_meta` are not the contract's and are not described here.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "table-manners/run": {
+      "$ref": "urn:table-manners:core:run-ref"
+    },
+    "table-manners/installable": {
+      "$ref": "urn:table-manners:core:installable#/$defs/id"
+    }
+  },
+  "not": {
+    "required": [
+      "table-manners/run",
+      "table-manners/installable"
+    ]
+  }
+}

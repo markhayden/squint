@@ -154,6 +154,8 @@ fn present_config() -> table_manners::Requirement {
         setup: None,
         optional: false,
         needed_for: None,
+        for_choice: None,
+        installable: None,
     }
 }
 
@@ -341,14 +343,14 @@ fn the_conformance_fixtures_are_what_squint_emits() {
     );
 }
 
-/// The fixtures as table-manners' `tests/fixtures.rs` reads them (its `v0.5.0` tag), so the copy
+/// The fixtures as table-manners' `tests/fixtures.rs` reads them (its `v0.6.0` tag), so the copy
 /// into its `fixtures/squint/` passes there first time. Each file by its name: `describe*.json` a
 /// description, `estimate-*.json` an estimate, `run-*.json` a result, `runs*.json` a runs page,
 /// `session.json` and `session-*.json` a session, `refusal-*.json` refusal data; each validated
 /// with the crate's embedded schemas and read into the crate's type; every `bundle-*/` directory
 /// an invocation bundle whose `invocation.json` is a manifest and whose every listed member is
 /// beside it with the digest the manifest states; any other file or directory fails. Every
-/// contract version in a document (a bundle's steps and results too) is `0.5.0`, every tool
+/// contract version in a document (a bundle's steps and results too) is `0.6.0`, every tool
 /// `squint`, every amount (`usd` or a key ending `_usd`) at most six decimals. Beside the schemas,
 /// the rules they cannot say, as table-manners checks them: in a result and in each bundled step,
 /// `invocation.action` is the result's action and no image in the invocation has a locator (4.8).
@@ -412,13 +414,13 @@ fn every_fixture_validates_as_table_manners_reads_it() {
             _ => {}
         }
     }
-    /// Every `contract` in the document is 0.5.0 and every `tool.name` squint.
+    /// Every `contract` in the document is 0.6.0 and every `tool.name` squint.
     fn ours(name: &str, v: &Value) {
         match v {
             Value::Object(map) => {
                 for (k, value) in map {
                     match k.as_str() {
-                        "contract" => assert_eq!(value, "0.5.0", "{name}"),
+                        "contract" => assert_eq!(value, "0.6.0", "{name}"),
                         "tool" if value.get("name").is_some() => {
                             assert_eq!(value["name"], "squint", "{name}");
                         }
@@ -545,7 +547,7 @@ fn every_fixture_validates_as_table_manners_reads_it() {
         b.steps.len()
     }
 
-    assert_eq!(table_manners::CONTRACT_VERSION, "0.5.0");
+    assert_eq!(table_manners::CONTRACT_VERSION, "0.6.0");
     let mut seen = 0;
     let mut results = 0;
     for entry in std::fs::read_dir(dir()).unwrap() {

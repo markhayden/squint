@@ -41,6 +41,8 @@ fn present_config() -> Requirement {
         setup: None,
         optional: false,
         needed_for: None,
+        for_choice: None,
+        installable: None,
     }
 }
 

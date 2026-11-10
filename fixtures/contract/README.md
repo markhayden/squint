@@ -6,8 +6,8 @@ github.com/markhayden/table-manners), copied unchanged. `digests.json` records e
 reproduces every `pixel_sha256` through squint's own decode path (task 7.2).
 
 `squint/`: squint's conformance fixtures (tasks 7.10, 8.6, 9.10, 10.6) for table-manners
-`fixtures/squint/`, at contract v0.5.0, per
-CONTRACT.md 7 item 7: the v0.2 and v0.3 sets at 0.5.0, v0.4's additions, and v0.5's: every
+`fixtures/squint/`, at contract v0.6.0, per
+CONTRACT.md 7 item 7: the v0.2 and v0.3 sets at 0.6.0, v0.4's additions, and v0.5's: every
 check action declares `answers: verdict`, every completed check carries its `verdict`, and
 `run-fail-must-not.json` is a fail whose verdict has a place (the call's own must-not
 requirement, violated and located). Every action is of
@@ -62,11 +62,11 @@ emits something else; after a deliberate change, regenerate with `UPDATE_CONTRAC
 the bundle are made from `run-completed.json`) and copy the directory to table-manners
 `fixtures/squint/`, removing files squint no longer produces.
 `every_fixture_validates_as_table_manners_reads_it` (in `contract_fixtures.rs`) checks the
-directory the way table-manners' `tests/fixtures.rs` does at its `v0.5.0` tag, with the crate's
+directory the way table-manners' `tests/fixtures.rs` does at its `v0.6.0` tag, with the crate's
 embedded schemas: the schema and the type by file name (`describe*.json`, `estimate-*.json`,
 `run-*.json`, `runs*.json`, `session.json` and `session-*.json`, `refusal-*.json`), every
 `bundle-*/` directory a manifest valid against `invocation-bundle.json` whose listed members are
-beside it with the `file_sha256` it states, and nothing else beside it; contract `0.5.0` and tool
+beside it with the `file_sha256` it states, and nothing else beside it; contract `0.6.0` and tool
 `squint` wherever a document names them, a bundle's steps included; amounts to at most six
 decimals; in every result, a bundled step's included, an invocation of the result's action with no
 locator. Beside those it holds squint's own v0.4 promises: every action of kind `task` with no
