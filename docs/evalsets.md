@@ -82,11 +82,16 @@ Three family kinds cover the five use cases.
 - A **scene** family has one generated source and items made from it by an op. Under source
   fidelity the job carries the source and one requirement per protected subject: `grade` (a mild
   colour grade: a pass), `restyle` (the generator makes a permitted change such as light, season
-  or dressing: a pass the owner confirms kept the structure), `mirror`, `rotate`, `crop` (the
-  structural rule, a fail over the whole image) and `edit` (the generator removes or changes a
-  protected subject, the identity rule, a fail whose region is the densest patch of pixel
+  or dressing: a pass the owner confirms kept the structure), `mirror`, `rotate`, `crop`, and the
+  small camera changes `tilt` (a roll of 0.5 to 10 degrees), `zoom` (1.03 to 1.5 times) and
+  `keystone` (a horizontal keystone of 1 to 15%), each refilled to the frame at the source's size
+  (the structural rule, a fail over the whole image), and `edit` (the generator removes, adds or
+  changes a protected subject, named by `removes`, `adds` or `alters`: the identity rule, a fail
+  whose region is the densest patch of pixel
   difference; any other dense patch the generator changed unasked is reported as a secondary
-  change for the reviewer). Under reality checks the job is the candidate alone: `as_is` (the
+  change for the reviewer). Any op may also carry delivery damage, `jpeg` (a re-save at that
+  quality) and `resample` (scaled by that factor and back), applied after it without changing
+  its label. Under reality checks the job is the candidate alone: `as_is` (the
   clean image, a pass), `restyle` (a clean variant, a pass), `edit` with a `defect` of
   `anatomy`, `shadow`, `text` or `merge`, which plants that defect by editing the clean image and
   labels RE1 to RE4, and `generate` with a `defect`, which draws the candidate from its own

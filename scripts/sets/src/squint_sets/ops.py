@@ -6,6 +6,7 @@ the family's generator to change one thing and draws the region from the pixel d
 from __future__ import annotations
 
 import io
+import math
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -39,6 +40,87 @@ def _png(im: Image.Image) -> bytes:
 
 
 def apply(op: dict[str, Any], source: bytes, generator, seed: int) -> tuple[bytes, DraftLabel]:
+    """The op's candidate and draft label, then any delivery damage the op names (`jpeg`,
+    `resample`), which changes no label: a re-saved or rescaled pass is still a pass."""
+    out, label = _apply(op, source, generator, seed)
+    if "jpeg" in op or "resample" in op:
+        out, said = deliver(out, op.get("jpeg"), op.get("resample"))
+        label.words += f"; delivered {said}"
+        label.notes["delivery"] = said
+    return out, label
+
+
+def deliver(image: bytes, jpeg: Any = None, resample: Any = None) -> tuple[bytes, str]:
+    """`image` as a delivery would damage it: scaled by `resample` and back (detail lost), then
+    saved as JPEG at quality `jpeg`; returned as PNG at the original size, with what was done."""
+    im = _load(image)
+    said = []
+    if resample is not None:
+        f = float(resample)
+        if not 0.25 <= f < 1.0:
+            raise ValueError(f"resample must be in [0.25, 1), got {f}")
+        w, h = im.size
+        im = im.resize((max(1, round(w * f)), max(1, round(h * f))), Image.Resampling.LANCZOS)
+        im = im.resize((w, h), Image.Resampling.BICUBIC)
+        said.append(f"downscaled to {int(f * 100)}% and upscaled back")
+    if jpeg is not None:
+        q = int(jpeg)
+        if not 20 <= q <= 95:
+            raise ValueError(f"jpeg quality must be in [20, 95], got {q}")
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=q)
+        im = _load(buf.getvalue())
+        said.append(f"re-saved as JPEG at quality {q}")
+    return _png(im), " and ".join(said)
+
+
+Mat = list[list[float]]
+
+
+def _mul(a: Mat, b: Mat) -> Mat:
+    return [[sum(a[i][k] * b[k][j] for k in range(3)) for j in range(3)] for i in range(3)]
+
+
+def _inv(m: Mat) -> Mat:
+    (a, b, c), (d, e, f), (g, h, i) = m
+    det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+    adj = [
+        [e * i - f * h, c * h - b * i, b * f - c * e],
+        [f * g - d * i, a * i - c * g, c * d - a * f],
+        [d * h - e * g, b * g - a * h, a * e - b * d],
+    ]
+    return [[v / det for v in row] for row in adj]
+
+
+def _about_centre(m: Mat, w: int, h: int) -> Mat:
+    """`m` applied about the image centre rather than its corner."""
+    to = [[1, 0, w / 2], [0, 1, h / 2], [0, 0, 1]]
+    back = [[1, 0, -w / 2], [0, 1, -h / 2], [0, 0, 1]]
+    return _mul(to, _mul(m, back))
+
+
+def _filled(im: Image.Image, h: Mat) -> Image.Image:
+    """`im` under the pixel homography `h` (source px to candidate px) at its own size, zoomed
+    about the centre just enough that every output corner comes from inside the source, so the
+    frame has no empty wedges."""
+    w, hh = im.size
+    inv: Mat = _inv(h)
+    for step in range(400):
+        z = 1 + 0.0025 * step
+        inv = _inv(_mul(_about_centre([[z, 0, 0], [0, z, 0], [0, 0, 1]], w, hh), h))
+        ok = True
+        for x, y in ((0, 0), (w, 0), (0, hh), (w, hh)):
+            px, py, pw = (inv[r][0] * x + inv[r][1] * y + inv[r][2] for r in range(3))
+            if not (-0.5 <= px / pw <= w + 0.5 and -0.5 <= py / pw <= hh + 0.5):
+                ok = False
+                break
+        if ok:
+            break
+    coeffs = [inv[r][c] / inv[2][2] for r in range(3) for c in range(3)][:8]
+    return im.transform((w, hh), Image.Transform.PERSPECTIVE, coeffs, Image.Resampling.BICUBIC)
+
+
+def _apply(op: dict[str, Any], source: bytes, generator, seed: int) -> tuple[bytes, DraftLabel]:
     kind = op.get("kind")
     if kind == "as_is":
         return source, DraftLabel(
@@ -127,6 +209,49 @@ def apply(op: dict[str, Any], source: bytes, generator, seed: int) -> tuple[byte
             words=f"the candidate is the central {int(keep * 100)}% of the source; the edges are cropped away",
             region_kind="whole_image",
         )
+    if kind == "tilt":
+        # A small camera roll, filled to the frame: what a regenerated shot drifts by.
+        degrees = float(op.get("degrees", 2.0))
+        if not 0.5 <= abs(degrees) <= 10:
+            raise ValueError(f"tilt: degrees must be 0.5 to 10 either way, got {degrees}")
+        im = _load(source)
+        r = math.radians(degrees)
+        m = [[math.cos(r), -math.sin(r), 0], [math.sin(r), math.cos(r), 0], [0, 0, 1]]
+        return _png(_filled(im, _about_centre(m, *im.size))), DraftLabel(
+            expected="fail",
+            failure_type="tilted",
+            obligation_ids=["SF2"],
+            words=f"the candidate is the source rolled by {degrees:+.1f} degrees and refilled to the frame",
+            region_kind="whole_image",
+        )
+    if kind == "zoom":
+        factor = float(op.get("factor", 1.1))
+        if not 1.03 <= factor <= 1.5:
+            raise ValueError(f"zoom: factor must be in [1.03, 1.5], got {factor}")
+        im = _load(source)
+        m = [[factor, 0, 0], [0, factor, 0], [0, 0, 1]]
+        return _png(_filled(im, _about_centre(m, *im.size))), DraftLabel(
+            expected="fail",
+            failure_type="zoomed",
+            obligation_ids=["SF2"],
+            words=f"the candidate is the source zoomed in {factor:.2f}x at the same size; the edges are lost",
+            region_kind="whole_image",
+        )
+    if kind == "keystone":
+        # A horizontal keystone: one side of the frame nearer the camera than the other.
+        k = float(op.get("strength", 0.04))
+        if not 0.01 <= abs(k) <= 0.15:
+            raise ValueError(f"keystone: strength must be 0.01 to 0.15 either way, got {k}")
+        im = _load(source)
+        w, h = im.size
+        m = [[1, 0, 0], [0, 1, 0], [2 * k / w, 0, 1]]
+        return _png(_filled(im, _about_centre(m, w, h))), DraftLabel(
+            expected="fail",
+            failure_type="keystoned",
+            obligation_ids=["SF2"],
+            words=f"the candidate is the source under a {abs(k) * 100:.0f}% keystone (the {'right' if k > 0 else 'left'} side pushed back), refilled to the frame",
+            region_kind="whole_image",
+        )
     if kind == "restyle":
         if generator is None:
             raise ValueError("restyle: the family's generator is needed")
@@ -152,6 +277,7 @@ def apply(op: dict[str, Any], source: bytes, generator, seed: int) -> tuple[byte
         prompt = op["prompt"]
         removes = op.get("removes")
         alters = op.get("alters")
+        adds = op.get("adds")
         defect = op.get("defect")
         out = generator.edit(source, prompt, seed)
         changes = regions.difference_regions(source, out)
@@ -167,15 +293,20 @@ def apply(op: dict[str, Any], source: bytes, generator, seed: int) -> tuple[byte
             failure_type = defect
             obligations = [rule]
         else:
-            if removes:
+            if adds:
+                words = f"the candidate has {adds} that the source does not"
+            elif removes:
                 words = f"the {removes} is gone from the candidate"
             elif alters:
                 words = f"the {alters} is changed in the candidate"
             else:
                 words = f"edited: {prompt}"
-            failure_type = (
-                f"{removes or alters or 'subject'}-changed" if (removes or alters) else "edited"
-            )
+            if adds:
+                failure_type = f"{adds}-added"
+            elif removes or alters:
+                failure_type = f"{removes or alters}-changed"
+            else:
+                failure_type = "edited"
             obligations = ["SF1"]
         label = DraftLabel(
             expected="fail",
