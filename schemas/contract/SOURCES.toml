@@ -1,6 +1,6 @@
 # The table-manners schemas squint conforms to, copied from the crate pinned in Cargo.toml.
 # Regenerate after a version bump: UPDATE_CONTRACT=1 cargo test -p squint-core --test it contract_schemas
-tag = "v0.5.0"
+tag = "v0.6.0"
 
 [[file]]
 path = "images/image-reference.json"
@@ -30,7 +30,7 @@ sha256 = "3aee665c0a9047f2e43b99f1525d47d97fe67847f080ebcc8285d2c10b1a6c19"
 [[file]]
 path = "core/description.json"
 id = "urn:table-manners:core:description"
-sha256 = "8dcf42e00476442110892e51b730a3cf7531e37e90ce896b3e2de14b4b67d558"
+sha256 = "bebcc3a5c3c2f534451cc00b7f317833d0b3e3e6d47a008947872d3a03588476"
 
 [[file]]
 path = "core/runs.json"
@@ -50,7 +50,7 @@ sha256 = "6e97b994b64d2423da4ae5587816fe6e69909972c0d0513775bd35fefa6f0a72"
 [[file]]
 path = "core/refusal.json"
 id = "urn:table-manners:core:refusal"
-sha256 = "bbefbfae23ce7fa2ea5e7636a0751e4d49ed50c82aa11d2cda678ff453cc6a7f"
+sha256 = "ac00b91a1c43492f28eb5353cbbc7a6a9e28986db0b743b519ba3722c774927c"
 
 [[file]]
 path = "core/estimate.json"
@@ -61,6 +61,26 @@ sha256 = "9fd5e7de54a9e6da53b2d2c2a036e62c3505500b7c701ba9f01e468349bdd46f"
 path = "core/invocation-bundle.json"
 id = "urn:table-manners:core:invocation-bundle"
 sha256 = "4af567f2ae2908b99d3d06c454faa79496a6b2089b8e986e5cc3c80f57881aaa"
+
+[[file]]
+path = "core/installable.json"
+id = "urn:table-manners:core:installable"
+sha256 = "ca22fe293452410cdc24f1ca05532f1cf8b2496798f4b8c9a362b75541f8a810"
+
+[[file]]
+path = "core/install-request.json"
+id = "urn:table-manners:core:install-request"
+sha256 = "4945226e2c47ee30236e2cc19491e443201ebccf7b0f32341052cb94097409d3"
+
+[[file]]
+path = "core/install-result.json"
+id = "urn:table-manners:core:install-result"
+sha256 = "250bff8b58e4214f403ced2498cd115fb2c7d587fc80db95db85689b7c9c12cb"
+
+[[file]]
+path = "core/progress-meta.json"
+id = "urn:table-manners:core:progress-meta"
+sha256 = "92931febe6bfa182d025b91879f579f7f0325ec5dbec8f4ebc0ea433844a0e95"
 
 [[file]]
 path = "operations/artifact-type.json"

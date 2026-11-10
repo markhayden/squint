@@ -7,7 +7,7 @@
     "verdict": null
   },
   "cache": "off",
-  "contract": "0.5.0",
+  "contract": "0.6.0",
   "duration_ms": 0,
   "error": {
     "code": "stale_estimate",

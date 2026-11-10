@@ -113,6 +113,13 @@
         "type": "string",
         "pattern": "^[a-z][a-z0-9+.-]*://"
       }
+    },
+    "installables": {
+      "type": "array",
+      "items": {
+        "$ref": "urn:table-manners:core:installable"
+      },
+      "description": "What the tool can install on request (3.5), each id once; a tool with any serves the reserved install and uninstall tools (5.3)."
     }
   },
   "patternProperties": {
@@ -654,7 +661,7 @@
         "state",
         "requirements"
       ],
-      "description": "Whether the action can run here, now, and what stands in the way (CONTRACT.md 3.1). An optional requirement never makes it needs_setup. Never a credential value.",
+      "description": "Whether the action can run here, now, and what stands in the way (CONTRACT.md 3.1). An optional requirement never makes it needs_setup; a choice's requirement (for_choice) counts only for the parameter's default, which the conformance tests check. Never a credential value.",
       "properties": {
         "state": {
           "enum": [
@@ -692,6 +699,11 @@
                       },
                       "required": [
                         "optional"
+                      ]
+                    },
+                    {
+                      "required": [
+                        "for_choice"
                       ]
                     },
                     {
@@ -808,6 +820,31 @@
           "minLength": 1,
           "maxLength": 120,
           "description": "What an optional requirement is needed for, in a few words a person reads (\"checking the result\")."
+        },
+        "for_choice": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "param",
+            "value"
+          ],
+          "description": "The parameter choice this requirement belongs to (3.1): only a call that picks it needs it, and only the parameter's default counts toward the action's state.",
+          "properties": {
+            "param": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "value": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          }
+        },
+        "installable": {
+          "$ref": "urn:table-manners:core:installable#/$defs/id",
+          "description": "The installable (3.5) whose install meets this requirement."
         }
       },
       "allOf": [
@@ -842,6 +879,26 @@
               "optional": {
                 "const": true
               }
+            }
+          }
+        },
+        {
+          "description": "A choice's requirement is never optional: it is needed exactly when its choice is picked.",
+          "if": {
+            "required": [
+              "for_choice"
+            ]
+          },
+          "then": {
+            "not": {
+              "properties": {
+                "optional": {
+                  "const": true
+                }
+              },
+              "required": [
+                "optional"
+              ]
             }
           }
         }

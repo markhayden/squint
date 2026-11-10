@@ -127,6 +127,8 @@ pub fn config_requirement(file: &ConfigFile) -> Requirement {
         setup,
         optional: false,
         needed_for: None,
+        for_choice: None,
+        installable: None,
     }
 }
 
@@ -178,6 +180,8 @@ impl Inspection {
                 setup: Some(setup),
                 optional: false,
                 needed_for: None,
+                for_choice: None,
+                installable: None,
             });
         }
         if let Some(model) = &self.model {
@@ -191,6 +195,8 @@ impl Inspection {
                 setup: None,
                 optional: false,
                 needed_for: None,
+                for_choice: None,
+                installable: None,
             });
         }
         for file in &self.files {
@@ -205,6 +211,8 @@ impl Inspection {
                 setup: Some(file.setup.clone()),
                 optional: false,
                 needed_for: None,
+                for_choice: None,
+                installable: None,
             });
         }
         let blocked = requirements.iter().any(|r| {
@@ -341,6 +349,8 @@ mod tests {
             setup: None,
             optional: false,
             needed_for: None,
+            for_choice: None,
+            installable: None,
         }
     }
 
