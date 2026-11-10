@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:core:install-request",
+  "title": "Install or uninstall request (CONTRACT.md 5.3)",
+  "description": "The input of the reserved install and uninstall tools.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "urn:table-manners:core:installable#/$defs/id"
+    }
+  }
+}

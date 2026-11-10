@@ -1,0 +1,96 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:table-manners:core:install-result",
+  "title": "Install or uninstall result (CONTRACT.md 5.3)",
+  "description": "What the reserved install and uninstall tools return: the installable's state after the call. Never a run.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "state",
+    "installation",
+    "error"
+  ],
+  "properties": {
+    "id": {
+      "$ref": "urn:table-manners:core:installable#/$defs/id"
+    },
+    "state": {
+      "enum": [
+        "installed",
+        "not_installed",
+        "unavailable"
+      ],
+      "description": "The installable's state after the call; never installing, since the call returns when the install ends."
+    },
+    "installation": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      ],
+      "description": "The tool's identity of what is installed (rascal: sha256 of install.json), when installed; null otherwise."
+    },
+    "error": {
+      "oneOf": [
+        {
+          "type": "null"
+        },
+        {
+          "$ref": "urn:table-manners:core:installable#/$defs/error"
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "installed"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "installation": {
+            "type": "string"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "installation": {
+            "type": "null"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "state": {
+            "const": "unavailable"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "error": {
+            "type": "object",
+            "properties": {
+              "code": {
+                "const": "unavailable"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

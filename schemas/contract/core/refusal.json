@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:table-manners:core:refusal",
-  "title": "Refusal data (CONTRACT.md 3.1, 4.4, 4.5, 4.7, 5.1)",
+  "title": "Refusal data (CONTRACT.md 3.1, 4.4, 4.5, 4.7, 5.1, 5.3)",
   "description": "The `data` of a JSON-RPC -32602 error the contract names, so a host can tell it from other invalid params.",
   "type": "object",
   "additionalProperties": false,
@@ -15,7 +15,8 @@
         "client_run_id_reused",
         "not_ready",
         "invalid_arguments",
-        "binding"
+        "binding",
+        "unknown_installable"
       ]
     },
     "run": {
@@ -27,7 +28,7 @@
           "$ref": "urn:table-manners:core:run-ref"
         }
       ],
-      "description": "client_run_id_reused: the earlier request's run, null while it has none (queued, or cancelled before allocation). not_ready, invalid_arguments and binding: always null."
+      "description": "client_run_id_reused: the earlier request's run, null while it has none (queued, or cancelled before allocation). Every other reason: always null."
     },
     "requirements": {
       "type": "array",
@@ -35,7 +36,7 @@
       "items": {
         "$ref": "urn:table-manners:core:description#/$defs/requirement"
       },
-      "description": "not_ready: the requirements this call needs that are missing or invalid."
+      "description": "not_ready: the requirements this call needs that are missing or invalid (an install's own requirements for the install control)."
     },
     "error": {
       "$ref": "urn:table-manners:core:result#/$defs/error_object",
@@ -133,6 +134,22 @@
       "else": {
         "properties": {
           "bindings": false
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "reason": {
+            "const": "unknown_installable"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "run": {
+            "type": "null"
+          }
         }
       }
     }

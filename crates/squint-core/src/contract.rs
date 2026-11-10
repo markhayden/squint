@@ -765,6 +765,8 @@ pub fn description(
         actions,
         // squint lists no operations profile (table-manners 1, 3.3).
         artifact_types: None,
+        // squint installs nothing (table-manners 3.5).
+        installables: None,
         // The core's object (table-manners 3) holding the images profile's four lists; no
         // `group`, since no action names one.
         vocabulary: Some(Vocabulary {
