@@ -1,0 +1,22 @@
+# The tool study for gpt-6.1-sol on blind-v3 (the plan beside study-haiku.toml): the control (C),
+# with `outline` (D_outline) and with `regions` (D_regions), both screened before the first turn.
+# One repetition (study-haiku.toml's second measures the noise floor). Frozen here before the
+# labels are read.
+[matrix]
+name = "study-sol-2026-11"
+config = "evalsets/matrix/study-models-config.toml"
+sets = ["source-fidelity/blind-v3"]
+arms = ["C", "D_outline", "D_regions"]
+decision_runs = 1
+repetitions = 1
+spend_cap_usd = 40.0
+
+[matrix.gate]
+seed = 20261111
+resamples = 10000
+hypotheses = 2
+
+[[matrix.models]]
+profile = "openai"
+model = "gpt-6.1-sol"
+account = "openai:${SQUINT_OPENAI_ACCOUNT}"
