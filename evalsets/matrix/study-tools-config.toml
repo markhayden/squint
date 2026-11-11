@@ -1,0 +1,26 @@
+# The base config of the broad tool study (evalsets/matrix/study-tools.toml): the regions
+# gates' config (gate-regions-config.toml) plus one rules layer that screens with `outline` and `regions`. The
+# runner sets the provider, model, rules base, decision runs and tools per cell. The pack is the
+# installed bundle built from this commit (`just bundle`, then `squint tools setup`).
+[provider]
+profile = "google-ai-studio"
+model = "gemini-4-argon"
+
+[rules]
+base = "source-fidelity"
+extra = ["../../matrix/screen-tools.toml"]  # resolved against the set directory
+
+[budget]
+spend_cap_usd = 10.00
+
+[privacy]
+cloud_calls = true
+account = "google:${SQUINT_GOOGLE_ACCOUNT}"
+
+[tools.packs.python]
+package = "squint-tools"
+version = "0.0.1"
+shared = true
+
+[output]
+dir = "./squint-out"

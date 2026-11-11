@@ -1,0 +1,23 @@
+# Stage 1 of the tool study (the pilot): claude-haiku-5-5, the catalog's cheapest model, on
+# blind-v3 under the control (C), with `outline` (D_outline) and with `regions` (D_regions), both
+# screened before the first turn. Two repetitions of every cell: repetition 1 is the scored one,
+# repetition 2 measures how often the model disagrees with itself under the same arm, the noise
+# floor any tool effect has to clear. Frozen here before the labels are read.
+[matrix]
+name = "study-haiku-2026-11"
+config = "evalsets/matrix/study-tools-config.toml"
+sets = ["source-fidelity/blind-v3"]
+arms = ["C", "D_outline", "D_regions"]
+decision_runs = 1
+repetitions = 2
+spend_cap_usd = 40.0
+
+[matrix.gate]
+seed = 20261111
+resamples = 10000
+hypotheses = 3
+
+[[matrix.models]]
+profile = "anthropic"
+model = "claude-haiku-5-5"
+account = "anthropic:${SQUINT_ANTHROPIC_ACCOUNT}"

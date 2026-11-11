@@ -1,0 +1,23 @@
+# The initial gate of the `outline` tool for source fidelity: arms C and D_outline on the sealed
+# set blind-v3 under the regions gates' model and judging configuration, one decision run, one
+# repetition, the bootstrap frozen here before the labels are read. One hypothesis: the first
+# gate of this tool for this use case. blind-v3 is partly seen (its README row): the building
+# agent saw about 40 items while fixing them, so the run is also reported on the unseen items.
+[matrix]
+name = "gate-outline-initial-2026-11"
+config = "evalsets/matrix/gate-outline-config.toml"
+sets = ["source-fidelity/blind-v3"]
+arms = ["C", "D_outline"]
+decision_runs = 1
+repetitions = 1
+spend_cap_usd = 25.0
+
+[matrix.gate]
+seed = 20261110
+resamples = 10000
+hypotheses = 1
+
+[[matrix.models]]
+profile = "google-ai-studio"
+model = "gemini-4-argon"
+account = "google:${SQUINT_GOOGLE_ACCOUNT}"

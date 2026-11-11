@@ -1,0 +1,51 @@
+# The broad tool study on blind-v3: every catalog model but gemini-4-argon, whose C and D_outline
+# cells are the outline gate's (gate-outline.toml) and whose regions gates are on blind-v1 and v2;
+# from the cheapest to each vendor's top,
+# without tools beyond the control (C), with `outline` (D_outline) and with `regions`
+# (D_regions), both screened before the first turn. The question is which tools let which models
+# catch more, and whether a cheaper model with a tool reaches a dearer one without it. One decision
+# run, one repetition, the bootstrap frozen here before the labels are read. Hypotheses: models x
+# tool arms, plus the earlier outline gate under gemini-4-argon on this set.
+[matrix]
+name = "study-tools-2026-11"
+config = "evalsets/matrix/study-tools-config.toml"
+sets = ["source-fidelity/blind-v3"]
+arms = ["C", "D_outline", "D_regions"]
+decision_runs = 1
+repetitions = 1
+spend_cap_usd = 150.0
+
+[matrix.gate]
+seed = 20261111
+resamples = 10000
+hypotheses = 13
+
+[[matrix.models]]
+profile = "anthropic"
+model = "claude-haiku-5-5"
+account = "anthropic:${SQUINT_ANTHROPIC_ACCOUNT}"
+
+[[matrix.models]]
+profile = "anthropic"
+model = "claude-sonnet-5-5"
+account = "anthropic:${SQUINT_ANTHROPIC_ACCOUNT}"
+
+[[matrix.models]]
+profile = "anthropic"
+model = "claude-opus-5-5"
+account = "anthropic:${SQUINT_ANTHROPIC_ACCOUNT}"
+
+[[matrix.models]]
+profile = "google-ai-studio"
+model = "gemini-3.8-flash"
+account = "google:${SQUINT_GOOGLE_ACCOUNT}"
+
+[[matrix.models]]
+profile = "openai"
+model = "gpt-6.1-terra"
+account = "openai:${SQUINT_OPENAI_ACCOUNT}"
+
+[[matrix.models]]
+profile = "openai"
+model = "gpt-6.1-sol"
+account = "openai:${SQUINT_OPENAI_ACCOUNT}"

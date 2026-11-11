@@ -1,0 +1,9 @@
+# The outline gate's one rules layer (evalsets/matrix/gate-outline.toml): `outline` runs before
+# the model's first turn, as the architecture profile runs it, because models left it uncalled in
+# every run of the baseline. Under arm C the tool is not enabled and the screen is dropped.
+[rules]
+use_case = "source-fidelity"
+version = 1
+
+[screen]
+tools = ["outline"]

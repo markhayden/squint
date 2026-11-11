@@ -1,0 +1,9 @@
+# The broad tool study's one rules layer (evalsets/matrix/study-tools.toml): `outline` and `regions` run before
+# the model's first turn, as the architecture profile runs it, because models left both uncalled in
+# every run of the baseline. A tool the arm does not enable is dropped from the screen.
+[rules]
+use_case = "source-fidelity"
+version = 1
+
+[screen]
+tools = ["outline", "regions"]
